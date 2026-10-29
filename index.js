@@ -33,6 +33,14 @@ const DB_FILE = process.env.DB_FILE || path.join(__dirname, 'data.json');
 const BACKUP_FILE = DB_FILE + '.bak';
 fs.mkdirSync(path.dirname(DB_FILE), { recursive: true });
 
+// Première utilisation du volume : on copie l'ancien data.json livré avec le code (une seule fois).
+// Ensuite le fichier du volume est la seule référence et n'est plus jamais écrasé par un déploiement.
+const SEED_FILE = path.join(__dirname, 'data.json');
+if (!fs.existsSync(DB_FILE) && path.resolve(SEED_FILE) !== path.resolve(DB_FILE) && fs.existsSync(SEED_FILE)) {
+  fs.copyFileSync(SEED_FILE, DB_FILE);
+  console.log(`[db] ancien data.json copié vers ${DB_FILE}`);
+}
+
 function loadDb() {
   for (const f of [DB_FILE, BACKUP_FILE]) {
     if (!fs.existsSync(f)) continue;
@@ -250,7 +258,7 @@ function commandChannelOverwrites(guild) {
       id,
       allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.EmbedLinks, P.AttachFiles, P.UseApplicationCommands],
     })),
-    { id: client.user.id, allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.EmbedLinks, P.ManageChannels] },
+    { id: client.user.id, allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.EmbedLinks, P.ManageChannels, P.ManageMessages] },
   ];
 }
 
@@ -603,7 +611,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName('invites')
     .setDescription("Voir ton nombre d'invitations (ou celui d'un membre)")
-    .addUserOption((o) => o.setName('membre').setDescription('Le membre à regarder (toi par défaut)'))
+    .addUserOption((o) => o.setName('membre').setDescription('Le membre à regarder (réservé au staff)'))
     .setDMPermission(false),
 
   // ---------- Configuration des récompenses d'invitations ----------
@@ -1503,7 +1511,7 @@ function roleListHandler(key, title, ownerOnly = false) {
 // level : public = tout le monde · mod = modérateurs · full = accès total · owner = propriétaire (👑)
 const HELP = [
   { title: '📨 Invitations', level: 'public', lines: [
-    "`/invites` — voir ton nombre d'invitations (ou celui d'un membre)",
+    "`/invites` — voir ton nombre d'invitations",
     '`/help` — voir les commandes auxquelles tu as accès',
   ] },
   { title: '🛡️ Modération', level: 'mod', lines: [
@@ -1614,7 +1622,8 @@ const handlers = {
             .setTitle('⌨️ Salon des commandes')
             .setDescription(
               "Toutes les commandes du bot s'utilisent **ici**.\n" +
-              "Si une commande est tapée dans un autre salon, le bot ne l'exécute pas.\n\n" +
+              "Si une commande est tapée dans un autre salon, le bot ne l'exécute pas.\n" +
+              'Les réponses sont **privées** : tu ne vois que les tiennes. Les messages écrits à la main ici sont supprimés.\n\n' +
               'Ce salon est invisible pour les membres. Chacun ne peut utiliser que les commandes auxquelles il a droit (`/help`).')],
         }).catch(console.error);
       }
@@ -1755,7 +1764,11 @@ const handlers = {
 
   /* ---------- /invites (tout le monde) ---------- */
   async invites(i) {
-    const user = i.options.getUser('membre') || i.user;
+    const asked = i.options.getUser('membre');
+    if (asked && asked.id !== i.user.id && !hasFullAccess(i)) {
+      return i.reply({ content: '❌ Tu peux seulement voir tes propres invitations.', flags: EPH });
+    }
+    const user = asked || i.user;
     const d = getG(i.guildId).invites;
     const s = d.stats[user.id] || { joins: 0, left: 0 };
     const n = invNet(s);
@@ -1776,7 +1789,7 @@ const handlers = {
         value: `<@&${next.roleId}> à **${next.count}** invitations (encore ${next.count - n})`,
       });
     }
-    return i.reply({ embeds: [embed], allowedMentions: { parse: [] } });
+    return i.reply({ embeds: [embed], flags: EPH, allowedMentions: { parse: [] } });
   },
 
   /* ---------- /invites-config ---------- */
@@ -1909,7 +1922,7 @@ const handlers = {
       return i.reply({ content: '❌ Je ne peux pas bannir ce membre (son rôle est au-dessus du mien).', flags: EPH });
     }
 
-    await i.deferReply();
+    await i.deferReply({ flags: EPH });
     await user.send(`🔨 Tu as été banni de **${i.guild.name}**.\nRaison : ${reason}`).catch(() => {});
     await i.guild.members.ban(user.id, { reason: `${i.user.tag} : ${reason}`, deleteMessageSeconds: days * 86400 });
     banCache.delete(i.guildId);
@@ -1943,7 +1956,7 @@ const handlers = {
     const input = i.options.getString('utilisateur', true).trim();
     const reason = i.options.getString('raison') || 'Aucune raison fournie';
 
-    await i.deferReply();
+    await i.deferReply({ flags: EPH });
 
     // 1) On retrouve l'ID : soit collé / choisi dans la liste, soit un pseudo tapé à la main
     let id = input.replace(/[<@!>]/g, '');
@@ -2004,7 +2017,7 @@ const handlers = {
     const err = targetError(i, user, member);
     if (err) return i.reply({ content: err, flags: EPH });
 
-    await i.deferReply();
+    await i.deferReply({ flags: EPH });
     const until = Date.now() + duration;
     try {
       await applyMute(i.guild, member, until, reason, i.user.id);
@@ -2051,7 +2064,7 @@ const handlers = {
       return i.reply({ content: '❌ Ce mute a été posé par le propriétaire : lui seul peut le lever.', flags: EPH });
     }
 
-    await i.deferReply();
+    await i.deferReply({ flags: EPH });
     await removeMute(i.guild, user.id, `Unmute par ${i.user.tag} : ${reason}`);
     await user.send(`🔊 Tu as été unmute sur **${i.guild.name}**.`).catch(() => {});
 
@@ -2591,6 +2604,14 @@ client.on(Events.ChannelCreate, (ch) => {
   const id = getG(ch.guild.id).muteRoleId;
   const role = id && ch.guild.roles.cache.get(id);
   if (role) ch.permissionOverwrites.edit(role, { ViewChannel: false }).catch(() => {});
+});
+
+// Salon des commandes : personne ne lit les messages des autres.
+// Les réponses du bot sont privées et les messages écrits à la main dans ce salon sont supprimés.
+client.on(Events.MessageCreate, (message) => {
+  if (!message.guildId || message.author.bot || message.system) return;
+  if (getG(message.guildId).commandChannelId !== message.channelId) return;
+  message.delete().catch(() => {});
 });
 
 // Si le salon des commandes est supprimé, la restriction est levée automatiquement
