@@ -518,9 +518,9 @@ const handlers = {
     const modalId = `welcome_${i.id}`;
     await i.showModal(
       new ModalBuilder().setCustomId(modalId).setTitle("Message de bienvenue").addComponents(
-        field('content', 'Texte au-dessus (mentions : {user}, <@&IDrole>)', TextInputStyle.Short, { value: w.content, max: 500 }),
+        field('content', 'Texte au-dessus ({user}, <@&IDrole>)', TextInputStyle.Short, { value: w.content, max: 500 }),
         field('title', "Titre de l'embed", TextInputStyle.Short, { value: w.title, max: 256 }),
-        field('description', 'Description ({user} {username} {server} {count})', TextInputStyle.Paragraph, { value: w.description, max: 4000 }),
+        field('description', 'Description (voir variables ci-dessous)', TextInputStyle.Paragraph, { value: w.description, max: 4000, placeholder: '{user} {username} {server} {count}' }),
         field('image', "URL de l'image (optionnel)", TextInputStyle.Short, { value: w.image, max: 500 }),
         field('color', 'Couleur hex (ex : #5865F2)', TextInputStyle.Short, { value: w.color, max: 7 }),
       ));
