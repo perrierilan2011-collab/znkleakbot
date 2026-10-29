@@ -1,5 +1,6 @@
 require('dotenv').config();
 const fs = require('fs');
+const path = require('path');
 const crypto = require('crypto');
 const {
   Client, GatewayIntentBits, Partials, Events, PermissionFlagsBits, ChannelType, SlashCommandBuilder,
@@ -24,9 +25,46 @@ const client = new Client({
 /* ------------------------------------------------------------------ */
 /*  Stockage (simple fichier JSON)                                     */
 /* ------------------------------------------------------------------ */
-const DB_FILE = './data.json';
-let db = fs.existsSync(DB_FILE) ? JSON.parse(fs.readFileSync(DB_FILE, 'utf8')) : {};
-const save = () => fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+// IMPORTANT : pour ne rien perdre à chaque mise à jour du bot, mets DB_FILE dans ton .env
+// avec un chemin HORS du dossier du code (ou sur un volume persistant chez ton hébergeur).
+// Exemple : DB_FILE=/data/data.json
+// Et ne remplace jamais data.json quand tu envoies la nouvelle version du code.
+const DB_FILE = process.env.DB_FILE || path.join(__dirname, 'data.json');
+const BACKUP_FILE = DB_FILE + '.bak';
+fs.mkdirSync(path.dirname(DB_FILE), { recursive: true });
+
+function loadDb() {
+  for (const f of [DB_FILE, BACKUP_FILE]) {
+    if (!fs.existsSync(f)) continue;
+    try {
+      const data = JSON.parse(fs.readFileSync(f, 'utf8'));
+      console.log(`[db] données chargées depuis ${f} (${Object.keys(data).length} serveur(s))`);
+      return data;
+    } catch (e) {
+      console.error(`[db] ${f} illisible :`, e.message);
+    }
+  }
+  // Fichier présent mais illisible et pas de sauvegarde valide : on le garde de côté avant de repartir à vide
+  if (fs.existsSync(DB_FILE)) fs.copyFileSync(DB_FILE, `${DB_FILE}.corrompu-${Date.now()}`);
+  console.warn(`[db] AUCUNE donnée trouvée (${DB_FILE}) : démarrage à vide.`);
+  return {};
+}
+
+let db = loadDb();
+let lastBackup = 0;
+const save = () => {
+  try {
+    const tmp = DB_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(db, null, 2));
+    if (fs.existsSync(DB_FILE) && Date.now() - lastBackup > 60_000) {
+      fs.copyFileSync(DB_FILE, BACKUP_FILE);
+      lastBackup = Date.now();
+    }
+    fs.renameSync(tmp, DB_FILE); // écriture atomique : plus de fichier à moitié écrit
+  } catch (e) {
+    console.error('[db] sauvegarde impossible :', e);
+  }
+};
 
 function getG(id) {
   db[id] ??= {
@@ -55,6 +93,7 @@ function getG(id) {
   g.fullRoles ??= [];       // rôles qui ont accès à TOUTES les commandes
   g.history ??= {};         // userId -> [{ type, by, reason, duration, at }]
   g.commandChannelId ??= null; // salon privé où utiliser les commandes
+  g.commandChannelRoles ??= []; // rôles ajoutés à la main au salon des commandes (sans plus de commandes)
   g.giveaways ??= {};       // messageId -> { channelId, prize, winners, endAt, entrants[], ended, ... }
   g.invites ??= {
     stats: {},     // inviterId -> { joins, left }
@@ -198,11 +237,13 @@ function wrongChannel(i) {
   return id;
 }
 
-// Visible uniquement par : rôles accès total, rôles modération, bot (+ propriétaire / admins qui voient tout)
+// Visible uniquement par : rôles accès total, rôles modération, rôles ajoutés avec /salon-commandes, bot
+// (+ propriétaire / admins qui voient tout)
 function commandChannelOverwrites(guild) {
   const d = getG(guild.id);
   const P = PermissionFlagsBits;
-  const ids = [...new Set([...d.fullRoles, ...d.modRoles])].filter((id) => id !== guild.id && guild.roles.cache.has(id));
+  const ids = [...new Set([...d.fullRoles, ...d.modRoles, ...d.commandChannelRoles])]
+    .filter((id) => id !== guild.id && guild.roles.cache.has(id));
   return [
     { id: guild.id, deny: [P.ViewChannel] },
     ...ids.map((id) => ({
@@ -395,12 +436,17 @@ const commands = [
   // ---------- Salon privé des commandes ----------
   new SlashCommandBuilder()
     .setName('salon-commandes')
-    .setDescription('Créer (ou déplacer) le salon privé où utiliser les commandes du bot')
+    .setDescription('Créer / modifier le salon privé où utiliser les commandes du bot')
     .addChannelOption((o) =>
-      o.setName('categorie').setDescription('Catégorie où créer le salon')
-        .addChannelTypes(ChannelType.GuildCategory).setRequired(true))
+      o.setName('categorie').setDescription('Catégorie du salon (obligatoire à la première création)')
+        .addChannelTypes(ChannelType.GuildCategory))
     .addStringOption((o) =>
       o.setName('nom').setDescription('Nom du salon (commandes par défaut)').setMaxLength(90))
+    .addRoleOption((o) => o.setName('role').setDescription('Rôle qui aura accès au salon'))
+    .addRoleOption((o) => o.setName('role2').setDescription('Autre rôle qui aura accès au salon'))
+    .addRoleOption((o) => o.setName('role3').setDescription('Autre rôle qui aura accès au salon'))
+    .addBooleanOption((o) =>
+      o.setName('vider-roles').setDescription("Retirer d'abord tous les rôles ajoutés à la main"))
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setDMPermission(false),
 
@@ -427,6 +473,9 @@ const commands = [
           o.setName('gagnants').setDescription('Nombre de gagnants (1 par défaut)').setMinValue(1).setMaxValue(20))
         .addStringOption((o) => o.setName('description').setDescription('Texte sous le titre').setMaxLength(1000))
         .addRoleOption((o) => o.setName('role-requis').setDescription('Rôle nécessaire pour participer'))
+        .addIntegerOption((o) =>
+          o.setName('invites-min').setDescription("Nombre d'invitations minimum pour participer")
+            .setMinValue(1).setMaxValue(100000))
         .addMentionableOption((o) => o.setName('mention').setDescription('Rôle ou membre à mentionner'))
         .addStringOption((o) =>
           o.setName('ping').setDescription('Mention globale')
@@ -1191,12 +1240,15 @@ function gwDescription(gw) {
     `🏆 **Gagnant${gw.winners > 1 ? 's' : ''} :** ${gw.winners}`,
     `👤 **Organisé par :** <@${gw.hostId}>`);
   if (gw.requiredRole) lines.push(`🔒 **Rôle requis :** <@&${gw.requiredRole}>`);
+  if (gw.minInvites) lines.push(`📨 **Invitations minimum :** ${gw.minInvites}`);
   lines.push('', 'Clique sur le bouton ci-dessous pour participer !');
   return lines.join('\n');
 }
 
-// Participants encore sur le serveur, qui ne sont pas des bots et qui ont le rôle requis
+// Participants encore sur le serveur, qui ne sont pas des bots, qui ont le rôle requis
+// et le minimum d'invitations demandé
 async function validEntrants(guild, gw) {
+  const stats = getG(guild.id).invites.stats;
   const valid = [];
   for (let n = 0; n < gw.entrants.length; n += 100) {
     const chunk = gw.entrants.slice(n, n + 100);
@@ -1205,6 +1257,7 @@ async function validEntrants(guild, gw) {
     for (const m of members.values()) {
       if (m.user.bot) continue;
       if (gw.requiredRole && !m.roles.cache.has(gw.requiredRole)) continue;
+      if (gw.minInvites && invNet(stats[m.id]) < gw.minInvites) continue;
       valid.push(m.id);
     }
   }
@@ -1351,6 +1404,16 @@ async function gwJoin(i) {
       flags: EPH, allowedMentions: { parse: [] },
     });
   }
+  if (gw.minInvites) {
+    const have = invNet(getG(i.guildId).invites.stats[i.user.id]);
+    if (have < gw.minInvites) {
+      return i.reply({
+        content: `❌ Il te faut au moins **${gw.minInvites}** invitation(s) pour participer (tu en as **${have}**). ` +
+          'Vérifie avec `/invites`.',
+        flags: EPH,
+      });
+    }
+  }
   if (gw.entrants.includes(i.user.id)) {
     return i.reply({
       content: '✅ Tu participes déjà à ce giveaway.',
@@ -1435,40 +1498,57 @@ function roleListHandler(key, title, ownerOnly = false) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Aide (/help)                                                       */
+/*  Aide (/help) : chaque section n'est visible que par ceux qui y ont droit */
 /* ------------------------------------------------------------------ */
-const HELP_PUBLIC = [
-  '`/invites` - voir ton nombre d\'invitations (ou celui d\'un membre)',
+// level : public = tout le monde · mod = modérateurs · full = accès total · owner = propriétaire (👑)
+const HELP = [
+  { title: '📨 Invitations', level: 'public', lines: [
+    "`/invites` — voir ton nombre d'invitations (ou celui d'un membre)",
+    '`/help` — voir les commandes auxquelles tu as accès',
+  ] },
+  { title: '🛡️ Modération', level: 'mod', lines: [
+    '`/ban` — bannir un membre',
+    '`/unban` — débannir un utilisateur',
+    '`/mute` — rendre un membre muet pour une durée',
+    '`/unmute` — enlever le mute',
+    '`/sanctions-actives` — bannis et mutés actuels',
+    "`/historique-sanctions` — historique d'un membre",
+  ] },
+  { title: '🎉 Giveaways', level: 'full', lines: [
+    '`/giveaway creer` — lancer un giveaway (rôle requis, invitations minimum…)',
+    '`/giveaway terminer` — terminer maintenant et tirer',
+    '`/giveaway reroll` — nouveau tirage',
+    '`/giveaway annuler` — annuler et supprimer le message',
+    '`/giveaway liste` — giveaways en cours',
+  ] },
+  { title: '📢 Annonces & rôles', level: 'full', lines: [
+    '`/annonce` — envoyer une annonce (titre, texte, images, mentions)',
+    '`/autorole creer` · `liste` · `supprimer` — réaction qui donne un rôle',
+    '`/bienvenue configurer` · `activer` · `desactiver` · `test`',
+  ] },
+  { title: '📈 Invitations (admin)', level: 'full', lines: [
+    '`/invites-config recompense-ajouter` · `recompense-retirer` · `liste` · `reset`',
+    '`/classement-invites` — envoyer le classement',
+    '`/classement-invites-maj` — forcer sa mise à jour',
+  ] },
+  { title: '🎫 Tickets', level: 'full', lines: [
+    '`/ticket config-creer` · `config-liste` · `config-supprimer`',
+    '`/ticket staff-ajouter` · `staff-retirer`',
+    '`/ticket raison-ajouter` · `raison-retirer`',
+    '`/ticket panel` — envoyer le panel dans un salon',
+  ] },
+  { title: '⚙️ Serveur & accès', level: 'full', lines: [
+    '`/salon-commandes` — salon privé des commandes (et ses rôles)',
+    '`/salon-sanctions` — salon par défaut des annonces ban / mute',
+    '`/membercount` — salon vocal avec le nombre de membres',
+    '`/roles-mod` — rôles autorisés à modérer',
+    '`/roles-proteges` — rôles que les modérateurs ne peuvent pas sanctionner',
+  ] },
+  { title: '👑 Propriétaire', level: 'owner', lines: [
+    '`/role-total` — rôles avec accès à TOUTES les commandes',
+  ] },
 ];
-const HELP_MOD = [
-  '`/ban` - bannir un membre (option : salon d\'annonce)',
-  '`/unban` - débannir un utilisateur',
-  '`/mute` - rendre un membre muet pour une durée (option : salon d\'annonce)',
-  '`/unmute` - enlever le mute d\'un membre',
-  '`/sanctions-actives` - voir les bannis et mutés actuels',
-  '`/historique-sanctions` - voir si un membre a déjà été banni ou mute',
-];
-const HELP_ADMIN = [
-  '`/salon-commandes` - créer le salon privé où utiliser les commandes',
-  '`/giveaway` - `creer` - `terminer` - `reroll` - `annuler` - `liste` : giveaways',
-  '`/salon-sanctions` - salon par défaut des annonces de ban / mute',
-  '`/role-total` 👑 - rôles avec accès à toutes les commandes',
-  '`/roles-mod` - rôles autorisés à modérer',
-  '`/roles-proteges` - rôles que les modérateurs ne peuvent pas sanctionner',
-  '`/membercount` - salon vocal avec le nombre de membres',
-  '`/annonce` - envoyer une annonce (titre, texte, images, mentions)',
-  '`/autorole` - `creer` - `liste` - `supprimer` : réaction qui donne un rôle',
-  '`/bienvenue` - `configurer` - `activer` - `desactiver` - `test`',
-  '`/invites-config` - `recompense-ajouter` - `recompense-retirer` - `liste` - `reset`',
-  '`/classement-invites` - envoyer le classement des invitations',
-  '`/classement-invites-maj` - forcer la mise à jour de ce classement',
-];
-const HELP_TICKET = [
-  '`/ticket config-creer` - `config-liste` - `config-supprimer`',
-  '`/ticket staff-ajouter` - `staff-retirer`',
-  '`/ticket raison-ajouter` - `raison-retirer`',
-  '`/ticket panel` - envoyer le panel dans un salon',
-];
+const HELP_LEVEL = { public: () => true, mod: canModerate, full: hasFullAccess, owner: isOwner };
 
 /* ------------------------------------------------------------------ */
 /*  Gestionnaires de commandes                                         */
@@ -1476,17 +1556,14 @@ const HELP_TICKET = [
 const handlers = {
   /* ---------- /help ---------- */
   async help(i) {
-    const embed = new EmbedBuilder().setColor('#5865F2').setTitle('📖 Aide - commandes').setTimestamp();
-    embed.addFields({ name: '📨 Invitations', value: HELP_PUBLIC.join('\n') });
-    if (canModerate(i)) embed.addFields({ name: '🛡️ Modération', value: HELP_MOD.join('\n') });
-    if (hasFullAccess(i)) {
-      embed.addFields(
-        { name: '⚙️ Administration', value: HELP_ADMIN.join('\n') },
-        { name: '🎫 Tickets', value: HELP_TICKET.join('\n') },
-      );
+    const embed = new EmbedBuilder().setColor('#5865F2').setTitle('📖 Tes commandes').setTimestamp();
+    for (const s of HELP) {
+      if (HELP_LEVEL[s.level](i)) embed.addFields({ name: s.title, value: s.lines.join('\n').slice(0, 1024) });
     }
+    // Le salon des commandes n'est indiqué qu'à ceux qui peuvent le voir
     const cc = getG(i.guildId).commandChannelId;
-    if (cc && i.guild.channels.cache.has(cc) && canModerate(i)) {
+    const ccCh = cc && i.guild.channels.cache.get(cc);
+    if (ccCh && ccCh.permissionsFor(i.member)?.has(PermissionFlagsBits.ViewChannel)) {
       embed.setDescription(`Les commandes s'utilisent dans <#${cc}>.`);
     }
     return i.reply({ embeds: [embed], flags: EPH });
@@ -1494,20 +1571,38 @@ const handlers = {
 
   /* ---------- /salon-commandes ---------- */
   async 'salon-commandes'(i) {
-    const cat = i.options.getChannel('categorie', true);
-    const raw = i.options.getString('nom') || 'commandes';
-    const name = raw.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9\-_]/g, '').slice(0, 90) || 'commandes';
+    const cat = i.options.getChannel('categorie');
+    const raw = i.options.getString('nom');
+    const name = raw
+      ? raw.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9\-_]/g, '').slice(0, 90) || 'commandes'
+      : null;
+    const picked = ['role', 'role2', 'role3'].map((n) => i.options.getRole(n)).filter(Boolean);
+    if (picked.some((r) => r.id === i.guild.id)) {
+      return i.reply({ content: '❌ Tu ne peux pas choisir @everyone.', flags: EPH });
+    }
+
     await i.deferReply({ flags: EPH });
     const d = getG(i.guildId);
 
     try {
       let ch = d.commandChannelId ? await i.guild.channels.fetch(d.commandChannelId).catch(() => null) : null;
+      if (!ch && !cat) return i.editReply('❌ Indique une **catégorie** pour créer le salon.');
+
+      // Rôles ajoutés à la main (en plus des rôles /role-total et /roles-mod)
+      if (i.options.getBoolean('vider-roles')) d.commandChannelRoles = [];
+      for (const r of picked) if (!d.commandChannelRoles.includes(r.id)) d.commandChannelRoles.push(r.id);
+      save();
+
       if (ch) {
-        // Le salon existe déjà : on le renomme / déplace et on remet les permissions
-        await ch.edit({ name, parent: cat.id, permissionOverwrites: commandChannelOverwrites(i.guild) });
+        // Le salon existe déjà : on le renomme / déplace si demandé et on remet les permissions
+        await ch.edit({
+          ...(name && { name }),
+          ...(cat && { parent: cat.id }),
+          permissionOverwrites: commandChannelOverwrites(i.guild),
+        });
       } else {
         ch = await i.guild.channels.create({
-          name,
+          name: name || 'commandes',
           type: ChannelType.GuildText,
           parent: cat.id,
           topic: 'Salon privé : toutes les commandes du bot se font ici.',
@@ -1518,18 +1613,27 @@ const handlers = {
             .setColor('#5865F2')
             .setTitle('⌨️ Salon des commandes')
             .setDescription(
-              'Toutes les commandes du bot s\'utilisent **ici**.\n' +
-              'Si une commande est tapée dans un autre salon, le bot te préviens et ne l\'exécute pas.\n\n' +
-              'Ce salon est invisible pour les membres : seuls les rôles avec accès (`/role-total`, `/roles-mod`) le voient.')],
+              "Toutes les commandes du bot s'utilisent **ici**.\n" +
+              "Si une commande est tapée dans un autre salon, le bot ne l'exécute pas.\n\n" +
+              'Ce salon est invisible pour les membres. Chacun ne peut utiliser que les commandes auxquelles il a droit (`/help`).')],
         }).catch(console.error);
       }
       d.commandChannelId = ch.id;
       save();
-      await i.editReply(
-        `✅ Salon des commandes prêt : <#${ch.id}>\n` +
-        '• Les commandes tapées ailleurs seront refusées avec un message qui renvoie vers ce salon (seul celui qui a tapé la commande le voit).\n' +
-        '• `/help` et `/invites` restent utilisables partout.\n' +
-        '• Les permissions se mettent à jour toutes seules quand tu changes `/role-total` ou `/roles-mod`.');
+
+      const extra = d.commandChannelRoles.length
+        ? d.commandChannelRoles.map((id) => `<@&${id}>`).join(' ')
+        : 'aucun';
+      await i.editReply({
+        content:
+          `✅ Salon des commandes prêt : <#${ch.id}>\n` +
+          `• Rôles ajoutés à la main : ${extra}\n` +
+          '• Les rôles `/role-total` et `/roles-mod` y ont toujours accès.\n' +
+          "• Un rôle ajouté ici voit le salon mais n'a **pas** plus de commandes : il garde seulement `/help` et `/invites`.\n" +
+          '• `/help` et `/invites` restent utilisables partout.\n' +
+          '• Les commandes tapées ailleurs sont refusées (message visible uniquement par celui qui a tapé la commande).',
+        allowedMentions: { parse: [] },
+      });
     } catch (e) {
       console.error(e);
       await i.editReply('❌ Impossible de créer le salon. Il me faut les permissions **Gérer les salons** et **Gérer les rôles** (et d\'avoir accès à cette catégorie).');
@@ -1545,7 +1649,8 @@ const handlers = {
       const active = Object.entries(d.giveaways).filter(([, g]) => !g.ended).sort((a, b) => a[1].endAt - b[1].endAt);
       if (!active.length) return i.reply({ content: 'Aucun giveaway en cours. Lance-en un avec `/giveaway creer`.', flags: EPH });
       const lines = active.map(([id, g]) =>
-        `🎉 **${g.prize}** · <#${g.channelId}> · fin <t:${Math.floor(g.endAt / 1000)}:R> · ${g.entrants.length} participant(s) · ` +
+        `🎉 **${g.prize}** · <#${g.channelId}> · fin <t:${Math.floor(g.endAt / 1000)}:R> · ${g.entrants.length} participant(s)` +
+        `${g.minInvites ? ` · 📨 min. ${g.minInvites}` : ''} · ` +
         `[message](https://discord.com/channels/${i.guildId}/${g.channelId}/${id})`);
       const embed = new EmbedBuilder().setColor('#F1C40F').setTitle('🎉 Giveaways en cours')
         .setDescription(fitLines(lines, 4000));
@@ -1560,6 +1665,7 @@ const handlers = {
       const winners = i.options.getInteger('gagnants') ?? 1;
       const description = (i.options.getString('description') || '').trim();
       const role = i.options.getRole('role-requis');
+      const minInvites = i.options.getInteger('invites-min') ?? 0;
       const mentionOpt = i.options.get('mention');
       const ping = i.options.getString('ping');
       const img = i.options.getAttachment('image');
@@ -1576,6 +1682,7 @@ const handlers = {
         channelId: salon.id, prize, description, winners,
         endAt: Date.now() + duration, hostId: i.user.id,
         requiredRole: role?.id || null,
+        minInvites,
         entrants: [], ended: false, winnerIds: [],
       };
       try {
