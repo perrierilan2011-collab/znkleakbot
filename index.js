@@ -2,7 +2,7 @@ require('dotenv').config();
 const fs = require('fs');
 const crypto = require('crypto');
 const {
-  Client, GatewayIntentBits, Events, PermissionFlagsBits, ChannelType, SlashCommandBuilder,
+  Client, GatewayIntentBits, Partials, Events, PermissionFlagsBits, ChannelType, SlashCommandBuilder,
   EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder,
   ModalBuilder, TextInputBuilder, TextInputStyle, AttachmentBuilder, MessageFlags,
 } = require('discord.js');
@@ -10,10 +10,14 @@ const {
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers,   // privilégié : à activer dans le portail développeur
+    GatewayIntentBits.GuildMembers,         // privilégié : à activer dans le portail développeur
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent, // privilégié : nécessaire pour les transcripts de tickets
+    GatewayIntentBits.MessageContent,       // privilégié : nécessaire pour les transcripts de tickets
+    GatewayIntentBits.GuildMessageReactions, // autorole par réaction (non privilégié)
+    GatewayIntentBits.GuildModeration,      // garde la liste des bannis à jour (non privilégié)
   ],
+  // Nécessaire pour recevoir les réactions sur des messages envoyés avant un redémarrage du bot
+  partials: [Partials.Message, Partials.Channel, Partials.Reaction],
 });
 
 /* ------------------------------------------------------------------ */
@@ -36,8 +40,8 @@ function getG(id) {
       image: '',
       color: '#5865F2',
     },
-    tickets: {}, // nom -> { name, categoryId, staffRoleId, logChannelId, reasons[], counter }
-    open: {},    // channelId -> { userId, config, reason, claimedBy }
+    tickets: {}, // nom -> { name, categoryId, staffRoles[], logChannelId, reasons[], counter }
+    open: {},    // channelId -> { userId, config, reason, claimedBy, staffRoles[] }
   };
   const g = db[id];
   // Ajout des nouveaux champs pour les serveurs déjà enregistrés
@@ -45,6 +49,11 @@ function getG(id) {
   g.protectedRoles ??= [];  // rôles que seul le propriétaire peut mute / ban
   g.muteRoleId ??= null;    // rôle "Muté" créé par le bot
   g.muted ??= {};           // userId -> { roles[], until, reason, by }
+  g.reactionRoles ??= {};   // messageId -> { channelId, roleId, emoji, label }
+  // Migration : un seul rôle staff -> plusieurs rôles staff
+  for (const c of Object.values(g.tickets)) {
+    c.staffRoles ??= c.staffRoleId ? [c.staffRoleId] : [];
+  }
   return g;
 }
 
@@ -78,6 +87,54 @@ async function toFile(att, baseName) {
   return new AttachmentBuilder(Buffer.from(await res.arrayBuffer()), { name: baseName + ext });
 }
 
+/* ---------- Formulaire + embed partagés par /annonce et /autorole ---------- */
+function announceModal(modalId, title, textLabel = "Texte de l'annonce (Markdown accepté)") {
+  return new ModalBuilder().setCustomId(modalId).setTitle(title).addComponents(
+    field('titre', 'Titre', TextInputStyle.Short, { max: 256 }),
+    field('texte', textLabel, TextInputStyle.Paragraph, { required: true, max: 4000 }),
+    field('image_url', "URL d'image (si pas de fichier)", TextInputStyle.Short, { max: 500 }),
+    field('footer', 'Pied de page', TextInputStyle.Short, { max: 2048 }),
+    field('couleur', 'Couleur hex (ex : #FF0000)', TextInputStyle.Short, { max: 7 }),
+  );
+}
+
+async function buildAnnounce(m, img, thumb) {
+  const titre = m.fields.getTextInputValue('titre');
+  const texte = m.fields.getTextInputValue('texte');
+  const imageUrl = m.fields.getTextInputValue('image_url').trim();
+  const footer = m.fields.getTextInputValue('footer');
+  const couleur = m.fields.getTextInputValue('couleur');
+
+  const embed = new EmbedBuilder().setColor(parseColor(couleur)).setDescription(texte);
+  if (titre) embed.setTitle(titre);
+  if (footer) embed.setFooter({ text: footer });
+  embed.setTimestamp();
+
+  const files = [];
+  if (img) {
+    const f = await toFile(img, 'image');
+    files.push(f);
+    embed.setImage(`attachment://${f.name}`);
+  } else if (isUrl(imageUrl)) {
+    embed.setImage(imageUrl);
+  }
+  if (thumb) {
+    const f = await toFile(thumb, 'miniature');
+    files.push(f);
+    embed.setThumbnail(`attachment://${f.name}`);
+  }
+  return { embed, files };
+}
+
+function buildMentions(ping, mentionOpt) {
+  const parts = [];
+  const allowed = { parse: [], roles: [], users: [] };
+  if (ping) { parts.push(`@${ping}`); allowed.parse.push('everyone'); }
+  if (mentionOpt?.role) { parts.push(`<@&${mentionOpt.role.id}>`); allowed.roles.push(mentionOpt.role.id); }
+  else if (mentionOpt?.user) { parts.push(`<@${mentionOpt.user.id}>`); allowed.users.push(mentionOpt.user.id); }
+  return { content: parts.join(' ') || undefined, allowed };
+}
+
 /* ------------------------------------------------------------------ */
 /*  Permissions de modération                                          */
 /* ------------------------------------------------------------------ */
@@ -105,6 +162,20 @@ function targetError(i, user, member) {
     }
   }
   return null;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Liste des bannis (cache court : l'autocomplétion a 3 s maximum)    */
+/* ------------------------------------------------------------------ */
+const banCache = new Map(); // guildId -> { at, list }
+
+async function getBans(guild) {
+  const c = banCache.get(guild.id);
+  if (c && Date.now() - c.at < 30_000) return c.list;
+  const bans = await guild.bans.fetch();
+  const list = [...bans.values()].map((b) => ({ id: b.user.id, username: b.user.username, tag: b.user.tag }));
+  banCache.set(guild.id, { at: Date.now(), list });
+  return list;
 }
 
 /* ------------------------------------------------------------------ */
@@ -218,6 +289,32 @@ const commands = [
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
     .setDMPermission(false),
 
+  // ---------- Autorole par réaction ----------
+  new SlashCommandBuilder()
+    .setName('autorole')
+    .setDescription('Un message avec une réaction qui donne un rôle')
+    .addSubcommand((s) =>
+      s.setName('creer').setDescription('Envoyer un message : réagir avec l\'emoji donne le rôle')
+        .addChannelOption((o) =>
+          o.setName('salon').setDescription('Salon où envoyer le message')
+            .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(true))
+        .addRoleOption((o) => o.setName('role').setDescription('Le rôle donné par la réaction').setRequired(true))
+        .addStringOption((o) =>
+          o.setName('emoji').setDescription('Emoji de la réaction (ex : 🎮 ou un emoji du serveur)').setRequired(true))
+        .addMentionableOption((o) => o.setName('mention').setDescription('Rôle ou membre à mentionner'))
+        .addStringOption((o) =>
+          o.setName('ping').setDescription('Mention globale')
+            .addChoices({ name: '@everyone', value: 'everyone' }, { name: '@here', value: 'here' }))
+        .addAttachmentOption((o) => o.setName('image').setDescription('Grande image en bas du message'))
+        .addAttachmentOption((o) => o.setName('miniature').setDescription('Petite image en haut à droite')))
+    .addSubcommand((s) => s.setName('liste').setDescription('Voir les autoroles existants'))
+    .addSubcommand((s) =>
+      s.setName('supprimer').setDescription('Supprimer un autorole (et son message)')
+        .addStringOption((o) =>
+          o.setName('message').setDescription('Autorole à supprimer').setAutocomplete(true).setRequired(true)))
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
+    .setDMPermission(false),
+
   // ---------- Bienvenue ----------
   new SlashCommandBuilder()
     .setName('bienvenue')
@@ -244,7 +341,8 @@ const commands = [
         .addChannelOption((o) =>
           o.setName('categorie').setDescription('Catégorie où les tickets seront créés')
             .addChannelTypes(ChannelType.GuildCategory).setRequired(true))
-        .addRoleOption((o) => o.setName('role-staff').setDescription('Rôle qui gère ces tickets').setRequired(true))
+        .addRoleOption((o) =>
+          o.setName('role-staff').setDescription('Premier rôle staff (ajoute-en d\'autres avec /ticket staff-ajouter)').setRequired(true))
         .addChannelOption((o) =>
           o.setName('salon-logs').setDescription('Salon où envoyer les transcripts à la fermeture')
             .addChannelTypes(ChannelType.GuildText)))
@@ -253,11 +351,21 @@ const commands = [
       s.setName('config-supprimer').setDescription('Supprimer une configuration')
         .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true)))
     .addSubcommand((s) =>
+      s.setName('staff-ajouter').setDescription('Autoriser un rôle staff à voir et répondre aux tickets')
+        .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true))
+        .addRoleOption((o) => o.setName('role').setDescription('Rôle staff à ajouter').setRequired(true)))
+    .addSubcommand((s) =>
+      s.setName('staff-retirer').setDescription("Retirer l'accès d'un rôle staff aux tickets")
+        .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true))
+        .addRoleOption((o) => o.setName('role').setDescription('Rôle staff à retirer').setRequired(true)))
+    .addSubcommand((s) =>
       s.setName('raison-ajouter').setDescription("Ajouter une raison d'ouverture à une configuration")
         .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true))
         .addStringOption((o) => o.setName('label').setDescription('Nom de la raison').setRequired(true))
         .addStringOption((o) => o.setName('description').setDescription('Description courte'))
-        .addStringOption((o) => o.setName('emoji').setDescription('Emoji (optionnel)')))
+        .addStringOption((o) => o.setName('emoji').setDescription('Emoji (optionnel)'))
+        .addRoleOption((o) =>
+          o.setName('role-staff').setDescription('Rôle staff propre à cette raison (remplace ceux de la config)')))
     .addSubcommand((s) =>
       s.setName('raison-retirer').setDescription('Retirer une raison')
         .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true))
@@ -430,6 +538,14 @@ async function openTicket(i, cfgName, reasonId) {
   }
 
   const reason = cfg.reasons.find((r) => r.id === reasonId);
+
+  // Rôles staff : ceux de la raison (s'il y en a un) sinon ceux de la configuration
+  const staffRoles = (reason?.staffRoleId ? [reason.staffRoleId] : cfg.staffRoles)
+    .filter((id) => i.guild.roles.cache.has(id));
+  if (!staffRoles.length) {
+    return i.editReply("❌ Aucun rôle staff valide n'est configuré pour ce ticket. Préviens un administrateur.");
+  }
+
   cfg.counter = (cfg.counter || 0) + 1;
 
   const P = PermissionFlagsBits;
@@ -441,12 +557,17 @@ async function openTicket(i, cfgName, reasonId) {
     permissionOverwrites: [
       { id: i.guild.id, deny: [P.ViewChannel] },
       { id: i.user.id, allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.AttachFiles, P.EmbedLinks] },
-      { id: cfg.staffRoleId, allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.AttachFiles, P.EmbedLinks, P.ManageMessages] },
+      ...staffRoles.map((id) => ({
+        id,
+        allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.AttachFiles, P.EmbedLinks, P.ManageMessages],
+      })),
       { id: client.user.id, allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.EmbedLinks, P.ManageChannels] },
     ],
   });
 
-  data.open[channel.id] = { userId: i.user.id, config: cfgName, reason: reason?.label || null, claimedBy: null };
+  data.open[channel.id] = {
+    userId: i.user.id, config: cfgName, reason: reason?.label || null, claimedBy: null, staffRoles,
+  };
   save();
 
   const embed = new EmbedBuilder()
@@ -467,16 +588,18 @@ async function openTicket(i, cfgName, reasonId) {
   );
 
   await channel.send({
-    content: `<@${i.user.id}> <@&${cfg.staffRoleId}>`,
+    content: `<@${i.user.id}> ${staffRoles.map((r) => `<@&${r}>`).join(' ')}`,
     embeds: [embed],
     components: [row],
-    allowedMentions: { users: [i.user.id], roles: [cfg.staffRoleId] },
+    allowedMentions: { users: [i.user.id], roles: staffRoles },
   });
   await i.editReply(`✅ Ton ticket a été créé : <#${channel.id}>`);
 }
 
-function isStaff(i, cfg) {
-  return (cfg && i.member.roles.cache.has(cfg.staffRoleId)) ||
+// Le staff d'un ticket = les rôles enregistrés à son ouverture (ou ceux de la config pour les anciens tickets)
+function isStaff(i, t, cfg) {
+  const roles = t.staffRoles || cfg?.staffRoles || [];
+  return roles.some((id) => i.member.roles.cache.has(id)) ||
     i.member.permissions.has(PermissionFlagsBits.ManageChannels);
 }
 
@@ -484,7 +607,7 @@ async function claimTicket(i) {
   const data = getG(i.guildId);
   const t = data.open[i.channelId];
   if (!t) return i.reply({ content: "❌ Ce salon n'est pas un ticket géré.", flags: EPH });
-  if (!isStaff(i, data.tickets[t.config])) {
+  if (!isStaff(i, t, data.tickets[t.config])) {
     return i.reply({ content: '❌ Réservé au staff.', flags: EPH });
   }
   if (t.claimedBy) return i.reply({ content: `❌ Déjà pris en charge par <@${t.claimedBy}>.`, flags: EPH });
@@ -498,7 +621,7 @@ async function closeTicket(i) {
   const t = data.open[i.channelId];
   if (!t) return i.reply({ content: "❌ Ce salon n'est pas un ticket géré.", flags: EPH });
   const cfg = data.tickets[t.config];
-  if (!isStaff(i, cfg) && i.user.id !== t.userId) {
+  if (!isStaff(i, t, cfg) && i.user.id !== t.userId) {
     return i.reply({ content: "❌ Tu ne peux pas fermer ce ticket.", flags: EPH });
   }
   await i.reply('🔒 Fermeture du ticket dans quelques secondes...');
@@ -545,6 +668,41 @@ async function closeTicket(i) {
   delete data.open[i.channelId];
   save();
   setTimeout(() => i.channel.delete().catch(console.error), 5000);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Autorole par réaction                                              */
+/* ------------------------------------------------------------------ */
+async function handleReaction(reaction, user, add) {
+  try {
+    if (user.bot) return;
+    if (reaction.partial) await reaction.fetch();
+    const msg = reaction.message;
+    const guildId = msg.guildId || msg.channel?.guildId;
+    if (!guildId) return;
+
+    const d = getG(guildId);
+    const rr = d.reactionRoles[msg.id];
+    if (!rr) return;
+    if ((reaction.emoji.id ?? reaction.emoji.name) !== rr.emoji) return;
+
+    const guild = client.guilds.cache.get(guildId);
+    if (!guild) return;
+    if (d.muted[user.id]) return; // un membre mute ne peut pas se redonner des rôles
+
+    const role = guild.roles.cache.get(rr.roleId);
+    if (!role) { delete d.reactionRoles[msg.id]; save(); return; }
+    const member = await guild.members.fetch(user.id).catch(() => null);
+    if (!member) return;
+
+    if (add) {
+      if (!member.roles.cache.has(role.id)) await member.roles.add(role, 'Autorole (réaction)');
+    } else if (member.roles.cache.has(role.id)) {
+      await member.roles.remove(role, 'Autorole (réaction retirée)');
+    }
+  } catch (e) {
+    console.error('[autorole]', e);
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -631,6 +789,7 @@ const handlers = {
     await i.deferReply();
     await user.send(`🔨 Tu as été banni de **${i.guild.name}**.\nRaison : ${reason}`).catch(() => {});
     await i.guild.members.ban(user.id, { reason: `${i.user.tag} : ${reason}`, deleteMessageSeconds: days * 86400 });
+    banCache.delete(i.guildId);
 
     // Si le membre était muté, on nettoie son enregistrement
     delete getG(i.guildId).muted[user.id];
@@ -652,31 +811,52 @@ const handlers = {
   async unban(i) {
     if (!canModerate(i)) return i.reply(NO_ACCESS);
 
-    const id = i.options.getString('utilisateur', true).trim();
+    const input = i.options.getString('utilisateur', true).trim();
     const reason = i.options.getString('raison') || 'Aucune raison fournie';
 
     await i.deferReply();
-    const ban = await i.guild.bans.fetch(id).catch(() => null);
-    if (!ban) {
-      return i.editReply("❌ Cet utilisateur n'est pas banni. Choisis-le dans la liste ou colle son ID exact.");
-    }
-    try {
-      await i.guild.members.unban(ban.user.id, `${i.user.tag} : ${reason}`);
-    } catch (e) {
-      console.error(e);
-      return i.editReply("❌ Impossible de débannir (il me faut la permission **Bannir des membres**).");
+
+    // 1) On retrouve l'ID : soit collé / choisi dans la liste, soit un pseudo tapé à la main
+    let id = input.replace(/[<@!>]/g, '');
+    if (!/^\d{15,25}$/.test(id)) {
+      banCache.delete(i.guildId); // liste fraîche
+      const list = await getBans(i.guild).catch((e) => { console.error('[unban] lecture des bans :', e); return null; });
+      if (!list) {
+        return i.editReply('❌ Impossible de lire la liste des bannis. Vérifie que j\'ai la permission **Bannir des membres**.');
+      }
+      const q = input.toLowerCase().replace(/^@/, '');
+      const found = list.filter((b) => b.username.toLowerCase() === q || b.tag.toLowerCase() === q);
+      if (found.length > 1) return i.editReply('❌ Plusieurs bannis correspondent : utilise l\'ID exact.');
+      if (!found.length) {
+        return i.editReply("❌ Aucun banni ne correspond. Choisis-le dans la liste ou colle son ID.");
+      }
+      id = found[0].id;
     }
 
+    // 2) On débannit directement (pas de pré-vérification fragile) et on interprète l'erreur éventuelle
+    try {
+      await i.guild.bans.remove(id, `${i.user.tag} : ${reason}`);
+    } catch (e) {
+      console.error('[unban]', e);
+      if (e.code === 10026) return i.editReply("❌ Cet utilisateur n'est pas banni.");
+      if (e.code === 50013 || e.code === 50001) {
+        return i.editReply('❌ Il me manque la permission **Bannir des membres** (ou l\'accès à ce serveur).');
+      }
+      return i.editReply(`❌ Impossible de débannir : ${e.message}`);
+    }
+    banCache.delete(i.guildId);
+
+    const user = await client.users.fetch(id).catch(() => null);
     const embed = new EmbedBuilder()
       .setColor('#57F287')
       .setTitle('✅ Membre débanni')
       .addFields(
-        { name: 'Utilisateur', value: `${ban.user.tag} (${ban.user.id})` },
+        { name: 'Utilisateur', value: user ? `${user.tag} (${id})` : id },
         { name: 'Modérateur', value: `<@${i.user.id}>` },
         { name: 'Raison', value: reason },
       )
       .setTimestamp();
-    await i.editReply({ embeds: [embed] });
+    await i.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
   },
 
   /* ---------- /mute ---------- */
@@ -766,14 +946,7 @@ const handlers = {
     }
 
     const modalId = `annonce_${i.id}`;
-    await i.showModal(
-      new ModalBuilder().setCustomId(modalId).setTitle('Nouvelle annonce').addComponents(
-        field('titre', 'Titre', TextInputStyle.Short, { max: 256 }),
-        field('texte', "Texte de l'annonce (Markdown accepté)", TextInputStyle.Paragraph, { required: true, max: 4000 }),
-        field('image_url', "URL d'image (si pas de fichier)", TextInputStyle.Short, { max: 500 }),
-        field('footer', 'Pied de page', TextInputStyle.Short, { max: 2048 }),
-        field('couleur', 'Couleur hex (ex : #FF0000)', TextInputStyle.Short, { max: 7 }),
-      ));
+    await i.showModal(announceModal(modalId, 'Nouvelle annonce'));
 
     const m = await i.awaitModalSubmit({
       time: 15 * 60_000,
@@ -783,47 +956,107 @@ const handlers = {
 
     await m.deferReply({ flags: EPH });
     try {
-      const titre = m.fields.getTextInputValue('titre');
-      const texte = m.fields.getTextInputValue('texte');
-      const imageUrl = m.fields.getTextInputValue('image_url').trim();
-      const footer = m.fields.getTextInputValue('footer');
-      const couleur = m.fields.getTextInputValue('couleur');
-
-      const embed = new EmbedBuilder().setColor(parseColor(couleur)).setDescription(texte);
-      if (titre) embed.setTitle(titre);
-      if (footer) embed.setFooter({ text: footer });
-      embed.setTimestamp();
-
-      const files = [];
-      if (img) {
-        const f = await toFile(img, 'image');
-        files.push(f);
-        embed.setImage(`attachment://${f.name}`);
-      } else if (isUrl(imageUrl)) {
-        embed.setImage(imageUrl);
-      }
-      if (thumb) {
-        const f = await toFile(thumb, 'miniature');
-        files.push(f);
-        embed.setThumbnail(`attachment://${f.name}`);
-      }
-
-      const parts = [];
-      const allowed = { parse: [], roles: [], users: [] };
-      if (ping) { parts.push(`@${ping}`); allowed.parse.push('everyone'); }
-      if (mentionOpt?.role) { parts.push(`<@&${mentionOpt.role.id}>`); allowed.roles.push(mentionOpt.role.id); }
-      else if (mentionOpt?.user) { parts.push(`<@${mentionOpt.user.id}>`); allowed.users.push(mentionOpt.user.id); }
-
-      await salon.send({
-        content: parts.join(' ') || undefined,
-        embeds: [embed],
-        files,
-        allowedMentions: allowed,
-      });
+      const { embed, files } = await buildAnnounce(m, img, thumb);
+      const { content, allowed } = buildMentions(ping, mentionOpt);
+      await salon.send({ content, embeds: [embed], files, allowedMentions: allowed });
       await m.editReply(`✅ Annonce envoyée dans <#${salon.id}>.`);
     } catch (e) {
       console.error(e);
       await m.editReply("❌ Impossible d'envoyer l'annonce (vérifie mes permissions dans ce salon et les liens d'images).");
+    }
+  },
+
+  /* ---------- /autorole ---------- */
+  async autorole(i) {
+    if (!i.member.permissions.has(PermissionFlagsBits.ManageRoles)) return i.reply(NO_ACCESS);
+    const sub = i.options.getSubcommand();
+    const d = getG(i.guildId);
+
+    if (sub === 'liste') {
+      const entries = Object.entries(d.reactionRoles);
+      if (!entries.length) {
+        return i.reply({ content: 'Aucun autorole. Crée-en un avec `/autorole creer`.', flags: EPH });
+      }
+      const embed = new EmbedBuilder().setColor('#5865F2').setTitle('🎭 Autoroles').setDescription(
+        entries.map(([id, r]) =>
+          `${r.label} → <@&${r.roleId}> · <#${r.channelId}> · [message](https://discord.com/channels/${i.guildId}/${r.channelId}/${id})`
+        ).join('\n').slice(0, 4096));
+      return i.reply({ embeds: [embed], flags: EPH, allowedMentions: { parse: [] } });
+    }
+
+    if (sub === 'supprimer') {
+      const id = i.options.getString('message', true).trim();
+      const rr = d.reactionRoles[id];
+      if (!rr) return i.reply({ content: '❌ Autorole introuvable.', flags: EPH });
+      delete d.reactionRoles[id];
+      save();
+      await i.deferReply({ flags: EPH });
+      const ch = await i.guild.channels.fetch(rr.channelId).catch(() => null);
+      const msg = ch ? await ch.messages.fetch(id).catch(() => null) : null;
+      if (msg) await msg.delete().catch(() => {});
+      return i.editReply('🗑️ Autorole supprimé (le message a aussi été effacé).');
+    }
+
+    // ----- creer -----
+    const salon = i.options.getChannel('salon', true);
+    const roleOpt = i.options.getRole('role', true);
+    const emojiInput = i.options.getString('emoji', true).trim();
+    const mentionOpt = i.options.get('mention');
+    const ping = i.options.getString('ping');
+    const img = i.options.getAttachment('image');
+    const thumb = i.options.getAttachment('miniature');
+
+    const role = i.guild.roles.cache.get(roleOpt.id);
+    if (!role || role.id === i.guild.id || role.managed) {
+      return i.reply({ content: '❌ Choisis un rôle normal (pas @everyone ni un rôle de bot).', flags: EPH });
+    }
+    if (!role.editable) {
+      return i.reply({ content: '❌ Mon rôle doit être **au-dessus** de ce rôle dans la liste des rôles du serveur.', flags: EPH });
+    }
+    if (!isOwner(i) && i.member.roles.highest.position <= role.position) {
+      return i.reply({ content: '❌ Tu ne peux pas distribuer un rôle supérieur ou égal au tien.', flags: EPH });
+    }
+    if (!emojiInput || emojiInput.length > 64) {
+      return i.reply({ content: '❌ Emoji invalide.', flags: EPH });
+    }
+    if (ping && !i.member.permissions.has(PermissionFlagsBits.MentionEveryone)) {
+      return i.reply({ content: "❌ Il te faut la permission de mentionner @everyone.", flags: EPH });
+    }
+
+    const modalId = `autorole_${i.id}`;
+    await i.showModal(announceModal(modalId, 'Message autorole', 'Texte du message (Markdown accepté)'));
+
+    const m = await i.awaitModalSubmit({
+      time: 15 * 60_000,
+      filter: (x) => x.customId === modalId && x.user.id === i.user.id,
+    }).catch(() => null);
+    if (!m) return;
+
+    await m.deferReply({ flags: EPH });
+    let msg;
+    try {
+      const { embed, files } = await buildAnnounce(m, img, thumb);
+      const { content, allowed } = buildMentions(ping, mentionOpt);
+      msg = await salon.send({ content, embeds: [embed], files, allowedMentions: allowed });
+      const reaction = await msg.react(emojiInput);
+
+      d.reactionRoles[msg.id] = {
+        channelId: salon.id,
+        roleId: role.id,
+        emoji: reaction.emoji.id ?? reaction.emoji.name,
+        label: emojiInput,
+      };
+      save();
+      await m.editReply({
+        content: `✅ Message envoyé dans <#${salon.id}>. Réagir avec ${emojiInput} donne le rôle <@&${role.id}>.`,
+        allowedMentions: { parse: [] },
+      });
+    } catch (e) {
+      console.error('[autorole]', e);
+      if (msg) msg.delete().catch(() => {});
+      await m.editReply(
+        "❌ Impossible de créer l'autorole. Vérifie l'emoji (un emoji d'un serveur où je ne suis pas ne fonctionne pas) " +
+        "et mes permissions dans ce salon : **Voir le salon, Envoyer des messages, Intégrer des liens, Ajouter des réactions**.");
     }
   },
 
@@ -892,17 +1125,23 @@ const handlers = {
         return i.reply({ content: '❌ Nom invalide : lettres minuscules, chiffres et tirets uniquement (30 max).', flags: EPH });
       }
       if (d.tickets[nom]) return i.reply({ content: '❌ Une configuration porte déjà ce nom.', flags: EPH });
+      const staff = i.options.getRole('role-staff', true);
+      if (staff.id === i.guild.id) return i.reply({ content: '❌ Tu ne peux pas choisir @everyone.', flags: EPH });
       d.tickets[nom] = {
         name: nom,
         categoryId: i.options.getChannel('categorie', true).id,
-        staffRoleId: i.options.getRole('role-staff', true).id,
+        staffRoles: [staff.id],
         logChannelId: i.options.getChannel('salon-logs')?.id || null,
         reasons: [],
         counter: 0,
       };
       save();
       return i.reply({
-        content: `✅ Configuration **${nom}** créée.\nAjoute des raisons avec \`/ticket raison-ajouter\`, puis envoie le panel avec \`/ticket panel\`.`,
+        content:
+          `✅ Configuration **${nom}** créée.\n` +
+          `• Autre rôle staff : \`/ticket staff-ajouter\`\n` +
+          `• Raisons d'ouverture : \`/ticket raison-ajouter\`\n` +
+          `• Envoi du panel : \`/ticket panel\``,
         flags: EPH,
       });
     }
@@ -912,9 +1151,9 @@ const handlers = {
       if (!list.length) return i.reply({ content: "Aucune configuration. Crée-en une avec `/ticket config-creer`.", flags: EPH });
       const embed = new EmbedBuilder().setColor('#5865F2').setTitle('🎫 Configurations de tickets').setDescription(
         list.map((c) =>
-          `**${c.name}**\n• Catégorie : <#${c.categoryId}>\n• Staff : <@&${c.staffRoleId}>\n• Logs : ${c.logChannelId ? `<#${c.logChannelId}>` : 'aucun'}\n• Raisons : ${c.reasons.length ? c.reasons.map((r) => r.label).join(', ') : 'aucune'}`
-        ).join('\n\n'));
-      return i.reply({ embeds: [embed], flags: EPH });
+          `**${c.name}**\n• Catégorie : <#${c.categoryId}>\n• Staff : ${c.staffRoles.length ? c.staffRoles.map((r) => `<@&${r}>`).join(' ') : 'aucun'}\n• Logs : ${c.logChannelId ? `<#${c.logChannelId}>` : 'aucun'}\n• Raisons : ${c.reasons.length ? c.reasons.map((r) => r.label + (r.staffRoleId ? ` (staff : <@&${r.staffRoleId}>)` : '')).join(', ') : 'aucune'}`
+        ).join('\n\n').slice(0, 4096));
+      return i.reply({ embeds: [embed], flags: EPH, allowedMentions: { parse: [] } });
     }
 
     const cfgName = i.options.getString('config', true);
@@ -927,16 +1166,52 @@ const handlers = {
       return i.reply({ content: `🗑️ Configuration **${cfgName}** supprimée. Les anciens panels ne fonctionneront plus.`, flags: EPH });
     }
 
+    if (sub === 'staff-ajouter') {
+      const role = i.options.getRole('role', true);
+      if (role.id === i.guild.id) return i.reply({ content: '❌ Tu ne peux pas choisir @everyone.', flags: EPH });
+      if (cfg.staffRoles.includes(role.id)) {
+        return i.reply({ content: '❌ Ce rôle a déjà accès aux tickets de cette configuration.', flags: EPH });
+      }
+      cfg.staffRoles.push(role.id);
+      save();
+      return i.reply({
+        content: `✅ <@&${role.id}> peut maintenant voir et répondre aux **nouveaux** tickets de **${cfgName}** (sauf ceux dont la raison a son propre rôle staff).`,
+        flags: EPH, allowedMentions: { parse: [] },
+      });
+    }
+
+    if (sub === 'staff-retirer') {
+      const role = i.options.getRole('role', true);
+      if (!cfg.staffRoles.includes(role.id)) {
+        return i.reply({ content: "❌ Ce rôle n'est pas dans le staff de cette configuration.", flags: EPH });
+      }
+      if (cfg.staffRoles.length === 1) {
+        return i.reply({ content: '❌ Il faut garder au moins un rôle staff. Ajoute-en un autre avant de retirer celui-ci.', flags: EPH });
+      }
+      cfg.staffRoles = cfg.staffRoles.filter((id) => id !== role.id);
+      save();
+      return i.reply({
+        content: `🗑️ <@&${role.id}> retiré du staff de **${cfgName}** (les tickets déjà ouverts gardent leurs accès).`,
+        flags: EPH, allowedMentions: { parse: [] },
+      });
+    }
+
     if (sub === 'raison-ajouter') {
       if (cfg.reasons.length >= 25) return i.reply({ content: '❌ 25 raisons maximum par configuration.', flags: EPH });
+      const staff = i.options.getRole('role-staff');
+      if (staff && staff.id === i.guild.id) return i.reply({ content: '❌ Tu ne peux pas choisir @everyone.', flags: EPH });
       cfg.reasons.push({
         id: crypto.randomUUID().slice(0, 8),
         label: i.options.getString('label', true).slice(0, 100),
         description: (i.options.getString('description') || '').slice(0, 100),
         emoji: i.options.getString('emoji') || null,
+        staffRoleId: staff?.id || null,
       });
       save();
-      return i.reply({ content: `✅ Raison ajoutée à **${cfgName}** (${cfg.reasons.length} au total). Renvoie le panel pour qu'elle apparaisse.`, flags: EPH });
+      return i.reply({
+        content: `✅ Raison ajoutée à **${cfgName}** (${cfg.reasons.length} au total)${staff ? ` — staff : <@&${staff.id}>` : ''}. Renvoie le panel pour qu'elle apparaisse.`,
+        flags: EPH, allowedMentions: { parse: [] },
+      });
     }
 
     if (sub === 'raison-retirer') {
@@ -1014,16 +1289,32 @@ async function autocomplete(i) {
       (cfg?.reasons || []).filter((r) => r.label.toLowerCase().includes(q)).slice(0, 25)
         .map((r) => ({ name: r.label, value: r.label })));
   }
+  if (f.name === 'message') {
+    // Liste des autoroles (pour /autorole supprimer)
+    if (!i.member.permissions.has(PermissionFlagsBits.ManageRoles)) return i.respond([]);
+    return i.respond(
+      Object.entries(d.reactionRoles)
+        .map(([id, r]) => ({
+          name: `${r.label} → @${i.guild.roles.cache.get(r.roleId)?.name || 'rôle supprimé'} (#${i.guild.channels.cache.get(r.channelId)?.name || '?'})`.slice(0, 100),
+          value: id,
+        }))
+        .filter((o) => o.name.toLowerCase().includes(q))
+        .slice(0, 25));
+  }
   if (f.name === 'utilisateur') {
     // Liste des bannis (pour /unban) — réservée à ceux qui peuvent modérer
     if (!canModerate(i)) return i.respond([]);
-    const bans = await i.guild.bans.fetch().catch(() => null);
-    if (!bans) return i.respond([]);
+    // L'autocomplétion doit répondre en moins de 3 s : on s'appuie sur un cache et on abandonne au bout de 2 s
+    const list = await Promise.race([
+      getBans(i.guild).catch((e) => { console.error('[unban autocomplete]', e.message); return null; }),
+      new Promise((r) => setTimeout(() => r(null), 2000)),
+    ]);
+    if (!list) return i.respond([]);
     return i.respond(
-      [...bans.values()]
-        .filter((b) => b.user.username.toLowerCase().includes(q) || b.user.id.includes(q))
+      list
+        .filter((b) => b.username.toLowerCase().includes(q) || b.id.includes(q))
         .slice(0, 25)
-        .map((b) => ({ name: `${b.user.username} (${b.user.id})`.slice(0, 100), value: b.user.id })));
+        .map((b) => ({ name: `${b.username} (${b.id})`.slice(0, 100), value: b.id })));
   }
   return i.respond([]);
 }
@@ -1081,6 +1372,20 @@ client.on(Events.GuildMemberAdd, async (member) => {
 });
 
 client.on(Events.GuildMemberRemove, (member) => scheduleCount(member.guild));
+
+// Autorole : réaction ajoutée / retirée
+client.on(Events.MessageReactionAdd, (reaction, user) => handleReaction(reaction, user, true));
+client.on(Events.MessageReactionRemove, (reaction, user) => handleReaction(reaction, user, false));
+
+// Autorole : si le message est supprimé à la main, on nettoie l'enregistrement
+client.on(Events.MessageDelete, (message) => {
+  if (!message.guildId) return;
+  const d = getG(message.guildId);
+  if (d.reactionRoles[message.id]) {
+    delete d.reactionRoles[message.id];
+    save();
+  }
+});
 
 client.on(Events.InteractionCreate, async (i) => {
   try {
