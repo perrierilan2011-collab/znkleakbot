@@ -39,7 +39,13 @@ function getG(id) {
     tickets: {}, // nom -> { name, categoryId, staffRoleId, logChannelId, reasons[], counter }
     open: {},    // channelId -> { userId, config, reason, claimedBy }
   };
-  return db[id];
+  const g = db[id];
+  // Ajout des nouveaux champs pour les serveurs déjà enregistrés
+  g.modRoles ??= [];        // rôles autorisés à utiliser ban / unban / mute / unmute
+  g.protectedRoles ??= [];  // rôles que seul le propriétaire peut mute / ban
+  g.muteRoleId ??= null;    // rôle "Muté" créé par le bot
+  g.muted ??= {};           // userId -> { roles[], until, reason, by }
+  return g;
 }
 
 /* ------------------------------------------------------------------ */
@@ -73,6 +79,35 @@ async function toFile(att, baseName) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Permissions de modération                                          */
+/* ------------------------------------------------------------------ */
+// 👑 = propriétaire du serveur (la couronne)
+const isOwner = (i) => i.guild.ownerId === i.user.id;
+
+// Le propriétaire OU un membre ayant un rôle choisi avec /roles-mod
+const canModerate = (i) =>
+  isOwner(i) || i.member.roles.cache.some((r) => getG(i.guildId).modRoles.includes(r.id));
+
+const NO_ACCESS = { content: "❌ Tu n'as pas accès à cette commande.", flags: EPH };
+
+// Vérifie qu'on a le droit de sanctionner (ban / mute) cette personne. Renvoie un message d'erreur ou null.
+function targetError(i, user, member) {
+  if (user.id === i.user.id) return '❌ Tu ne peux pas faire ça sur toi-même.';
+  if (user.id === client.user.id) return '❌ Je ne peux pas me sanctionner moi-même.';
+  if (user.id === i.guild.ownerId) return '❌ Le propriétaire du serveur est intouchable.';
+  if (member && !isOwner(i)) {
+    const d = getG(i.guildId);
+    if (member.roles.cache.some((r) => d.protectedRoles.includes(r.id))) {
+      return '❌ Ce membre a un rôle protégé : seul le propriétaire du serveur peut le sanctionner.';
+    }
+    if (i.member.roles.highest.position <= member.roles.highest.position) {
+      return '❌ Ce membre a un rôle supérieur ou égal au tien.';
+    }
+  }
+  return null;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Définition des commandes                                           */
 /* ------------------------------------------------------------------ */
 const commands = [
@@ -98,7 +133,73 @@ const commands = [
           { name: '24 dernières heures', value: 1 },
           { name: '7 derniers jours', value: 7 },
         ))
-    .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
+    .setDefaultMemberPermissions(null) // l'accès est géré par /roles-mod
+    .setDMPermission(false),
+
+  // ---------- Unban ----------
+  new SlashCommandBuilder()
+    .setName('unban')
+    .setDescription('Débannir un utilisateur')
+    .addStringOption((o) =>
+      o.setName('utilisateur').setDescription('Utilisateur banni (choisis dans la liste ou colle son ID)')
+        .setAutocomplete(true).setRequired(true))
+    .addStringOption((o) => o.setName('raison').setDescription('Raison du débannissement'))
+    .setDefaultMemberPermissions(null)
+    .setDMPermission(false),
+
+  // ---------- Mute ----------
+  new SlashCommandBuilder()
+    .setName('mute')
+    .setDescription('Rendre un membre muet : il ne voit plus aucun salon')
+    .addUserOption((o) => o.setName('membre').setDescription('Le membre à mute').setRequired(true))
+    .addIntegerOption((o) =>
+      o.setName('duree').setDescription('Durée du mute (nombre)').setMinValue(1).setMaxValue(525600).setRequired(true))
+    .addStringOption((o) =>
+      o.setName('unite').setDescription('Unité de temps').setRequired(true)
+        .addChoices(
+          { name: 'Minutes', value: 'minutes' },
+          { name: 'Heures', value: 'heures' },
+          { name: 'Jours', value: 'jours' },
+        ))
+    .addStringOption((o) => o.setName('raison').setDescription('Raison du mute'))
+    .setDefaultMemberPermissions(null)
+    .setDMPermission(false),
+
+  // ---------- Unmute ----------
+  new SlashCommandBuilder()
+    .setName('unmute')
+    .setDescription('Enlever le mute d\'un membre')
+    .addUserOption((o) => o.setName('membre').setDescription('Le membre à unmute').setRequired(true))
+    .addStringOption((o) => o.setName('raison').setDescription("Raison de l'unmute"))
+    .setDefaultMemberPermissions(null)
+    .setDMPermission(false),
+
+  // ---------- Rôles autorisés à modérer (👑 uniquement) ----------
+  new SlashCommandBuilder()
+    .setName('roles-mod')
+    .setDescription('👑 Choisir quels rôles peuvent utiliser ban / unban / mute / unmute')
+    .addSubcommand((s) =>
+      s.setName('ajouter').setDescription('Autoriser un rôle à utiliser les commandes de modération')
+        .addRoleOption((o) => o.setName('role').setDescription('Le rôle à autoriser').setRequired(true)))
+    .addSubcommand((s) =>
+      s.setName('retirer').setDescription("Retirer l'accès à un rôle")
+        .addRoleOption((o) => o.setName('role').setDescription('Le rôle à retirer').setRequired(true)))
+    .addSubcommand((s) => s.setName('liste').setDescription('Voir les rôles autorisés'))
+    .setDefaultMemberPermissions('0') // masquée pour tout le monde sauf admins ; vérifiée aussi dans le code
+    .setDMPermission(false),
+
+  // ---------- Rôles protégés (👑 uniquement) ----------
+  new SlashCommandBuilder()
+    .setName('roles-proteges')
+    .setDescription('👑 Choisir quels rôles ne peuvent être ni mute ni ban par les modérateurs')
+    .addSubcommand((s) =>
+      s.setName('ajouter').setDescription('Protéger un rôle')
+        .addRoleOption((o) => o.setName('role').setDescription('Le rôle à protéger').setRequired(true)))
+    .addSubcommand((s) =>
+      s.setName('retirer').setDescription("Retirer la protection d'un rôle")
+        .addRoleOption((o) => o.setName('role').setDescription('Le rôle à retirer').setRequired(true)))
+    .addSubcommand((s) => s.setName('liste').setDescription('Voir les rôles protégés'))
+    .setDefaultMemberPermissions('0')
     .setDMPermission(false),
 
   // ---------- Annonces ----------
@@ -216,6 +317,96 @@ function buildWelcome(member) {
     embeds: hasEmbed ? [embed] : [],
     allowedMentions: { parse: ['users', 'roles'] },
   };
+}
+
+/* ------------------------------------------------------------------ */
+/*  Mute (rôle "Muté" : le membre voit le serveur mais aucun salon)    */
+/* ------------------------------------------------------------------ */
+const UNITS = { minutes: 60_000, heures: 3_600_000, jours: 86_400_000 };
+const MAX_MUTE = 365 * 86_400_000;
+
+// Interdit "Voir le salon" au rôle Muté dans tous les salons qui n'ont pas encore la règle
+async function syncMuteOverwrites(guild, role) {
+  for (const ch of guild.channels.cache.values()) {
+    if (!ch.permissionOverwrites) continue;
+    if (ch.permissionOverwrites.cache.get(role.id)?.deny.has(PermissionFlagsBits.ViewChannel)) continue;
+    await ch.permissionOverwrites.edit(role, { ViewChannel: false }, { reason: 'Configuration du rôle Muté' }).catch(() => {});
+  }
+}
+
+async function ensureMutedRole(guild) {
+  const d = getG(guild.id);
+  let role = d.muteRoleId ? guild.roles.cache.get(d.muteRoleId) : null;
+  if (!role) {
+    role = await guild.roles.create({
+      name: 'Muté',
+      color: 0x808080,
+      permissions: [],
+      reason: 'Rôle utilisé par le système de mute',
+    });
+    d.muteRoleId = role.id;
+    save();
+  }
+  await syncMuteOverwrites(guild, role);
+  return role;
+}
+
+async function applyMute(guild, member, until, reason, by) {
+  const d = getG(guild.id);
+  const role = await ensureMutedRole(guild);
+  const rec = d.muted[member.id];
+
+  // Les rôles que je ne peux pas retirer (rôles de bot, boost, rôles trop hauts) sont conservés
+  const keep = [];
+  const removed = [];
+  for (const r of member.roles.cache.values()) {
+    if (r.id === guild.id || r.id === role.id) continue;
+    (r.managed || !r.editable ? keep : removed).push(r.id);
+  }
+
+  // On retire tous les autres rôles : sinon un rôle avec "Administrateur" ou une règle de salon
+  // autorisant la vue permettrait de continuer à voir les salons.
+  await member.roles.set([...keep, role.id], `Mute : ${reason}`);
+
+  d.muted[member.id] = {
+    roles: [...new Set([...(rec?.roles || []), ...removed])],
+    until,
+    reason,
+    by,
+  };
+  save();
+
+  if (member.voice.channel) await member.voice.disconnect('Mute').catch(() => {});
+}
+
+async function removeMute(guild, userId, reason) {
+  const d = getG(guild.id);
+  const rec = d.muted[userId];
+  if (!rec) return false;
+  delete d.muted[userId];
+  save();
+
+  const member = await guild.members.fetch(userId).catch(() => null);
+  if (!member) return true; // parti du serveur : rien à restaurer
+
+  const restorable = rec.roles.filter((id) => {
+    const r = guild.roles.cache.get(id);
+    return r && !r.managed && r.editable;
+  });
+  const final = new Set([...member.roles.cache.keys()].filter((id) => id !== d.muteRoleId && id !== guild.id));
+  restorable.forEach((id) => final.add(id));
+  await member.roles.set([...final], reason).catch(console.error);
+  return true;
+}
+
+// Vérifie régulièrement les mutes terminés (fonctionne même après un redémarrage du bot)
+async function checkMutes() {
+  for (const guild of client.guilds.cache.values()) {
+    const d = getG(guild.id);
+    for (const [userId, rec] of Object.entries(d.muted)) {
+      if (rec.until <= Date.now()) await removeMute(guild, userId, 'Mute terminé').catch(console.error);
+    }
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -357,9 +548,48 @@ async function closeTicket(i) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Gestion des listes de rôles (/roles-mod et /roles-proteges)        */
+/* ------------------------------------------------------------------ */
+function roleListHandler(key, title) {
+  return async (i) => {
+    if (!isOwner(i)) {
+      return i.reply({ content: '❌ Seul le propriétaire du serveur (👑) peut utiliser cette commande.', flags: EPH });
+    }
+    const d = getG(i.guildId);
+    const sub = i.options.getSubcommand();
+
+    if (sub === 'liste') {
+      const txt = d[key].length
+        ? d[key].map((id) => `• <@&${id}>`).join('\n')
+        : 'Aucun rôle pour le moment.';
+      return i.reply({ content: `**${title}**\n${txt}`, flags: EPH, allowedMentions: { parse: [] } });
+    }
+
+    const role = i.options.getRole('role', true);
+    if (role.id === i.guild.id) {
+      return i.reply({ content: '❌ Tu ne peux pas choisir @everyone.', flags: EPH });
+    }
+
+    if (sub === 'ajouter') {
+      if (!d[key].includes(role.id)) d[key].push(role.id);
+      save();
+      return i.reply({ content: `✅ <@&${role.id}> ajouté à : **${title}**.`, flags: EPH, allowedMentions: { parse: [] } });
+    }
+
+    d[key] = d[key].filter((id) => id !== role.id);
+    save();
+    return i.reply({ content: `🗑️ <@&${role.id}> retiré de : **${title}**.`, flags: EPH, allowedMentions: { parse: [] } });
+  };
+}
+
+/* ------------------------------------------------------------------ */
 /*  Gestionnaires de commandes                                         */
 /* ------------------------------------------------------------------ */
 const handlers = {
+  /* ---------- /roles-mod & /roles-proteges (👑) ---------- */
+  'roles-mod': roleListHandler('modRoles', 'Rôles autorisés à modérer (ban / unban / mute / unmute)'),
+  'roles-proteges': roleListHandler('protectedRoles', 'Rôles protégés (ni mute ni ban par les modérateurs)'),
+
   /* ---------- /membercount ---------- */
   async membercount(i) {
     await i.deferReply({ flags: EPH });
@@ -385,24 +615,26 @@ const handlers = {
 
   /* ---------- /ban ---------- */
   async ban(i) {
+    if (!canModerate(i)) return i.reply(NO_ACCESS);
+
     const user = i.options.getUser('membre', true);
     const reason = i.options.getString('raison') || 'Aucune raison fournie';
     const days = i.options.getInteger('supprimer_messages') ?? 0;
 
-    if (user.id === i.user.id) return i.reply({ content: '❌ Tu ne peux pas te bannir toi-même.', flags: EPH });
-    if (user.id === client.user.id) return i.reply({ content: '❌ Je ne peux pas me bannir.', flags: EPH });
-
     const member = await i.guild.members.fetch(user.id).catch(() => null);
-    if (member) {
-      if (!member.bannable) return i.reply({ content: '❌ Je ne peux pas bannir ce membre (rôle trop haut ou propriétaire).', flags: EPH });
-      if (i.guild.ownerId !== i.user.id && i.member.roles.highest.position <= member.roles.highest.position) {
-        return i.reply({ content: '❌ Ce membre a un rôle supérieur ou égal au tien.', flags: EPH });
-      }
+    const err = targetError(i, user, member);
+    if (err) return i.reply({ content: err, flags: EPH });
+    if (member && !member.bannable) {
+      return i.reply({ content: '❌ Je ne peux pas bannir ce membre (son rôle est au-dessus du mien).', flags: EPH });
     }
 
     await i.deferReply();
     await user.send(`🔨 Tu as été banni de **${i.guild.name}**.\nRaison : ${reason}`).catch(() => {});
     await i.guild.members.ban(user.id, { reason: `${i.user.tag} : ${reason}`, deleteMessageSeconds: days * 86400 });
+
+    // Si le membre était muté, on nettoie son enregistrement
+    delete getG(i.guildId).muted[user.id];
+    save();
 
     const embed = new EmbedBuilder()
       .setColor('#ED4245')
@@ -414,6 +646,111 @@ const handlers = {
       )
       .setTimestamp();
     await i.editReply({ embeds: [embed] });
+  },
+
+  /* ---------- /unban ---------- */
+  async unban(i) {
+    if (!canModerate(i)) return i.reply(NO_ACCESS);
+
+    const id = i.options.getString('utilisateur', true).trim();
+    const reason = i.options.getString('raison') || 'Aucune raison fournie';
+
+    await i.deferReply();
+    const ban = await i.guild.bans.fetch(id).catch(() => null);
+    if (!ban) {
+      return i.editReply("❌ Cet utilisateur n'est pas banni. Choisis-le dans la liste ou colle son ID exact.");
+    }
+    try {
+      await i.guild.members.unban(ban.user.id, `${i.user.tag} : ${reason}`);
+    } catch (e) {
+      console.error(e);
+      return i.editReply("❌ Impossible de débannir (il me faut la permission **Bannir des membres**).");
+    }
+
+    const embed = new EmbedBuilder()
+      .setColor('#57F287')
+      .setTitle('✅ Membre débanni')
+      .addFields(
+        { name: 'Utilisateur', value: `${ban.user.tag} (${ban.user.id})` },
+        { name: 'Modérateur', value: `<@${i.user.id}>` },
+        { name: 'Raison', value: reason },
+      )
+      .setTimestamp();
+    await i.editReply({ embeds: [embed] });
+  },
+
+  /* ---------- /mute ---------- */
+  async mute(i) {
+    if (!canModerate(i)) return i.reply(NO_ACCESS);
+
+    const user = i.options.getUser('membre', true);
+    const amount = i.options.getInteger('duree', true);
+    const unit = i.options.getString('unite', true);
+    const reason = i.options.getString('raison') || 'Aucune raison fournie';
+    const duration = amount * UNITS[unit];
+    if (duration > MAX_MUTE) return i.reply({ content: '❌ Durée maximale : 365 jours.', flags: EPH });
+
+    const member = await i.guild.members.fetch(user.id).catch(() => null);
+    if (!member) return i.reply({ content: "❌ Ce membre n'est pas sur le serveur.", flags: EPH });
+    const err = targetError(i, user, member);
+    if (err) return i.reply({ content: err, flags: EPH });
+
+    await i.deferReply();
+    const until = Date.now() + duration;
+    try {
+      await applyMute(i.guild, member, until, reason, i.user.id);
+    } catch (e) {
+      console.error(e);
+      return i.editReply(
+        "❌ Impossible de mute ce membre. Mon rôle doit être **au-dessus** du sien (idéalement tout en haut de la liste) " +
+        "et j'ai besoin des permissions **Gérer les rôles** et **Gérer les salons**.");
+    }
+
+    const ts = Math.floor(until / 1000);
+    await user.send(
+      `🔇 Tu as été mute sur **${i.guild.name}** jusqu'à <t:${ts}:F> (<t:${ts}:R>).\nRaison : ${reason}`).catch(() => {});
+
+    const embed = new EmbedBuilder()
+      .setColor('#FEE75C')
+      .setTitle('🔇 Membre mute')
+      .addFields(
+        { name: 'Membre', value: `<@${user.id}> (${user.id})` },
+        { name: 'Modérateur', value: `<@${i.user.id}>`, inline: true },
+        { name: 'Durée', value: `${amount} ${unit}`, inline: true },
+        { name: 'Fin du mute', value: `<t:${ts}:F> (<t:${ts}:R>)` },
+        { name: 'Raison', value: reason },
+      )
+      .setTimestamp();
+    await i.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
+  },
+
+  /* ---------- /unmute ---------- */
+  async unmute(i) {
+    if (!canModerate(i)) return i.reply(NO_ACCESS);
+
+    const user = i.options.getUser('membre', true);
+    const reason = i.options.getString('raison') || 'Aucune raison fournie';
+    const rec = getG(i.guildId).muted[user.id];
+
+    if (!rec) return i.reply({ content: "❌ Ce membre n'est pas mute.", flags: EPH });
+    if (rec.by === i.guild.ownerId && !isOwner(i)) {
+      return i.reply({ content: '❌ Ce mute a été posé par le propriétaire : lui seul peut le lever.', flags: EPH });
+    }
+
+    await i.deferReply();
+    await removeMute(i.guild, user.id, `Unmute par ${i.user.tag} : ${reason}`);
+    await user.send(`🔊 Tu as été unmute sur **${i.guild.name}**.`).catch(() => {});
+
+    const embed = new EmbedBuilder()
+      .setColor('#57F287')
+      .setTitle('🔊 Membre unmute')
+      .addFields(
+        { name: 'Membre', value: `<@${user.id}> (${user.id})` },
+        { name: 'Modérateur', value: `<@${i.user.id}>` },
+        { name: 'Raison', value: reason },
+      )
+      .setTimestamp();
+    await i.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
   },
 
   /* ---------- /annonce ---------- */
@@ -662,7 +999,7 @@ const handlers = {
 /* ------------------------------------------------------------------ */
 /*  Autocomplétion                                                     */
 /* ------------------------------------------------------------------ */
-function autocomplete(i) {
+async function autocomplete(i) {
   const d = getG(i.guildId);
   const f = i.options.getFocused(true);
   const q = String(f.value).toLowerCase();
@@ -676,6 +1013,17 @@ function autocomplete(i) {
     return i.respond(
       (cfg?.reasons || []).filter((r) => r.label.toLowerCase().includes(q)).slice(0, 25)
         .map((r) => ({ name: r.label, value: r.label })));
+  }
+  if (f.name === 'utilisateur') {
+    // Liste des bannis (pour /unban) — réservée à ceux qui peuvent modérer
+    if (!canModerate(i)) return i.respond([]);
+    const bans = await i.guild.bans.fetch().catch(() => null);
+    if (!bans) return i.respond([]);
+    return i.respond(
+      [...bans.values()]
+        .filter((b) => b.user.username.toLowerCase().includes(q) || b.user.id.includes(q))
+        .slice(0, 25)
+        .map((b) => ({ name: `${b.user.username} (${b.user.id})`.slice(0, 100), value: b.user.id })));
   }
   return i.respond([]);
 }
@@ -696,11 +1044,37 @@ client.once(Events.ClientReady, async () => {
 
   client.guilds.cache.forEach(updateCount);
   setInterval(() => client.guilds.cache.forEach(updateCount), 10 * 60_000);
+
+  // Fin automatique des mutes
+  checkMutes();
+  setInterval(checkMutes, 15_000);
+});
+
+// Un nouveau salon doit aussi être invisible pour les membres mute
+client.on(Events.ChannelCreate, (ch) => {
+  if (!ch.guild || !ch.permissionOverwrites) return;
+  const id = getG(ch.guild.id).muteRoleId;
+  const role = id && ch.guild.roles.cache.get(id);
+  if (role) ch.permissionOverwrites.edit(role, { ViewChannel: false }).catch(() => {});
 });
 
 client.on(Events.GuildMemberAdd, async (member) => {
   scheduleCount(member.guild);
-  const w = getG(member.guild.id).welcome;
+
+  // Anti-contournement : si le membre était mute et revient, il reste mute
+  const d = getG(member.guild.id);
+  const rec = d.muted[member.id];
+  if (rec) {
+    if (rec.until > Date.now()) {
+      const role = member.guild.roles.cache.get(d.muteRoleId);
+      if (role) member.roles.add(role, 'Mute en cours').catch(console.error);
+    } else {
+      delete d.muted[member.id];
+      save();
+    }
+  }
+
+  const w = d.welcome;
   if (!w.enabled || !w.channelId) return;
   const ch = await member.guild.channels.fetch(w.channelId).catch(() => null);
   if (ch) ch.send(buildWelcome(member)).catch(console.error);
