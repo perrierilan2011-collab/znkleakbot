@@ -50,6 +50,8 @@ function getG(id) {
   g.muteRoleId ??= null;    // rôle "Muté" créé par le bot
   g.muted ??= {};           // userId -> { roles[], until, reason, by }
   g.reactionRoles ??= {};   // messageId -> { channelId, roleId, emoji, label }
+  g.sanctionChannel ??= null; // salon par défaut où annoncer les ban / mute
+  g.history ??= {};         // userId -> [{ type, by, reason, duration, at }]
   // Migration : un seul rôle staff -> plusieurs rôles staff
   for (const c of Object.values(g.tickets)) {
     c.staffRoles ??= c.staffRoleId ? [c.staffRoleId] : [];
@@ -164,6 +166,31 @@ function targetError(i, user, member) {
   return null;
 }
 
+/* ---------- Annonces + historique des sanctions ---------- */
+function logSanction(d, userId, entry) {
+  (d.history[userId] ??= []).push({ ...entry, at: Date.now() });
+  save();
+}
+
+// Message simple : @membre + durée + par qui. Salon choisi dans la commande, sinon salon par défaut.
+async function announceSanction(i, optionChannel, text) {
+  const id = optionChannel?.id || getG(i.guildId).sanctionChannel;
+  if (!id) return;
+  const ch = await i.guild.channels.fetch(id).catch(() => null);
+  if (ch) await ch.send({ content: text, allowedMentions: { parse: [] } }).catch(console.error);
+}
+
+// Coupe une liste de lignes pour rester sous la limite d'un champ d'embed
+function fitLines(lines, max = 1000) {
+  if (!lines.length) return 'Aucun.';
+  let out = '', n = 0;
+  for (const l of lines) {
+    if ((out + l + '\n').length > max) break;
+    out += l + '\n'; n++;
+  }
+  return out + (n < lines.length ? `… et ${lines.length - n} de plus` : '');
+}
+
 /* ------------------------------------------------------------------ */
 /*  Liste des bannis (cache court : l'autocomplétion a 3 s maximum)    */
 /* ------------------------------------------------------------------ */
@@ -204,6 +231,9 @@ const commands = [
           { name: '24 dernières heures', value: 1 },
           { name: '7 derniers jours', value: 7 },
         ))
+    .addChannelOption((o) =>
+      o.setName('salon').setDescription('Salon où annoncer le ban')
+        .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement))
     .setDefaultMemberPermissions(null) // l'accès est géré par /roles-mod
     .setDMPermission(false),
 
@@ -233,6 +263,9 @@ const commands = [
           { name: 'Jours', value: 'jours' },
         ))
     .addStringOption((o) => o.setName('raison').setDescription('Raison du mute'))
+    .addChannelOption((o) =>
+      o.setName('salon').setDescription('Salon où annoncer le mute')
+        .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement))
     .setDefaultMemberPermissions(null)
     .setDMPermission(false),
 
@@ -245,10 +278,35 @@ const commands = [
     .setDefaultMemberPermissions(null)
     .setDMPermission(false),
 
+  // ---------- Salon par défaut des annonces de sanctions ----------
+  new SlashCommandBuilder()
+    .setName('salon-sanctions')
+    .setDescription('Salon par défaut où annoncer les ban et mute')
+    .addChannelOption((o) =>
+      o.setName('salon').setDescription('Le salon des sanctions')
+        .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(true))
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .setDMPermission(false),
+
+  // ---------- Bannis et mutés actuels ----------
+  new SlashCommandBuilder()
+    .setName('sanctions-actives')
+    .setDescription('Voir tous les membres actuellement bannis ou mute')
+    .setDefaultMemberPermissions(null)
+    .setDMPermission(false),
+
+  // ---------- Historique d'un membre ----------
+  new SlashCommandBuilder()
+    .setName('historique-sanctions')
+    .setDescription('Voir si un membre a déjà été banni ou mute')
+    .addUserOption((o) => o.setName('membre').setDescription('Le membre à vérifier').setRequired(true))
+    .setDefaultMemberPermissions(null)
+    .setDMPermission(false),
+
   // ---------- Rôles autorisés à modérer (👑 uniquement) ----------
   new SlashCommandBuilder()
     .setName('roles-mod')
-    .setDescription('👑 Choisir quels rôles peuvent utiliser ban / unban / mute / unmute')
+    .setDescription('👑 Choisir quels rôles peuvent utiliser ban - unban - mute - unmute')
     .addSubcommand((s) =>
       s.setName('ajouter').setDescription('Autoriser un rôle à utiliser les commandes de modération')
         .addRoleOption((o) => o.setName('role').setDescription('Le rôle à autoriser').setRequired(true)))
@@ -745,7 +803,7 @@ function roleListHandler(key, title) {
 /* ------------------------------------------------------------------ */
 const handlers = {
   /* ---------- /roles-mod & /roles-proteges (👑) ---------- */
-  'roles-mod': roleListHandler('modRoles', 'Rôles autorisés à modérer (ban / unban / mute / unmute)'),
+  'roles-mod': roleListHandler('modRoles', 'Rôles autorisés à modérer (ban - unban - mute - unmute)'),
   'roles-proteges': roleListHandler('protectedRoles', 'Rôles protégés (ni mute ni ban par les modérateurs)'),
 
   /* ---------- /membercount ---------- */
@@ -792,8 +850,14 @@ const handlers = {
     banCache.delete(i.guildId);
 
     // Si le membre était muté, on nettoie son enregistrement
-    delete getG(i.guildId).muted[user.id];
+    const d = getG(i.guildId);
+    delete d.muted[user.id];
     save();
+
+    // Historique + annonce dans le salon choisi (option "salon") ou le salon par défaut (/salon-sanctions)
+    logSanction(d, user.id, { type: 'ban', by: i.user.id, reason, duration: 'définitif' });
+    await announceSanction(i, i.options.getChannel('salon'),
+      `<@${user.id}> a été banni (définitif) par <@${i.user.id}>`);
 
     const embed = new EmbedBuilder()
       .setColor('#ED4245')
@@ -886,6 +950,11 @@ const handlers = {
         "et j'ai besoin des permissions **Gérer les rôles** et **Gérer les salons**.");
     }
 
+    // Historique + annonce dans le salon choisi (option "salon") ou le salon par défaut (/salon-sanctions)
+    logSanction(getG(i.guildId), user.id, { type: 'mute', by: i.user.id, reason, duration: `${amount} ${unit}` });
+    await announceSanction(i, i.options.getChannel('salon'),
+      `<@${user.id}> a été mute pendant ${amount} ${unit} par <@${i.user.id}>`);
+
     const ts = Math.floor(until / 1000);
     await user.send(
       `🔇 Tu as été mute sur **${i.guild.name}** jusqu'à <t:${ts}:F> (<t:${ts}:R>).\nRaison : ${reason}`).catch(() => {});
@@ -929,6 +998,76 @@ const handlers = {
         { name: 'Modérateur', value: `<@${i.user.id}>` },
         { name: 'Raison', value: reason },
       )
+      .setTimestamp();
+    await i.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
+  },
+
+  /* ---------- /salon-sanctions ---------- */
+  async 'salon-sanctions'(i) {
+    const salon = i.options.getChannel('salon', true);
+    getG(i.guildId).sanctionChannel = salon.id;
+    save();
+    return i.reply({
+      content: `✅ Les ban et mute seront annoncés dans <#${salon.id}> (sauf si un autre salon est choisi dans la commande).`,
+      flags: EPH,
+    });
+  },
+
+  /* ---------- /sanctions-actives ---------- */
+  async 'sanctions-actives'(i) {
+    if (!canModerate(i)) return i.reply(NO_ACCESS);
+    await i.deferReply({ flags: EPH });
+    const d = getG(i.guildId);
+
+    const bans = await i.guild.bans.fetch().catch(() => null);
+    const banLines = bans
+      ? [...bans.values()].map((b) => `• <@${b.user.id}> (${b.user.username}) — ${b.reason || 'aucune raison'}`)
+      : ['Impossible de lire la liste des bannis (permission **Bannir des membres** ?).'];
+    const muteLines = Object.entries(d.muted).map(([id, r]) =>
+      `• <@${id}> — fin <t:${Math.floor(r.until / 1000)}:R> — par <@${r.by}> — ${r.reason}`);
+
+    const embed = new EmbedBuilder()
+      .setColor('#5865F2')
+      .setTitle('📋 Sanctions en cours')
+      .addFields(
+        { name: `🔨 Bannis (${bans ? bans.size : '?'})`, value: fitLines(banLines) },
+        { name: `🔇 Mutés (${muteLines.length})`, value: fitLines(muteLines) },
+      )
+      .setTimestamp();
+    await i.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
+  },
+
+  /* ---------- /historique-sanctions ---------- */
+  async 'historique-sanctions'(i) {
+    if (!canModerate(i)) return i.reply(NO_ACCESS);
+    const user = i.options.getUser('membre', true);
+    await i.deferReply({ flags: EPH });
+    const d = getG(i.guildId);
+
+    const hist = d.history[user.id] || [];
+    const banNow = await i.guild.bans.fetch(user.id).catch(() => null);
+    const muteNow = d.muted[user.id];
+
+    const nbBan = hist.filter((h) => h.type === 'ban').length;
+    const nbMute = hist.filter((h) => h.type === 'mute').length;
+
+    const status = [
+      banNow ? '🔨 **Actuellement banni**' : null,
+      muteNow ? `🔇 **Actuellement mute** jusqu'à <t:${Math.floor(muteNow.until / 1000)}:F>` : null,
+    ].filter(Boolean).join('\n') || '✅ Aucune sanction en cours.';
+
+    const lines = hist.slice().reverse().slice(0, 15).map((h) =>
+      `${h.type === 'ban' ? '🔨 Ban' : '🔇 Mute'} — <t:${Math.floor(h.at / 1000)}:d> — ${h.duration} — par <@${h.by}> — ${h.reason}`);
+
+    const embed = new EmbedBuilder()
+      .setColor(hist.length || banNow || muteNow ? '#ED4245' : '#57F287')
+      .setTitle(`📜 Historique de ${user.username}`)
+      .setDescription((
+        `${status}\n\n**Total :** ${nbBan} ban(s) - ${nbMute} mute(s)\n\n` +
+        (lines.length
+          ? lines.join('\n')
+          : "Aucune sanction enregistrée.\n*(L'historique commence à partir de cette mise à jour du bot.)*")
+      ).slice(0, 4096))
       .setTimestamp();
     await i.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
   },
