@@ -55,7 +55,7 @@ function getG(id) {
   g.fullRoles ??= [];       // rôles qui ont accès à TOUTES les commandes
   g.history ??= {};         // userId -> [{ type, by, reason, duration, at }]
   g.commandChannelId ??= null; // salon privé où utiliser les commandes
-  g.votany ??= {};          // messageId -> { channelId, label, voters[], sig }
+  g.giveaways ??= {};       // messageId -> { channelId, prize, winners, endAt, entrants[], ended, ... }
   g.invites ??= {
     stats: {},     // inviterId -> { joins, left }
     joinedBy: {},  // membre -> inviterId (pour compter les départs)
@@ -114,7 +114,7 @@ async function toFile(att, baseName) {
   return new AttachmentBuilder(Buffer.from(await res.arrayBuffer()), { name: baseName + ext });
 }
 
-/* ---------- Formulaire + embed partagés par /annonce, /autorole et /votany ---------- */
+/* ---------- Formulaire + embed partagés par /annonce et /autorole ---------- */
 function announceModal(modalId, title, textLabel = "Texte de l'annonce (Markdown accepté)") {
   return new ModalBuilder().setCustomId(modalId).setTitle(title).addComponents(
     field('titre', 'Titre', TextInputStyle.Short, { max: 256 }),
@@ -404,17 +404,49 @@ const commands = [
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setDMPermission(false),
 
-  // ---------- Votany : message avec un bouton ----------
+  // ---------- Giveaways ----------
   new SlashCommandBuilder()
-    .setName('votany')
-    .setDescription('Envoyer un message avec un bouton de vote')
-    .addChannelOption((o) =>
-      o.setName('salon').setDescription('Salon où envoyer le message')
-        .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(true))
-    .addStringOption((o) =>
-      o.setName('bouton').setDescription('Texte du bouton (Voter par défaut)').setMaxLength(60))
-    .addAttachmentOption((o) => o.setName('image').setDescription('Grande image en bas du message'))
-    .addAttachmentOption((o) => o.setName('miniature').setDescription('Petite image en haut à droite'))
+    .setName('giveaway')
+    .setDescription('Giveaways : concours avec tirage au sort')
+    .addSubcommand((s) =>
+      s.setName('creer').setDescription('Lancer un giveaway')
+        .addChannelOption((o) =>
+          o.setName('salon').setDescription('Salon où lancer le giveaway')
+            .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(true))
+        .addStringOption((o) => o.setName('lot').setDescription('Ce qu\'il y a à gagner').setMaxLength(200).setRequired(true))
+        .addIntegerOption((o) =>
+          o.setName('duree').setDescription('Durée (nombre)').setMinValue(1).setMaxValue(525600).setRequired(true))
+        .addStringOption((o) =>
+          o.setName('unite').setDescription('Unité de temps').setRequired(true)
+            .addChoices(
+              { name: 'Minutes', value: 'minutes' },
+              { name: 'Heures', value: 'heures' },
+              { name: 'Jours', value: 'jours' },
+            ))
+        .addIntegerOption((o) =>
+          o.setName('gagnants').setDescription('Nombre de gagnants (1 par défaut)').setMinValue(1).setMaxValue(20))
+        .addStringOption((o) => o.setName('description').setDescription('Texte sous le titre').setMaxLength(1000))
+        .addRoleOption((o) => o.setName('role-requis').setDescription('Rôle nécessaire pour participer'))
+        .addMentionableOption((o) => o.setName('mention').setDescription('Rôle ou membre à mentionner'))
+        .addStringOption((o) =>
+          o.setName('ping').setDescription('Mention globale')
+            .addChoices({ name: '@everyone', value: 'everyone' }, { name: '@here', value: 'here' }))
+        .addAttachmentOption((o) => o.setName('image').setDescription('Image du giveaway')))
+    .addSubcommand((s) =>
+      s.setName('terminer').setDescription('Terminer un giveaway maintenant et tirer les gagnants')
+        .addStringOption((o) =>
+          o.setName('giveaway').setDescription('Giveaway en cours').setAutocomplete(true).setRequired(true)))
+    .addSubcommand((s) =>
+      s.setName('reroll').setDescription('Tirer un nouveau gagnant sur un giveaway terminé')
+        .addStringOption((o) =>
+          o.setName('giveaway').setDescription('Giveaway terminé').setAutocomplete(true).setRequired(true))
+        .addIntegerOption((o) =>
+          o.setName('nombre').setDescription('Nombre de nouveaux gagnants (1 par défaut)').setMinValue(1).setMaxValue(20)))
+    .addSubcommand((s) =>
+      s.setName('annuler').setDescription('Annuler un giveaway et supprimer son message')
+        .addStringOption((o) =>
+          o.setName('giveaway').setDescription('Giveaway').setAutocomplete(true).setRequired(true)))
+    .addSubcommand((s) => s.setName('liste').setDescription('Voir les giveaways en cours'))
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
     .setDMPermission(false),
 
@@ -1125,47 +1157,222 @@ async function syncAutoroles(guild) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Votany : message avec un bouton (un clic = un vote, re-clic = retire) */
+/*  Giveaways                                                          */
 /* ------------------------------------------------------------------ */
-const votanyRow = (label, n) => new ActionRowBuilder().addComponents(
-  new ButtonBuilder()
-    .setCustomId('vt_vote')
-    .setLabel(`${(label || 'Voter').slice(0, 60)} (${n})`)
-    .setEmoji('🗳️')
-    .setStyle(ButtonStyle.Primary));
+const MAX_GW = 365 * 86_400_000;
+const endingNow = new Set(); // giveaways en cours de tirage (évite un double tirage)
+const gwTimers = new Map();  // mise à jour groupée du compteur du bouton
 
-async function voteClick(i) {
-  const d = getG(i.guildId);
-  const v = d.votany[i.message.id];
-  if (!v) return i.reply({ content: "❌ Ce vote n'existe plus.", flags: EPH });
+const shuffle = (arr) => {
+  const a = [...arr];
+  for (let n = a.length - 1; n > 0; n--) {
+    const j = crypto.randomInt(n + 1);
+    [a[n], a[j]] = [a[j], a[n]];
+  }
+  return a;
+};
 
-  const idx = v.voters.indexOf(i.user.id);
-  if (idx === -1) v.voters.push(i.user.id);
-  else v.voters.splice(idx, 1);
-
-  const row = votanyRow(v.label, v.voters.length);
-  v.sig = sig(row.toJSON());
-  save();
-  await i.update({ components: [row] });
+function gwRow(gw) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('gw_join')
+      .setLabel(`${gw.ended ? 'Terminé' : 'Participer'} (${gw.entrants.length})`)
+      .setEmoji('🎉')
+      .setStyle(gw.ended ? ButtonStyle.Secondary : ButtonStyle.Success)
+      .setDisabled(!!gw.ended));
 }
 
-async function refreshVotany(guild) {
-  const d = getG(guild.id);
-  for (const [id, v] of Object.entries(d.votany)) {
-    const { msg, gone } = await fetchMsg(guild, v.channelId, id);
-    if (gone) { delete d.votany[id]; save(); continue; }
-    if (!msg) continue;
-    const row = votanyRow(v.label, v.voters.length);
-    const s = sig(row.toJSON());
-    if (v.sig === s) continue;
-    try {
-      await msg.edit({ components: [row] });
-      v.sig = s;
-      save();
-    } catch (e) {
-      console.error('[votany]', e.message);
+function gwDescription(gw) {
+  const ts = Math.floor(gw.endAt / 1000);
+  const lines = [];
+  if (gw.description) lines.push(gw.description, '');
+  lines.push(
+    `⏰ **Fin :** <t:${ts}:R> (<t:${ts}:f>)`,
+    `🏆 **Gagnant${gw.winners > 1 ? 's' : ''} :** ${gw.winners}`,
+    `👤 **Organisé par :** <@${gw.hostId}>`);
+  if (gw.requiredRole) lines.push(`🔒 **Rôle requis :** <@&${gw.requiredRole}>`);
+  lines.push('', 'Clique sur le bouton ci-dessous pour participer !');
+  return lines.join('\n');
+}
+
+// Participants encore sur le serveur, qui ne sont pas des bots et qui ont le rôle requis
+async function validEntrants(guild, gw) {
+  const valid = [];
+  for (let n = 0; n < gw.entrants.length; n += 100) {
+    const chunk = gw.entrants.slice(n, n + 100);
+    const members = await guild.members.fetch({ user: chunk }).catch(() => null);
+    if (!members) { valid.push(...chunk); continue; } // impossible de vérifier : on garde
+    for (const m of members.values()) {
+      if (m.user.bot) continue;
+      if (gw.requiredRole && !m.roles.cache.has(gw.requiredRole)) continue;
+      valid.push(m.id);
     }
   }
+  return valid;
+}
+
+const pickWinners = (valid, n, exclude = []) =>
+  shuffle(valid.filter((id) => !exclude.includes(id))).slice(0, n);
+
+async function editEndedMessage(msg, gw) {
+  const winnersTxt = gw.winnerIds.length
+    ? gw.winnerIds.map((w) => `<@${w}>`).join(', ')
+    : 'Aucun participant valide';
+  const desc =
+    `${gw.description ? gw.description + '\n\n' : ''}` +
+    `🏆 **Gagnant${gw.winnerIds.length > 1 ? 's' : ''} :** ${winnersTxt}\n` +
+    `👤 **Organisé par :** <@${gw.hostId}>\n` +
+    `👥 **Participants valides :** ${gw.validCount ?? gw.entrants.length}`;
+  const make = (withImage) => {
+    const e = msg.embeds[0] ? EmbedBuilder.from(msg.embeds[0]) : new EmbedBuilder();
+    e.setTitle(`🎉 ${gw.prize} — Terminé`.slice(0, 256))
+      .setColor('#95A5A6')
+      .setDescription(desc.slice(0, 4096))
+      .setFooter({ text: 'Giveaway terminé' })
+      .setTimestamp(new Date(gw.endedAt));
+    if (!withImage) e.setImage(null);
+    return e;
+  };
+  const row = gwRow(gw);
+  try {
+    await msg.edit({ embeds: [make(true)], components: [row], allowedMentions: { parse: [] } });
+  } catch {
+    // Si l'image pose problème, on réessaie sans elle
+    await msg.edit({ embeds: [make(false)], components: [row], allowedMentions: { parse: [] } }).catch(console.error);
+  }
+}
+
+async function announceWinners(msg, gw, winners, isReroll) {
+  let text;
+  if (!winners.length) {
+    text = isReroll
+      ? `❌ Aucun autre participant valide pour **${gw.prize}**.`
+      : `😕 Le giveaway **${gw.prize}** est terminé : aucun participant valide, pas de gagnant.`;
+  } else {
+    const list = winners.map((w) => `<@${w}>`).join(', ');
+    text = `${isReroll ? '🔄 Nouveau tirage' : '🎉 Félicitations'} ${list} ! ` +
+      `${winners.length > 1 ? 'Vous avez gagné' : 'Tu as gagné'} **${gw.prize}** !`;
+  }
+  const payload = { content: text, allowedMentions: { users: winners, repliedUser: false } };
+  await msg.reply(payload).catch(() => msg.channel.send(payload).catch(console.error));
+
+  for (const w of winners) {
+    client.users.fetch(w)
+      .then((u) => u.send(`🎉 Tu as gagné **${gw.prize}** sur **${msg.guild.name}** !\n${msg.url}`))
+      .catch(() => {});
+  }
+}
+
+// Termine un giveaway : tirage au sort, message mis à jour, annonce des gagnants
+async function endGiveaway(guild, id) {
+  const d = getG(guild.id);
+  const gw = d.giveaways[id];
+  if (!gw || gw.ended) return { ok: false, reason: 'introuvable ou déjà terminé' };
+  if (endingNow.has(id)) return { ok: false, reason: 'tirage déjà en cours' };
+  endingNow.add(id);
+  try {
+    const { msg, gone } = await fetchMsg(guild, gw.channelId, id);
+    if (gone) { delete d.giveaways[id]; save(); return { ok: false, reason: 'le message a été supprimé' }; }
+    if (!msg) return { ok: false, reason: 'message inaccessible (nouvel essai automatique)' };
+
+    const valid = await validEntrants(guild, gw);
+    const winners = pickWinners(valid, gw.winners);
+    gw.ended = true;
+    gw.endedAt = Date.now();
+    gw.winnerIds = winners;
+    gw.validCount = valid.length;
+    save();
+
+    await editEndedMessage(msg, gw);
+    await announceWinners(msg, gw, winners, false);
+    return { ok: true, winners };
+  } finally {
+    endingNow.delete(id);
+  }
+}
+
+// Vérifie régulièrement les giveaways à terminer (fonctionne aussi après un redémarrage du bot)
+async function checkGiveaways() {
+  for (const guild of client.guilds.cache.values()) {
+    const d = getG(guild.id);
+    for (const [id, gw] of Object.entries(d.giveaways)) {
+      if (!gw.ended && gw.endAt <= Date.now()) {
+        await endGiveaway(guild, id).catch(console.error);
+      } else if (gw.ended && Date.now() - (gw.endedAt || 0) > 30 * 86_400_000) {
+        delete d.giveaways[id]; // on garde 30 jours pour permettre le reroll
+        save();
+      }
+    }
+  }
+}
+
+// Met à jour le compteur du bouton si besoin
+async function refreshGiveaway(guild, id) {
+  const gw = getG(guild.id).giveaways[id];
+  if (!gw || gw.ended) return;
+  const { msg, gone } = await fetchMsg(guild, gw.channelId, id);
+  if (gone) { delete getG(guild.id).giveaways[id]; save(); return; }
+  if (!msg) return;
+  const row = gwRow(gw);
+  const s = sig(row.toJSON());
+  if (gw.sig === s) return;
+  try {
+    await msg.edit({ components: [row] });
+    gw.sig = s;
+    save();
+  } catch (e) {
+    console.error('[giveaway]', e.message);
+  }
+}
+
+async function refreshGiveaways(guild) {
+  for (const id of Object.keys(getG(guild.id).giveaways)) {
+    await refreshGiveaway(guild, id).catch(console.error);
+  }
+}
+
+// Plusieurs clics rapprochés = une seule modification du message (limite de Discord)
+function scheduleGwUpdate(guild, id) {
+  const key = `${guild.id}:${id}`;
+  if (gwTimers.has(key)) return;
+  gwTimers.set(key, setTimeout(() => {
+    gwTimers.delete(key);
+    refreshGiveaway(guild, id).catch(console.error);
+  }, 3000));
+}
+
+async function gwJoin(i) {
+  const gw = getG(i.guildId).giveaways[i.message.id];
+  if (!gw) return i.reply({ content: "❌ Ce giveaway n'existe plus.", flags: EPH });
+  if (gw.ended || Date.now() >= gw.endAt) return i.reply({ content: '⏰ Ce giveaway est terminé.', flags: EPH });
+  if (gw.requiredRole && !i.member.roles.cache.has(gw.requiredRole)) {
+    return i.reply({
+      content: `❌ Il te faut le rôle <@&${gw.requiredRole}> pour participer.`,
+      flags: EPH, allowedMentions: { parse: [] },
+    });
+  }
+  if (gw.entrants.includes(i.user.id)) {
+    return i.reply({
+      content: '✅ Tu participes déjà à ce giveaway.',
+      flags: EPH,
+      components: [new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`gw_leave:${i.message.id}`).setLabel('Quitter le giveaway').setStyle(ButtonStyle.Danger))],
+    });
+  }
+  gw.entrants.push(i.user.id);
+  save();
+  await i.reply({ content: '🎉 Participation enregistrée, bonne chance !', flags: EPH });
+  scheduleGwUpdate(i.guild, i.message.id);
+}
+
+async function gwLeave(i) {
+  const id = i.customId.split(':')[1];
+  const gw = getG(i.guildId).giveaways[id];
+  if (!gw || gw.ended) return i.update({ content: '⏰ Ce giveaway est terminé.', components: [] });
+  gw.entrants = gw.entrants.filter((u) => u !== i.user.id);
+  save();
+  await i.update({ content: '👋 Tu ne participes plus à ce giveaway.', components: [] });
+  scheduleGwUpdate(i.guild, id);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1177,7 +1384,7 @@ async function refreshGuild(guild) {
     ['salon commandes', () => syncCommandChannel(guild)],
     ['panels tickets', () => refreshPanels(guild)],
     ['autoroles', () => syncAutoroles(guild)],
-    ['votany', () => refreshVotany(guild)],
+    ['giveaways', () => refreshGiveaways(guild)],
     ['classement invitations', () => refreshBoard(guild)],
   ];
   for (const [name, fn] of steps) {
@@ -1243,7 +1450,7 @@ const HELP_MOD = [
 ];
 const HELP_ADMIN = [
   '`/salon-commandes` - créer le salon privé où utiliser les commandes',
-  '`/votany` - envoyer un message avec un bouton de vote',
+  '`/giveaway` - `creer` - `terminer` - `reroll` - `annuler` - `liste` : giveaways',
   '`/salon-sanctions` - salon par défaut des annonces de ban / mute',
   '`/role-total` 👑 - rôles avec accès à toutes les commandes',
   '`/roles-mod` - rôles autorisés à modérer',
@@ -1329,34 +1536,114 @@ const handlers = {
     }
   },
 
-  /* ---------- /votany ---------- */
-  async votany(i) {
-    const salon = i.options.getChannel('salon', true);
-    const label = i.options.getString('bouton') || 'Voter';
-    const img = i.options.getAttachment('image');
-    const thumb = i.options.getAttachment('miniature');
+  /* ---------- /giveaway ---------- */
+  async giveaway(i) {
+    const sub = i.options.getSubcommand();
+    const d = getG(i.guildId);
 
-    const modalId = `votany_${i.id}`;
-    await i.showModal(announceModal(modalId, 'Nouveau vote', 'Texte du message (Markdown accepté)'));
-
-    const m = await i.awaitModalSubmit({
-      time: 15 * 60_000,
-      filter: (x) => x.customId === modalId && x.user.id === i.user.id,
-    }).catch(() => null);
-    if (!m) return;
-
-    await m.deferReply({ flags: EPH });
-    try {
-      const { embed, files } = await buildAnnounce(m, img, thumb);
-      const row = votanyRow(label, 0);
-      const msg = await salon.send({ embeds: [embed], files, components: [row] });
-      getG(i.guildId).votany[msg.id] = { channelId: salon.id, label, voters: [], sig: sig(row.toJSON()) };
-      save();
-      await m.editReply(`✅ Message envoyé dans <#${salon.id}>.`);
-    } catch (e) {
-      console.error('[votany]', e);
-      await m.editReply("❌ Impossible d'envoyer le message (vérifie mes permissions dans ce salon et les liens d'images).");
+    if (sub === 'liste') {
+      const active = Object.entries(d.giveaways).filter(([, g]) => !g.ended).sort((a, b) => a[1].endAt - b[1].endAt);
+      if (!active.length) return i.reply({ content: 'Aucun giveaway en cours. Lance-en un avec `/giveaway creer`.', flags: EPH });
+      const lines = active.map(([id, g]) =>
+        `🎉 **${g.prize}** · <#${g.channelId}> · fin <t:${Math.floor(g.endAt / 1000)}:R> · ${g.entrants.length} participant(s) · ` +
+        `[message](https://discord.com/channels/${i.guildId}/${g.channelId}/${id})`);
+      const embed = new EmbedBuilder().setColor('#F1C40F').setTitle('🎉 Giveaways en cours')
+        .setDescription(fitLines(lines, 4000));
+      return i.reply({ embeds: [embed], flags: EPH, allowedMentions: { parse: [] } });
     }
+
+    if (sub === 'creer') {
+      const salon = i.options.getChannel('salon', true);
+      const prize = i.options.getString('lot', true).trim();
+      const amount = i.options.getInteger('duree', true);
+      const unit = i.options.getString('unite', true);
+      const winners = i.options.getInteger('gagnants') ?? 1;
+      const description = (i.options.getString('description') || '').trim();
+      const role = i.options.getRole('role-requis');
+      const mentionOpt = i.options.get('mention');
+      const ping = i.options.getString('ping');
+      const img = i.options.getAttachment('image');
+
+      const duration = amount * UNITS[unit];
+      if (duration > MAX_GW) return i.reply({ content: '❌ Durée maximale : 365 jours.', flags: EPH });
+      if (role && role.id === i.guild.id) return i.reply({ content: '❌ Tu ne peux pas choisir @everyone.', flags: EPH });
+      if (ping && !i.member.permissions.has(PermissionFlagsBits.MentionEveryone)) {
+        return i.reply({ content: '❌ Il te faut la permission de mentionner @everyone.', flags: EPH });
+      }
+
+      await i.deferReply({ flags: EPH });
+      const gw = {
+        channelId: salon.id, prize, description, winners,
+        endAt: Date.now() + duration, hostId: i.user.id,
+        requiredRole: role?.id || null,
+        entrants: [], ended: false, winnerIds: [],
+      };
+      try {
+        const embed = new EmbedBuilder()
+          .setColor('#F1C40F')
+          .setTitle(`🎉 ${prize}`.slice(0, 256))
+          .setDescription(gwDescription(gw))
+          .setFooter({ text: 'Se termine' })
+          .setTimestamp(new Date(gw.endAt));
+        const files = [];
+        if (img) {
+          const f = await toFile(img, 'giveaway');
+          files.push(f);
+          embed.setImage(`attachment://${f.name}`);
+        }
+        const row = gwRow(gw);
+        const { content, allowed } = buildMentions(ping, mentionOpt);
+        const msg = await salon.send({ content, embeds: [embed], files, components: [row], allowedMentions: allowed });
+        gw.sig = sig(row.toJSON());
+        d.giveaways[msg.id] = gw;
+        save();
+        await i.editReply(
+          `✅ Giveaway lancé dans <#${salon.id}> (fin <t:${Math.floor(gw.endAt / 1000)}:R>). ` +
+          'Le tirage se fait tout seul à la fin.');
+      } catch (e) {
+        console.error('[giveaway]', e);
+        await i.editReply("❌ Impossible de lancer le giveaway (vérifie mes permissions dans ce salon et l'image).");
+      }
+      return;
+    }
+
+    const id = i.options.getString('giveaway', true);
+    const gw = d.giveaways[id];
+    if (!gw) return i.reply({ content: '❌ Giveaway introuvable.', flags: EPH });
+
+    if (sub === 'terminer') {
+      if (gw.ended) return i.reply({ content: '❌ Ce giveaway est déjà terminé.', flags: EPH });
+      await i.deferReply({ flags: EPH });
+      const r = await endGiveaway(i.guild, id);
+      if (!r.ok) return i.editReply(`❌ Impossible de terminer ce giveaway : ${r.reason}.`);
+      return i.editReply(r.winners.length
+        ? `✅ Giveaway terminé. Gagnant${r.winners.length > 1 ? 's' : ''} : ${r.winners.map((w) => `<@${w}>`).join(', ')}`
+        : '✅ Giveaway terminé : aucun participant valide.');
+    }
+
+    if (sub === 'annuler') {
+      await i.deferReply({ flags: EPH });
+      const { msg } = await fetchMsg(i.guild, gw.channelId, id);
+      delete d.giveaways[id];
+      save();
+      if (msg) await msg.delete().catch(() => {});
+      return i.editReply('🗑️ Giveaway annulé et message supprimé.');
+    }
+
+    // reroll
+    if (!gw.ended) return i.reply({ content: "❌ Ce giveaway n'est pas encore terminé. Utilise `/giveaway terminer`.", flags: EPH });
+    await i.deferReply({ flags: EPH });
+    const { msg } = await fetchMsg(i.guild, gw.channelId, id);
+    if (!msg) return i.editReply('❌ Le message du giveaway est introuvable.');
+    const n = i.options.getInteger('nombre') ?? 1;
+    const valid = await validEntrants(i.guild, gw);
+    const winners = pickWinners(valid, n, gw.winnerIds);
+    gw.winnerIds.push(...winners);
+    save();
+    await announceWinners(msg, gw, winners, true);
+    return i.editReply(winners.length
+      ? `✅ Nouveau tirage : ${winners.map((w) => `<@${w}>`).join(', ')}`
+      : '❌ Aucun autre participant valide.');
   },
 
   /* ---------- /invites (tout le monde) ---------- */
@@ -2109,6 +2396,20 @@ async function autocomplete(i) {
         .filter((o) => o.name.toLowerCase().includes(q))
         .slice(0, 25));
   }
+  if (f.name === 'giveaway') {
+    if (!hasFullAccess(i)) return i.respond([]);
+    const sub = i.options.getSubcommand(false);
+    return i.respond(
+      Object.entries(d.giveaways)
+        .filter(([, g]) => sub === 'annuler' || (sub === 'reroll' ? g.ended : !g.ended))
+        .filter(([, g]) => g.prize.toLowerCase().includes(q))
+        .sort((a, b) => b[1].endAt - a[1].endAt)
+        .slice(0, 25)
+        .map(([id, g]) => ({
+          name: `${g.prize} (#${i.guild.channels.cache.get(g.channelId)?.name || '?'})${g.ended ? ' — terminé' : ''}`.slice(0, 100),
+          value: id,
+        })));
+  }
   if (f.name === 'utilisateur') {
     // Liste des bannis (pour /unban) — réservée à ceux qui peuvent modérer
     if (!canModerate(i)) return i.respond([]);
@@ -2153,7 +2454,11 @@ client.once(Events.ClientReady, async () => {
   checkMutes();
   setInterval(checkMutes, 15_000);
 
-  // Mise à jour automatique de tous les systèmes (panels de tickets, autoroles, votany, classement, salon commandes)
+  // Fin automatique des giveaways
+  checkGiveaways();
+  setInterval(checkGiveaways, 10_000);
+
+  // Mise à jour automatique de tous les systèmes (panels de tickets, autoroles, giveaways, classement, salon commandes)
   for (const guild of client.guilds.cache.values()) await refreshGuild(guild);
   console.log('✅ Systèmes mis à jour automatiquement');
 
@@ -2225,13 +2530,13 @@ client.on(Events.GuildMemberRemove, (member) => {
 client.on(Events.MessageReactionAdd, (reaction, user) => handleReaction(reaction, user, true));
 client.on(Events.MessageReactionRemove, (reaction, user) => handleReaction(reaction, user, false));
 
-// Si un message géré est supprimé à la main (autorole, votany), on nettoie l'enregistrement
+// Si un message géré est supprimé à la main (autorole, giveaway), on nettoie l'enregistrement
 client.on(Events.MessageDelete, (message) => {
   if (!message.guildId) return;
   const d = getG(message.guildId);
   let changed = false;
   if (d.reactionRoles[message.id]) { delete d.reactionRoles[message.id]; changed = true; }
-  if (d.votany[message.id]) { delete d.votany[message.id]; changed = true; }
+  if (d.giveaways[message.id]) { delete d.giveaways[message.id]; changed = true; }
   if (changed) save();
 });
 
@@ -2261,7 +2566,8 @@ client.on(Events.InteractionCreate, async (i) => {
       if (i.customId.startsWith('tk_open:')) return await openTicket(i, i.customId.split(':')[1], null);
       if (i.customId === 'tk_close') return await closeTicket(i);
       if (i.customId === 'tk_claim') return await claimTicket(i);
-      if (i.customId === 'vt_vote') return await voteClick(i);
+      if (i.customId === 'gw_join') return await gwJoin(i);
+      if (i.customId.startsWith('gw_leave:')) return await gwLeave(i);
     }
   } catch (e) {
     console.error(e);
