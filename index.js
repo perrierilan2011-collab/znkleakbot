@@ -51,6 +51,7 @@ function getG(id) {
   g.muted ??= {};           // userId -> { roles[], until, reason, by }
   g.reactionRoles ??= {};   // messageId -> { channelId, roleId, emoji, label }
   g.sanctionChannel ??= null; // salon par défaut où annoncer les ban / mute
+  g.fullRoles ??= [];       // rôles qui ont accès à TOUTES les commandes
   g.history ??= {};         // userId -> [{ type, by, reason, duration, at }]
   // Migration : un seul rôle staff -> plusieurs rôles staff
   for (const c of Object.values(g.tickets)) {
@@ -143,9 +144,18 @@ function buildMentions(ping, mentionOpt) {
 // 👑 = propriétaire du serveur (la couronne)
 const isOwner = (i) => i.guild.ownerId === i.user.id;
 
-// Le propriétaire OU un membre ayant un rôle choisi avec /roles-mod
+// Le propriétaire OU un membre ayant un rôle choisi avec /role-total : accès à TOUTES les commandes
+const hasFullAccess = (i) =>
+  isOwner(i) || i.member.roles.cache.some((r) => getG(i.guildId).fullRoles.includes(r.id));
+
+// Accès total OU un membre ayant un rôle choisi avec /roles-mod
 const canModerate = (i) =>
-  isOwner(i) || i.member.roles.cache.some((r) => getG(i.guildId).modRoles.includes(r.id));
+  hasFullAccess(i) || i.member.roles.cache.some((r) => getG(i.guildId).modRoles.includes(r.id));
+
+// Les rôles /roles-mod n'ont accès qu'à ces commandes. Toutes les autres : accès total uniquement.
+const MOD_COMMANDS = new Set(['ban', 'unban', 'mute', 'unmute', 'sanctions-actives', 'historique-sanctions']);
+const commandAllowed = (i) =>
+  i.commandName === 'help' || hasFullAccess(i) || (MOD_COMMANDS.has(i.commandName) && canModerate(i));
 
 const NO_ACCESS = { content: "❌ Tu n'as pas accès à cette commande.", flags: EPH };
 
@@ -301,6 +311,26 @@ const commands = [
     .setDescription('Voir si un membre a déjà été banni ou mute')
     .addUserOption((o) => o.setName('membre').setDescription('Le membre à vérifier').setRequired(true))
     .setDefaultMemberPermissions(null)
+    .setDMPermission(false),
+
+  // ---------- Aide ----------
+  new SlashCommandBuilder()
+    .setName('help')
+    .setDescription('Voir toutes les commandes auxquelles tu as accès')
+    .setDMPermission(false),
+
+  // ---------- Rôles avec accès à toutes les commandes (👑 uniquement) ----------
+  new SlashCommandBuilder()
+    .setName('role-total')
+    .setDescription('👑 Choisir quels rôles ont accès à TOUTES les commandes du bot')
+    .addSubcommand((s) =>
+      s.setName('ajouter').setDescription("Donner l'accès à toutes les commandes à un rôle")
+        .addRoleOption((o) => o.setName('role').setDescription('Le rôle à autoriser').setRequired(true)))
+    .addSubcommand((s) =>
+      s.setName('retirer').setDescription("Retirer l'accès total à un rôle")
+        .addRoleOption((o) => o.setName('role').setDescription('Le rôle à retirer').setRequired(true)))
+    .addSubcommand((s) => s.setName('liste').setDescription('Voir les rôles avec accès total'))
+    .setDefaultMemberPermissions('0')
     .setDMPermission(false),
 
   // ---------- Rôles autorisés à modérer (👑 uniquement) ----------
@@ -766,10 +796,15 @@ async function handleReaction(reaction, user, add) {
 /* ------------------------------------------------------------------ */
 /*  Gestion des listes de rôles (/roles-mod et /roles-proteges)        */
 /* ------------------------------------------------------------------ */
-function roleListHandler(key, title) {
+function roleListHandler(key, title, ownerOnly = false) {
   return async (i) => {
-    if (!isOwner(i)) {
-      return i.reply({ content: '❌ Seul le propriétaire du serveur (👑) peut utiliser cette commande.', flags: EPH });
+    if (ownerOnly ? !isOwner(i) : !hasFullAccess(i)) {
+      return i.reply({
+        content: ownerOnly
+          ? '❌ Seul le propriétaire du serveur (👑) peut utiliser cette commande.'
+          : '❌ Réservé au propriétaire (👑) et aux rôles avec accès total.',
+        flags: EPH,
+      });
     }
     const d = getG(i.guildId);
     const sub = i.options.getSubcommand();
@@ -799,10 +834,53 @@ function roleListHandler(key, title) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Aide (/help)                                                       */
+/* ------------------------------------------------------------------ */
+const HELP_MOD = [
+  '`/ban` - bannir un membre (option : salon d\'annonce)',
+  '`/unban` - débannir un utilisateur',
+  '`/mute` - rendre un membre muet pour une durée (option : salon d\'annonce)',
+  '`/unmute` - enlever le mute d\'un membre',
+  '`/sanctions-actives` - voir les bannis et mutés actuels',
+  '`/historique-sanctions` - voir si un membre a déjà été banni ou mute',
+];
+const HELP_ADMIN = [
+  '`/salon-sanctions` - salon par défaut des annonces de ban / mute',
+  '`/role-total` 👑 - rôles avec accès à toutes les commandes',
+  '`/roles-mod` - rôles autorisés à modérer',
+  '`/roles-proteges` - rôles que les modérateurs ne peuvent pas sanctionner',
+  '`/membercount` - salon vocal avec le nombre de membres',
+  '`/annonce` - envoyer une annonce (titre, texte, images, mentions)',
+  '`/autorole` - `creer` - `liste` - `supprimer` : réaction qui donne un rôle',
+  '`/bienvenue` - `configurer` - `activer` - `desactiver` - `test`',
+];
+const HELP_TICKET = [
+  '`/ticket config-creer` - `config-liste` - `config-supprimer`',
+  '`/ticket staff-ajouter` - `staff-retirer`',
+  '`/ticket raison-ajouter` - `raison-retirer`',
+  '`/ticket panel` - envoyer le panel dans un salon',
+];
+
+/* ------------------------------------------------------------------ */
 /*  Gestionnaires de commandes                                         */
 /* ------------------------------------------------------------------ */
 const handlers = {
+  /* ---------- /help ---------- */
+  async help(i) {
+    const embed = new EmbedBuilder().setColor('#5865F2').setTitle('📖 Aide - commandes').setTimestamp();
+    if (canModerate(i)) embed.addFields({ name: '🛡️ Modération', value: HELP_MOD.join('\n') });
+    if (hasFullAccess(i)) {
+      embed.addFields(
+        { name: '⚙️ Administration', value: HELP_ADMIN.join('\n') },
+        { name: '🎫 Tickets', value: HELP_TICKET.join('\n') },
+      );
+    }
+    if (!canModerate(i)) embed.setDescription("Tu n'as accès à aucune commande pour le moment.");
+    return i.reply({ embeds: [embed], flags: EPH });
+  },
+
   /* ---------- /roles-mod & /roles-proteges (👑) ---------- */
+  'role-total': roleListHandler('fullRoles', 'Rôles avec accès à toutes les commandes', true),
   'roles-mod': roleListHandler('modRoles', 'Rôles autorisés à modérer (ban - unban - mute - unmute)'),
   'roles-proteges': roleListHandler('protectedRoles', 'Rôles protégés (ni mute ni ban par les modérateurs)'),
 
@@ -1107,7 +1185,7 @@ const handlers = {
 
   /* ---------- /autorole ---------- */
   async autorole(i) {
-    if (!i.member.permissions.has(PermissionFlagsBits.ManageRoles)) return i.reply(NO_ACCESS);
+    if (!hasFullAccess(i) && !i.member.permissions.has(PermissionFlagsBits.ManageRoles)) return i.reply(NO_ACCESS);
     const sub = i.options.getSubcommand();
     const d = getG(i.guildId);
 
@@ -1430,7 +1508,7 @@ async function autocomplete(i) {
   }
   if (f.name === 'message') {
     // Liste des autoroles (pour /autorole supprimer)
-    if (!i.member.permissions.has(PermissionFlagsBits.ManageRoles)) return i.respond([]);
+    if (!hasFullAccess(i) && !i.member.permissions.has(PermissionFlagsBits.ManageRoles)) return i.respond([]);
     return i.respond(
       Object.entries(d.reactionRoles)
         .map(([id, r]) => ({
@@ -1463,7 +1541,8 @@ async function autocomplete(i) {
 /* ------------------------------------------------------------------ */
 client.once(Events.ClientReady, async () => {
   console.log(`✅ Connecté en tant que ${client.user.tag}`);
-  const body = commands.map((c) => c.toJSON());
+  // Toutes les commandes sont masquées par défaut (visibles seulement via Paramètres du serveur > Intégrations)
+  const body = commands.map((c) => (c.name === 'help' ? c : c.setDefaultMemberPermissions('0')).toJSON());
   if (process.env.GUILD_ID) {
     const guild = await client.guilds.fetch(process.env.GUILD_ID);
     await guild.commands.set(body);
@@ -1528,8 +1607,14 @@ client.on(Events.MessageDelete, (message) => {
 
 client.on(Events.InteractionCreate, async (i) => {
   try {
-    if (i.isAutocomplete()) return await autocomplete(i);
-    if (i.isChatInputCommand()) return await handlers[i.commandName]?.(i);
+    if (i.isAutocomplete()) {
+      if (!commandAllowed(i)) return await i.respond([]);
+      return await autocomplete(i);
+    }
+    if (i.isChatInputCommand()) {
+      if (!commandAllowed(i)) return await i.reply(NO_ACCESS);
+      return await handlers[i.commandName]?.(i);
+    }
     if (i.isStringSelectMenu() && i.customId.startsWith('tk_open:')) {
       return await openTicket(i, i.customId.split(':')[1], i.values[0]);
     }
