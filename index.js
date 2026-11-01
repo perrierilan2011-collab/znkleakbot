@@ -109,6 +109,10 @@ function getG(id) {
     rewards: [],   // [{ count, roleId }]
     board: null,   // { channelId, messageId, top, sig }
   };
+  g.invites.links ??= {};      // code -> { userId, createdBy, createdAt, joins }  (liens dédiés)
+  g.invites.joinedVia ??= {};  // membre -> { code, inviterId, at }  (par quel lien il est arrivé)
+  g.cmdPerms ??= {};           // commande -> [roleIds]  (rôles autorisés par commande)
+  g.disabledCommands ??= [];   // commandes retirées de Discord
   // Migration : un seul rôle staff -> plusieurs rôles staff
   for (const c of Object.values(g.tickets)) {
     c.staffRoles ??= c.staffRoleId ? [c.staffRoleId] : [];
@@ -233,22 +237,27 @@ const isOwner = (i) => i.guild.ownerId === i.user.id;
 const hasFullAccess = (i) =>
   isOwner(i) || i.member.roles.cache.some((r) => getG(i.guildId).fullRoles.includes(r.id));
 
-// Rôles autorisés depuis le site (onglet Permissions) pour la commande utilisée
-const dashAllowed = (i) => {
-  const ids = getG(i.guildId).dashPerms?.[i.commandName];
+// Rôles autorisés pour la commande utilisée (choisis avec /permissions)
+const cmdAllowed = (i) => {
+  const ids = getG(i.guildId).cmdPerms[i.commandName];
   return !!ids?.length && i.member.roles.cache.some((r) => ids.includes(r.id));
 };
 
-// Accès total OU un membre ayant un rôle choisi avec /roles-mod OU un rôle autorisé depuis le site
+// Accès total OU un rôle /roles-mod OU un rôle autorisé pour cette commande avec /permissions
 const canModerate = (i) =>
-  hasFullAccess(i) || i.member.roles.cache.some((r) => getG(i.guildId).modRoles.includes(r.id)) || dashAllowed(i);
+  hasFullAccess(i) || i.member.roles.cache.some((r) => getG(i.guildId).modRoles.includes(r.id)) || cmdAllowed(i);
 
-// Les rôles /roles-mod n'ont accès qu'à ces commandes. Toutes les autres : accès total uniquement.
+// Les rôles /roles-mod n'ont accès qu'à ces commandes.
 const MOD_COMMANDS = new Set(['ban', 'unban', 'mute', 'unmute', 'sanctions-actives', 'historique-sanctions']);
 // Commandes ouvertes à tout le monde
 const PUBLIC_COMMANDS = new Set(['help', 'invites']);
+// Commandes qu'on ne peut jamais désactiver (sinon on se bloque soi-même)
+const ALWAYS_ON = new Set(['help', 'commandes', 'permissions', 'salon-commandes']);
+// Commandes réservées au propriétaire (on ne peut pas les donner à un rôle)
+const OWNER_ONLY = new Set(['permissions', 'commandes', 'role-total']);
 const commandAllowed = (i) =>
-  PUBLIC_COMMANDS.has(i.commandName) || hasFullAccess(i) || (MOD_COMMANDS.has(i.commandName) && canModerate(i)) || dashAllowed(i);
+  PUBLIC_COMMANDS.has(i.commandName) || hasFullAccess(i) ||
+  (MOD_COMMANDS.has(i.commandName) && canModerate(i)) || cmdAllowed(i);
 
 const NO_ACCESS = { content: "❌ Tu n'as pas accès à cette commande.", flags: EPH };
 
@@ -270,7 +279,7 @@ function wrongChannel(i) {
 function commandChannelOverwrites(guild) {
   const d = getG(guild.id);
   const P = PermissionFlagsBits;
-  const ids = [...new Set([...d.fullRoles, ...d.modRoles, ...d.commandChannelRoles])]
+  const ids = [...new Set([...d.fullRoles, ...d.modRoles, ...d.commandChannelRoles, ...Object.values(d.cmdPerms).flat()])]
     .filter((id) => id !== guild.id && guild.roles.cache.has(id));
   return [
     { id: guild.id, deny: [P.ViewChannel] },
@@ -358,25 +367,31 @@ const MEDALS = ['🥇', '🥈', '🥉'];
 async function snapshotInvites(guild) {
   const invites = await guild.invites.fetch().catch(() => null);
   if (!invites) return null;
+  const links = getG(guild.id).invites.links;
   const map = new Map();
   for (const inv of invites.values()) {
-    map.set(inv.code, { uses: inv.uses ?? 0, maxUses: inv.maxUses || 0, inviterId: inv.inviter?.id || null });
+    map.set(inv.code, {
+      uses: inv.uses ?? 0,
+      maxUses: inv.maxUses || 0,
+      // un lien dédié compte pour le membre choisi, pas pour celui qui l'a créé (le bot)
+      inviterId: links[inv.code]?.userId || inv.inviter?.id || null,
+    });
   }
   inviteCache.set(guild.id, map);
   return map;
 }
 
-// Compare avec le cache : l'invitation dont le compteur a augmenté est celle utilisée
+// Renvoie { inviterId, code } ou null
 async function findInviter(guild) {
   const old = inviteCache.get(guild.id) || new Map();
   const now = await snapshotInvites(guild);
   if (!now) return null;
   for (const [code, inv] of now) {
-    if (inv.uses > (old.get(code)?.uses ?? 0)) return inv.inviterId;
+    if (inv.uses > (old.get(code)?.uses ?? 0)) return { inviterId: inv.inviterId, code };
   }
   // Invitation à usage limité supprimée juste après l'arrivée
   for (const [code, inv] of old) {
-    if (!now.has(code) && inv.maxUses && inv.uses + 1 >= inv.maxUses) return inv.inviterId;
+    if (!now.has(code) && inv.maxUses && inv.uses + 1 >= inv.maxUses) return { inviterId: inv.inviterId, code };
   }
   return null;
 }
@@ -437,14 +452,20 @@ async function refreshBoard(guild, force = false) {
 
 async function onInviteJoin(member) {
   if (member.user.bot) return;
-  const inviterId = await findInviter(member.guild).catch(() => null);
-  if (!inviterId || inviterId === member.id) return;
+  const found = await findInviter(member.guild).catch(() => null);
   const d = getG(member.guild.id).invites;
-  d.joinedBy[member.id] = inviterId;
-  const s = (d.stats[inviterId] ??= { joins: 0, left: 0 });
+
+  // On mémorise toujours par quel lien le membre est arrivé (même si inconnu)
+  d.joinedVia[member.id] = { code: found?.code || null, inviterId: found?.inviterId || null, at: Date.now() };
+  if (found?.code && d.links[found.code]) d.links[found.code].joins = (d.links[found.code].joins || 0) + 1;
+  save();
+
+  if (!found?.inviterId || found.inviterId === member.id) return;
+  d.joinedBy[member.id] = found.inviterId;
+  const s = (d.stats[found.inviterId] ??= { joins: 0, left: 0 });
   s.joins++;
   save();
-  await checkInviteRewards(member.guild, inviterId);
+  await checkInviteRewards(member.guild, found.inviterId);
 }
 
 function onInviteLeave(member) {
@@ -654,6 +675,65 @@ const commands = [
     .setDefaultMemberPermissions('0')
     .setDMPermission(false),
 
+  // ---------- Liens d'invitation dédiés ----------
+  new SlashCommandBuilder()
+    .setName('lien-invite')
+    .setDescription("Liens d'invitation dédiés à un membre")
+    .addSubcommand((s) =>
+      s.setName('creer').setDescription("Créer un lien d'invitation dédié à un membre")
+        .addUserOption((o) => o.setName('membre').setDescription('Le membre à qui le lien est dédié').setRequired(true))
+        .addChannelOption((o) =>
+          o.setName('salon').setDescription('Salon vers lequel le lien mène')
+            .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement, ChannelType.GuildVoice).setRequired(true))
+        .addIntegerOption((o) =>
+          o.setName('max-utilisations').setDescription('Nombre max d\'utilisations (illimité par défaut)').setMinValue(1).setMaxValue(100))
+        .addIntegerOption((o) =>
+          o.setName('expire-jours').setDescription('Expiration en jours (jamais par défaut, 7 max)').setMinValue(1).setMaxValue(7)))
+    .addSubcommand((s) => s.setName('liste').setDescription('Voir les liens dédiés'))
+    .addSubcommand((s) =>
+      s.setName('supprimer').setDescription('Supprimer un lien dédié')
+        .addStringOption((o) => o.setName('lien').setDescription('Le lien').setAutocomplete(true).setRequired(true)))
+    .setDefaultMemberPermissions('0')
+    .setDMPermission(false),
+
+  // ---------- Avec le lien de qui un membre est arrivé ----------
+  new SlashCommandBuilder()
+    .setName('qui-a-invite')
+    .setDescription('Voir avec le lien de qui un membre a rejoint le serveur')
+    .addUserOption((o) => o.setName('membre').setDescription('Le membre à vérifier').setRequired(true))
+    .setDefaultMemberPermissions('0')
+    .setDMPermission(false),
+
+  // ---------- Rôles autorisés par commande (👑) ----------
+  new SlashCommandBuilder()
+    .setName('permissions')
+    .setDescription('👑 Choisir quels rôles peuvent utiliser quelle commande')
+    .addSubcommand((s) =>
+      s.setName('ajouter').setDescription('Autoriser un rôle à utiliser une commande')
+        .addStringOption((o) => o.setName('commande').setDescription('La commande').setAutocomplete(true).setRequired(true))
+        .addRoleOption((o) => o.setName('role').setDescription('Le rôle à autoriser').setRequired(true)))
+    .addSubcommand((s) =>
+      s.setName('retirer').setDescription("Retirer l'accès d'un rôle à une commande")
+        .addStringOption((o) => o.setName('commande').setDescription('La commande').setAutocomplete(true).setRequired(true))
+        .addRoleOption((o) => o.setName('role').setDescription('Le rôle à retirer').setRequired(true)))
+    .addSubcommand((s) => s.setName('liste').setDescription('Voir qui a accès à quoi'))
+    .setDefaultMemberPermissions('0')
+    .setDMPermission(false),
+
+  // ---------- Activer / désactiver des commandes (👑) ----------
+  new SlashCommandBuilder()
+    .setName('commandes')
+    .setDescription('👑 Retirer ou remettre des commandes du bot')
+    .addSubcommand((s) =>
+      s.setName('desactiver').setDescription('Retirer une commande (elle disparaît de Discord)')
+        .addStringOption((o) => o.setName('commande').setDescription('La commande').setAutocomplete(true).setRequired(true)))
+    .addSubcommand((s) =>
+      s.setName('activer').setDescription('Remettre une commande retirée')
+        .addStringOption((o) => o.setName('commande').setDescription('La commande').setAutocomplete(true).setRequired(true)))
+    .addSubcommand((s) => s.setName('liste').setDescription('Voir toutes les commandes et leur état'))
+    .setDefaultMemberPermissions('0')
+    .setDMPermission(false),
+
   // ---------- Classement des invitations ----------
   new SlashCommandBuilder()
     .setName('classement-invites')
@@ -831,7 +911,12 @@ const commands = [
         .addStringOption((o) => o.setName('image-url').setDescription('Bannière via un lien (si pas de fichier)'))
         .addAttachmentOption((o) => o.setName('miniature').setDescription('Petite image en haut à droite'))
         .addStringOption((o) => o.setName('placeholder').setDescription('Texte du menu (ex : Choisir une catégorie...)').setMaxLength(100))
-        .addStringOption((o) => o.setName('footer').setDescription('Pied de page (ex : YouGate)').setMaxLength(200)))
+        .addStringOption((o) => o.setName('footer').setDescription('Pied de page (ex : YouGate)').setMaxLength(200))
+        .addBooleanOption((o) => o.setName('sans-texte').setDescription("Panel avec seulement l'image et le bouton (image obligatoire)"))
+        .addStringOption((o) =>
+          o.setName('type').setDescription("Bouton ou menu déroulant (menu seulement s'il y a des catégories)")
+            .addChoices({ name: 'Bouton', value: 'bouton' }, { name: 'Menu déroulant', value: 'menu' }))
+        .addStringOption((o) => o.setName('bouton-texte').setDescription('Texte du bouton (défaut : Ouvrir un ticket)').setMaxLength(80)))
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setDMPermission(false),
 ];
@@ -972,13 +1057,13 @@ async function checkMutes() {
 /* ------------------------------------------------------------------ */
 /*  Tickets                                                            */
 /* ------------------------------------------------------------------ */
-const panelDesc = (cfg) => cfg.reasons.length
+const panelDesc = (cfg, button = false) => cfg.reasons.length && !button
   ? 'Sélectionne la catégorie de ta demande dans le menu ci-dessous pour ouvrir un ticket.'
   : 'Clique sur le bouton ci-dessous pour ouvrir un ticket.';
 
-// Menu déroulant (s'il y a des catégories) ou simple bouton
-function panelRow(cfg) {
-  if (cfg.reasons.length) {
+// Menu déroulant (s'il y a des catégories et qu'on ne force pas le bouton) ou simple bouton
+function panelRow(cfg, { button = false, label = null } = {}) {
+  if (cfg.reasons.length && !button) {
     return new ActionRowBuilder().addComponents(
       new StringSelectMenuBuilder()
         .setCustomId(`tk_open:${cfg.name}`)
@@ -992,7 +1077,7 @@ function panelRow(cfg) {
         })));
   }
   return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`tk_open:${cfg.name}`).setLabel('Ouvrir un ticket').setEmoji('🎫').setStyle(ButtonStyle.Primary));
+    new ButtonBuilder().setCustomId(`tk_open:${cfg.name}`).setLabel(label || 'Ouvrir un ticket').setEmoji('🎫').setStyle(ButtonStyle.Primary));
 }
 
 // Met à jour tous les panels déjà envoyés (catégories ajoutées / modifiées / retirées, nouveau code du bot...)
@@ -1007,8 +1092,8 @@ async function refreshPanels(guild, cfgName) {
       if (gone) { cfg.panels = cfg.panels.filter((x) => x !== p); save(); continue; }
       if (!msg) continue;
 
-      const row = panelRow(cfg);
-      const desc = p.customDesc ? null : panelDesc(cfg);
+      const row = panelRow(cfg, { button: p.button, label: p.btnLabel });
+      const desc = p.customDesc ? null : panelDesc(cfg, p.button);
       const s = sig({ row: row.toJSON(), desc });
       if (p.sig === s) continue;
 
@@ -1568,6 +1653,8 @@ const HELP = [
   ] },
   { title: '📈 Invitations (admin)', level: 'full', lines: [
     '`/invites-config recompense-ajouter` · `recompense-retirer` · `liste` · `reset`',
+    '`/lien-invite creer` · `liste` · `supprimer` — liens dédiés à un membre',
+    '`/qui-a-invite` — avec le lien de qui un membre est arrivé',
     '`/classement-invites` — envoyer le classement',
     '`/classement-invites-maj` — forcer sa mise à jour',
   ] },
@@ -1575,7 +1662,7 @@ const HELP = [
     '`/ticket config-creer` · `config-liste` · `config-supprimer`',
     '`/ticket staff-ajouter` · `staff-retirer`',
     '`/ticket raison-ajouter` · `raison-modifier` · `raison-retirer` — catégories du menu (emojis perso)',
-    '`/ticket panel` — envoyer le panel (bannière, menu, footer) dans un salon',
+    '`/ticket panel` — envoyer le panel (bannière, menu ou bouton, sans texte possible) dans un salon',
   ] },
   { title: '⚙️ Serveur & accès', level: 'full', lines: [
     '`/salon-commandes` — salon privé des commandes (et ses rôles)',
@@ -1586,9 +1673,29 @@ const HELP = [
   ] },
   { title: '👑 Propriétaire', level: 'owner', lines: [
     '`/role-total` — rôles avec accès à TOUTES les commandes',
+    '`/permissions` — choisir quel rôle a accès à quelle commande',
+    '`/commandes` — retirer / remettre des commandes',
   ] },
 ];
 const HELP_LEVEL = { public: () => true, mod: canModerate, full: hasFullAccess, owner: isOwner };
+
+/* ------------------------------------------------------------------ */
+/*  Enregistrement des commandes (par serveur, pour pouvoir en retirer) */
+/* ------------------------------------------------------------------ */
+// Retire les commandes désactivées avec /commandes.
+// Une commande à laquelle des rôles ont été donnés (/permissions) devient visible dans la liste Discord
+// (l'accès réel reste vérifié par le bot) ; les autres restent masquées pour les membres.
+async function registerCommands(guild) {
+  const d = getG(guild.id);
+  const body = commands
+    .filter((c) => ALWAYS_ON.has(c.name) || !d.disabledCommands.includes(c.name))
+    .map((c) => {
+      const visible = PUBLIC_COMMANDS.has(c.name) || d.cmdPerms[c.name]?.length ||
+        (MOD_COMMANDS.has(c.name) && d.modRoles.length);
+      return c.setDefaultMemberPermissions(visible ? null : '0').toJSON();
+    });
+  await guild.commands.set(body).catch((e) => console.error('[commandes]', guild.name, e.message));
+}
 
 /* ------------------------------------------------------------------ */
 /*  Gestionnaires de commandes                                         */
@@ -1879,6 +1986,159 @@ const handlers = {
       content: `✅ À partir de **${nb}** invitations, le rôle <@&${role.id}> sera donné automatiquement.`,
       allowedMentions: { parse: [] },
     });
+  },
+
+  /* ---------- /lien-invite ---------- */
+  async 'lien-invite'(i) {
+    const d = getG(i.guildId).invites;
+    const sub = i.options.getSubcommand();
+
+    if (sub === 'liste') {
+      const lines = Object.entries(d.links).map(([code, l]) =>
+        `• https://discord.gg/${code} → <@${l.userId}> · ${l.joins || 0} arrivée(s) · créé par <@${l.createdBy}>`);
+      const embed = new EmbedBuilder().setColor('#5865F2').setTitle("🔗 Liens d'invitation dédiés")
+        .setDescription(lines.length ? fitLines(lines, 4000) : 'Aucun lien dédié. Crée-en un avec `/lien-invite creer`.');
+      return i.reply({ embeds: [embed], flags: EPH, allowedMentions: { parse: [] } });
+    }
+
+    if (sub === 'supprimer') {
+      const code = i.options.getString('lien', true).trim().replace(/^.*\//, '');
+      if (!d.links[code]) return i.reply({ content: '❌ Ce lien n\'est pas un lien dédié.', flags: EPH });
+      await i.deferReply({ flags: EPH });
+      await i.guild.invites.delete(code, `Supprimé par ${i.user.tag}`).catch(() => {});
+      delete d.links[code];
+      save();
+      await snapshotInvites(i.guild);
+      return i.editReply('🗑️ Lien supprimé (les arrivées déjà comptées sont conservées).');
+    }
+
+    // creer
+    const user = i.options.getUser('membre', true);
+    if (user.bot) return i.reply({ content: '❌ Choisis un vrai membre (pas un bot).', flags: EPH });
+    const salon = i.options.getChannel('salon', true);
+    const maxUses = i.options.getInteger('max-utilisations') ?? 0;
+    const days = i.options.getInteger('expire-jours') ?? 0;
+    await i.deferReply({ flags: EPH });
+    try {
+      const inv = await salon.createInvite({
+        maxAge: days * 86400, maxUses, unique: true,
+        reason: `Lien dédié à ${user.tag} (créé par ${i.user.tag})`,
+      });
+      d.links[inv.code] = { userId: user.id, createdBy: i.user.id, createdAt: Date.now(), joins: 0 };
+      save();
+      const m = inviteCache.get(i.guildId) || new Map();
+      m.set(inv.code, { uses: 0, maxUses, inviterId: user.id });
+      inviteCache.set(i.guildId, m);
+      return i.editReply({
+        content: `✅ Lien dédié à <@${user.id}> : https://discord.gg/${inv.code}\n` +
+          `Chaque personne qui rejoint avec ce lien compte comme une invitation de <@${user.id}>.`,
+        allowedMentions: { parse: [] },
+      });
+    } catch (e) {
+      console.error(e);
+      return i.editReply("❌ Impossible de créer le lien : il me faut la permission **Créer une invitation** dans ce salon.");
+    }
+  },
+
+  /* ---------- /qui-a-invite ---------- */
+  async 'qui-a-invite'(i) {
+    const user = i.options.getUser('membre', true);
+    const d = getG(i.guildId).invites;
+    let v = d.joinedVia[user.id];
+    if (!v && d.joinedBy[user.id]) v = { code: null, inviterId: d.joinedBy[user.id], at: null }; // anciennes données
+    if (!v) {
+      return i.reply({
+        content: "❌ Aucune info pour ce membre : il est arrivé avant le suivi ou le bot n'a pas pu déterminer le lien.",
+        flags: EPH,
+      });
+    }
+    const dedicated = v.code && d.links[v.code];
+    const embed = new EmbedBuilder()
+      .setColor('#5865F2')
+      .setAuthor({ name: user.username, iconURL: user.displayAvatarURL() })
+      .setTitle('🔎 Origine de l\'arrivée')
+      .addFields(
+        { name: 'Invité par', value: v.inviterId ? `<@${v.inviterId}>` : 'Inconnu (lien personnalisé ou non détecté)', inline: true },
+        { name: 'Type', value: dedicated ? '🔗 Lien dédié' : 'Invitation classique', inline: true },
+        { name: 'Lien', value: v.code ? `https://discord.gg/${v.code}` : 'Inconnu' },
+      );
+    if (v.at) embed.addFields({ name: 'Arrivé', value: `<t:${Math.floor(v.at / 1000)}:F>` });
+    return i.reply({ embeds: [embed], flags: EPH, allowedMentions: { parse: [] } });
+  },
+
+  /* ---------- /permissions (👑) ---------- */
+  async permissions(i) {
+    if (!isOwner(i)) return i.reply({ content: '❌ Seul le propriétaire du serveur (👑) peut utiliser cette commande.', flags: EPH });
+    const d = getG(i.guildId);
+    const sub = i.options.getSubcommand();
+
+    if (sub === 'liste') {
+      const lines = Object.entries(d.cmdPerms).filter(([, ids]) => ids.length)
+        .map(([c, ids]) => `• \`/${c}\` → ${ids.map((id) => `<@&${id}>`).join(' ')}`);
+      return i.reply({
+        content: `**Rôles autorisés par commande**\n${fitLines(lines, 1800)}\n\n` +
+          '_Les rôles accès total (/role-total) et le propriétaire ont toujours accès à tout._',
+        flags: EPH, allowedMentions: { parse: [] },
+      });
+    }
+
+    const name = i.options.getString('commande', true);
+    const role = i.options.getRole('role', true);
+    if (!commands.some((c) => c.name === name)) return i.reply({ content: '❌ Commande inconnue.', flags: EPH });
+    if (OWNER_ONLY.has(name)) return i.reply({ content: '❌ Cette commande est réservée au propriétaire.', flags: EPH });
+    if (role.id === i.guild.id) return i.reply({ content: '❌ Tu ne peux pas choisir @everyone.', flags: EPH });
+
+    await i.deferReply({ flags: EPH });
+    const list = (d.cmdPerms[name] ??= []);
+    if (sub === 'ajouter') {
+      if (!list.includes(role.id)) list.push(role.id);
+    } else {
+      d.cmdPerms[name] = list.filter((id) => id !== role.id);
+      if (!d.cmdPerms[name].length) delete d.cmdPerms[name];
+    }
+    save();
+    await registerCommands(i.guild);
+    await syncCommandChannel(i.guild);
+    return i.editReply({
+      content: sub === 'ajouter'
+        ? `✅ <@&${role.id}> peut maintenant utiliser \`/${name}\`.`
+        : `🗑️ <@&${role.id}> n'a plus accès à \`/${name}\`.`,
+      allowedMentions: { parse: [] },
+    });
+  },
+
+  /* ---------- /commandes (👑) ---------- */
+  async commandes(i) {
+    if (!isOwner(i)) return i.reply({ content: '❌ Seul le propriétaire du serveur (👑) peut utiliser cette commande.', flags: EPH });
+    const d = getG(i.guildId);
+    const sub = i.options.getSubcommand();
+
+    if (sub === 'liste') {
+      const lines = commands.map((c) =>
+        `${d.disabledCommands.includes(c.name) ? '⛔' : '✅'} \`/${c.name}\`${ALWAYS_ON.has(c.name) ? ' (toujours active)' : ''}`);
+      return i.reply({ content: lines.join('\n').slice(0, 1990), flags: EPH });
+    }
+
+    const name = i.options.getString('commande', true);
+    if (!commands.some((c) => c.name === name)) return i.reply({ content: '❌ Commande inconnue.', flags: EPH });
+
+    if (sub === 'desactiver') {
+      if (ALWAYS_ON.has(name)) return i.reply({ content: '❌ Cette commande ne peut pas être désactivée.', flags: EPH });
+      if (d.disabledCommands.includes(name)) return i.reply({ content: '❌ Déjà désactivée.', flags: EPH });
+      await i.deferReply({ flags: EPH });
+      d.disabledCommands.push(name);
+      save();
+      await registerCommands(i.guild);
+      return i.editReply(`⛔ \`/${name}\` retirée de Discord. Remets-la avec \`/commandes activer\`.`);
+    }
+
+    // activer
+    if (!d.disabledCommands.includes(name)) return i.reply({ content: "❌ Cette commande n'est pas désactivée.", flags: EPH });
+    await i.deferReply({ flags: EPH });
+    d.disabledCommands = d.disabledCommands.filter((n) => n !== name);
+    save();
+    await registerCommands(i.guild);
+    return i.editReply(`✅ \`/${name}\` est de retour (Discord peut mettre quelques secondes à l'afficher).`);
   },
 
   /* ---------- /classement-invites ---------- */
@@ -2217,7 +2477,6 @@ const handlers = {
 
   /* ---------- /autorole ---------- */
   async autorole(i) {
-    if (!hasFullAccess(i) && !i.member.permissions.has(PermissionFlagsBits.ManageRoles)) return i.reply(NO_ACCESS);
     const sub = i.options.getSubcommand();
     const d = getG(i.guildId);
 
@@ -2513,16 +2772,25 @@ const handlers = {
       const footer = i.options.getString('footer');
       const placeholder = i.options.getString('placeholder');
       const customDesc = i.options.getString('description');
+      const noText = i.options.getBoolean('sans-texte') ?? false;
+      const asButton = i.options.getString('type') === 'bouton';
+      const btnLabel = (i.options.getString('bouton-texte') || '').trim().slice(0, 80) || null;
+
+      if (noText && !img && !isUrl(imgUrl)) {
+        return i.reply({ content: '❌ Pour un panel sans texte, ajoute une image (fichier ou lien).', flags: EPH });
+      }
       await i.deferReply({ flags: EPH });
 
       if (placeholder) { cfg.placeholder = placeholder.slice(0, 150); save(); }
 
-      const embed = new EmbedBuilder()
-        .setColor(parseColor(i.options.getString('couleur'), '#ED4245'))
-        .setTitle(i.options.getString('titre') || `🎫 Support — ${cfg.name}`)
-        .setDescription(customDesc || panelDesc(cfg))
-        .setTimestamp();
-      if (footer) embed.setFooter({ text: footer });
+      const embed = new EmbedBuilder().setColor(parseColor(i.options.getString('couleur'), '#ED4245'));
+      if (!noText) {
+        embed
+          .setTitle(i.options.getString('titre') || `🎫 Support — ${cfg.name}`)
+          .setDescription(customDesc || panelDesc(cfg, asButton))
+          .setTimestamp();
+        if (footer) embed.setFooter({ text: footer });
+      }
 
       try {
         const files = [];
@@ -2539,18 +2807,20 @@ const handlers = {
           embed.setThumbnail(`attachment://${f.name}`);
         }
 
-        const row = panelRow(cfg);
+        const row = panelRow(cfg, { button: asButton, label: btnLabel });
         const sent = await salon.send({ embeds: [embed], files, components: [row] });
-        // On mémorise le panel : il sera mis à jour tout seul (nouvelles catégories, nouveau code du bot...)
+        // texte figé : le bot ne modifiera jamais le texte (ni l'absence de texte) de ce panel
+        const fixed = !!customDesc || noText;
         cfg.panels.push({
           channelId: salon.id,
           messageId: sent.id,
-          customDesc: !!customDesc,
-          sig: sig({ row: row.toJSON(), desc: customDesc ? null : panelDesc(cfg) }),
+          customDesc: fixed,
+          button: asButton,
+          btnLabel,
+          sig: sig({ row: row.toJSON(), desc: fixed ? null : panelDesc(cfg, asButton) }),
         });
         save();
         await i.editReply(`✅ Panel envoyé dans <#${salon.id}>. Il se mettra à jour tout seul.`);
-        // Si le texte du menu a changé, les autres panels de cette configuration sont mis à jour aussi
         if (placeholder) refreshPanels(i.guild, cfgName).catch(console.error);
       } catch (e) {
         console.error(e);
@@ -2580,7 +2850,6 @@ async function autocomplete(i) {
   }
   if (f.name === 'message') {
     // Liste des autoroles (pour /autorole supprimer)
-    if (!hasFullAccess(i) && !i.member.permissions.has(PermissionFlagsBits.ManageRoles)) return i.respond([]);
     return i.respond(
       Object.entries(d.reactionRoles)
         .map(([id, r]) => ({
@@ -2591,7 +2860,6 @@ async function autocomplete(i) {
         .slice(0, 25));
   }
   if (f.name === 'giveaway') {
-    if (!hasFullAccess(i)) return i.respond([]);
     const sub = i.options.getSubcommand(false);
     return i.respond(
       Object.entries(d.giveaways)
@@ -2603,6 +2871,31 @@ async function autocomplete(i) {
           name: `${g.prize} (#${i.guild.channels.cache.get(g.channelId)?.name || '?'})${g.ended ? ' — terminé' : ''}`.slice(0, 100),
           value: id,
         })));
+  }
+  if (f.name === 'lien') {
+    return i.respond(
+      Object.entries(d.invites.links)
+        .map(([code, l]) => ({
+          name: `discord.gg/${code} → ${i.guild.members.cache.get(l.userId)?.user.username || l.userId}`.slice(0, 100),
+          value: code,
+        }))
+        .filter((o) => o.name.toLowerCase().includes(q))
+        .slice(0, 25));
+  }
+  if (f.name === 'commande') {
+    if (!isOwner(i)) return i.respond([]);
+    const sub = i.options.getSubcommand(false);
+    let names = commands.map((c) => c.name);
+    if (i.commandName === 'commandes') {
+      names = sub === 'activer'
+        ? d.disabledCommands.slice()
+        : names.filter((n) => !ALWAYS_ON.has(n) && !d.disabledCommands.includes(n));
+    } else if (sub === 'retirer') {
+      names = Object.keys(d.cmdPerms).filter((n) => d.cmdPerms[n].length);
+    } else {
+      names = names.filter((n) => !OWNER_ONLY.has(n));
+    }
+    return i.respond(names.filter((n) => n.includes(q)).slice(0, 25).map((n) => ({ name: `/${n}`, value: n })));
   }
   if (f.name === 'utilisateur') {
     // Liste des bannis (pour /unban) — réservée à ceux qui peuvent modérer
@@ -2627,15 +2920,10 @@ async function autocomplete(i) {
 /* ------------------------------------------------------------------ */
 client.once(Events.ClientReady, async () => {
   console.log(`✅ Connecté en tant que ${client.user.tag}`);
-  // Toutes les commandes sont masquées par défaut (visibles seulement via Paramètres du serveur > Intégrations)
-  // Sauf celles ouvertes à tout le monde (help, invites)
-  const body = commands.map((c) => (PUBLIC_COMMANDS.has(c.name) ? c : c.setDefaultMemberPermissions('0')).toJSON());
-  if (process.env.GUILD_ID) {
-    const guild = await client.guilds.fetch(process.env.GUILD_ID);
-    await guild.commands.set(body);
-  } else {
-    await client.application.commands.set(body);
-  }
+
+  // Les commandes sont enregistrées serveur par serveur (pour pouvoir en retirer)
+  await client.application.commands.set([]).catch(console.error); // supprime les anciennes commandes globales
+  for (const guild of client.guilds.cache.values()) await registerCommands(guild);
   console.log('✅ Commandes enregistrées');
 
   client.guilds.cache.forEach(updateCount);
@@ -2667,10 +2955,13 @@ client.once(Events.ClientReady, async () => {
 client.on(Events.InviteCreate, (inv) => {
   if (!inv.guild) return;
   const m = inviteCache.get(inv.guild.id) || new Map();
-  m.set(inv.code, { uses: inv.uses ?? 0, maxUses: inv.maxUses || 0, inviterId: inv.inviter?.id || null });
+  m.set(inv.code, {
+    uses: inv.uses ?? 0, maxUses: inv.maxUses || 0,
+    inviterId: getG(inv.guild.id).invites.links[inv.code]?.userId || inv.inviter?.id || null,
+  });
   inviteCache.set(inv.guild.id, m);
 });
-client.on(Events.GuildCreate, (guild) => snapshotInvites(guild));
+client.on(Events.GuildCreate, (guild) => { snapshotInvites(guild); registerCommands(guild); });
 
 // Un nouveau salon doit aussi être invisible pour les membres mute
 client.on(Events.ChannelCreate, (ch) => {
@@ -2750,6 +3041,9 @@ client.on(Events.InteractionCreate, async (i) => {
     }
     if (i.isChatInputCommand()) {
       if (!commandAllowed(i)) return await i.reply(NO_ACCESS);
+      if (getG(i.guildId).disabledCommands.includes(i.commandName) && !ALWAYS_ON.has(i.commandName)) {
+        return await i.reply({ content: '❌ Cette commande est désactivée.', flags: EPH });
+      }
 
       // Commande tapée dans le mauvais salon : message visible uniquement par celui qui l'a envoyée
       const wc = wrongChannel(i);
@@ -2777,288 +3071,6 @@ client.on(Events.InteractionCreate, async (i) => {
     if (i.replied || i.deferred) i.followUp(msg).catch(() => {});
     else if (!i.isAutocomplete()) i.reply(msg).catch(() => {});
   }
-});
-
-/* ------------------------------------------------------------------ */
-/*  Dashboard (site sur Vercel)                                        */
-/*  Le bot lit la base Supabase du site : ordres (table jobs),         */
-/*  configuration (guild_config) et permissions (command_permissions). */
-/*  Variables Railway : SUPABASE_URL, SUPABASE_SERVICE_KEY, GUILD_ID   */
-/* ------------------------------------------------------------------ */
-const { createClient } = require('@supabase/supabase-js');
-
-const DASH_GUILD = process.env.GUILD_ID;
-const dash = process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY && DASH_GUILD
-  ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY, { auth: { persistSession: false } })
-  : null;
-
-// Jobs pas encore traités (statut vide ou ni "done" ni "error")
-const JOB_OPEN = 'status.is.null,and(status.neq.done,status.neq.error)';
-
-// Au plus un message par minute et par problème, pour ne pas remplir les logs
-const dashLogged = new Map();
-function dashWarn(key, e) {
-  if (Date.now() - (dashLogged.get(key) || 0) < 60_000) return;
-  dashLogged.set(key, Date.now());
-  console.error(`[dashboard] ${key} :`, e?.message || e);
-}
-
-const jobText = (v, max = 1000) => String(v ?? '').trim().slice(0, max);
-const jobId = (v) => (/^\d{15,25}$/.test(String(v ?? '')) ? String(v) : null);
-const fmtMin = (m) => (m % 1440 === 0 ? `${m / 1440} jour(s)` : m % 60 === 0 ? `${m / 60} heure(s)` : `${m} minute(s)`);
-const jobMinutes = (v) => {
-  const m = Math.floor(Number(v));
-  if (!(m >= 1)) throw new Error('Durée invalide.');
-  return m;
-};
-// Les actions du site sont enregistrées "au nom du propriétaire du serveur"
-const fakeI = (guild) => ({ guildId: guild.id, guild });
-
-const jobHandlers = {
-  async ban(guild, p) {
-    const userId = jobId(p.userId);
-    if (!userId) throw new Error('Membre invalide.');
-    if (userId === guild.ownerId) throw new Error('Le propriétaire du serveur est intouchable.');
-    if (userId === client.user.id) throw new Error('Je ne peux pas me bannir moi-même.');
-    const reason = jobText(p.reason, 400) || 'Aucune raison fournie';
-    const days = [1, 7].includes(Number(p.days)) ? Number(p.days) : 0;
-
-    const member = await guild.members.fetch(userId).catch(() => null);
-    if (member && !member.bannable) throw new Error('Je ne peux pas bannir ce membre (son rôle est au-dessus du mien).');
-    const user = member?.user || (await client.users.fetch(userId).catch(() => null));
-
-    await user?.send(`🔨 Tu as été banni de **${guild.name}**.\nRaison : ${reason}`).catch(() => {});
-    await guild.members.ban(userId, { reason: `Dashboard : ${reason}`, deleteMessageSeconds: days * 86400 });
-    banCache.delete(guild.id);
-
-    const d = getG(guild.id);
-    delete d.muted[userId];
-    logSanction(d, userId, { type: 'ban', by: guild.ownerId, reason, duration: 'définitif' });
-    await announceSanction(fakeI(guild), null, `<@${userId}> a été banni (définitif) depuis le dashboard`);
-    return `${user?.tag || userId} a été banni.`;
-  },
-
-  async unban(guild, p) {
-    const userId = jobId(p.userId);
-    if (!userId) throw new Error("ID invalide : colle l'ID du banni.");
-    const reason = jobText(p.reason, 400) || 'Aucune raison fournie';
-    try {
-      await guild.bans.remove(userId, `Dashboard : ${reason}`);
-    } catch (e) {
-      if (e.code === 10026) throw new Error("Cet utilisateur n'est pas banni.");
-      if (e.code === 50013 || e.code === 50001) throw new Error('Il me manque la permission Bannir des membres.');
-      throw e;
-    }
-    banCache.delete(guild.id);
-    return `${userId} a été débanni.`;
-  },
-
-  async mute(guild, p) {
-    const userId = jobId(p.userId);
-    if (!userId) throw new Error('Membre invalide.');
-    if (userId === guild.ownerId) throw new Error('Le propriétaire du serveur est intouchable.');
-    if (userId === client.user.id) throw new Error('Je ne peux pas me mute moi-même.');
-    const reason = jobText(p.reason, 400) || 'Aucune raison fournie';
-    const minutes = jobMinutes(p.minutes);
-    if (minutes * 60_000 > MAX_MUTE) throw new Error('Durée maximale : 365 jours.');
-
-    const member = await guild.members.fetch(userId).catch(() => null);
-    if (!member) throw new Error("Ce membre n'est pas sur le serveur.");
-
-    const until = Date.now() + minutes * 60_000;
-    try {
-      await applyMute(guild, member, until, reason, guild.ownerId);
-    } catch (e) {
-      console.error(e);
-      throw new Error('Impossible de mute ce membre : mon rôle doit être au-dessus du sien, avec les permissions Gérer les rôles et Gérer les salons.');
-    }
-    logSanction(getG(guild.id), userId, { type: 'mute', by: guild.ownerId, reason, duration: fmtMin(minutes) });
-    await announceSanction(fakeI(guild), null, `<@${userId}> a été mute pendant ${fmtMin(minutes)} depuis le dashboard`);
-    const ts = Math.floor(until / 1000);
-    await member.user.send(`🔇 Tu as été mute sur **${guild.name}** jusqu'à <t:${ts}:F> (<t:${ts}:R>).\nRaison : ${reason}`).catch(() => {});
-    return `${member.user.tag} est mute pendant ${fmtMin(minutes)}.`;
-  },
-
-  async unmute(guild, p) {
-    const userId = jobId(p.userId);
-    if (!userId) throw new Error('Membre invalide.');
-    const reason = jobText(p.reason, 400) || 'Aucune raison fournie';
-    if (!getG(guild.id).muted[userId]) throw new Error("Ce membre n'est pas mute.");
-    await removeMute(guild, userId, `Dashboard : ${reason}`);
-    const user = await client.users.fetch(userId).catch(() => null);
-    await user?.send(`🔊 Tu as été unmute sur **${guild.name}**.`).catch(() => {});
-    return `${user?.tag || userId} a été unmute.`;
-  },
-
-  async giveaway_create(guild, p) {
-    const channel = await guild.channels.fetch(jobId(p.channelId) || '0').catch(() => null);
-    if (!channel?.send) throw new Error('Salon introuvable.');
-    const prize = jobText(p.prize, 200);
-    if (!prize) throw new Error('Il faut un lot.');
-    const minutes = jobMinutes(p.minutes);
-    if (minutes * 60_000 > MAX_GW) throw new Error('Durée maximale : 365 jours.');
-    const winners = Math.min(20, Math.max(1, Math.floor(Number(p.winners)) || 1));
-    const requiredRole = jobId(p.requiredRole);
-    if (requiredRole && (requiredRole === guild.id || !guild.roles.cache.has(requiredRole))) {
-      throw new Error('Rôle requis introuvable.');
-    }
-    const minInvites = Math.max(0, Math.floor(Number(p.minInvites)) || 0);
-
-    const gw = {
-      channelId: channel.id, prize, description: jobText(p.description, 1000), winners,
-      endAt: Date.now() + minutes * 60_000, hostId: guild.ownerId,
-      requiredRole: requiredRole || null, minInvites,
-      entrants: [], ended: false, winnerIds: [],
-    };
-    const embed = new EmbedBuilder()
-      .setColor('#F1C40F')
-      .setTitle(`🎉 ${prize}`.slice(0, 256))
-      .setDescription(gwDescription(gw))
-      .setFooter({ text: 'Se termine' })
-      .setTimestamp(new Date(gw.endAt));
-    const row = gwRow(gw);
-    const msg = await channel.send({ embeds: [embed], components: [row], allowedMentions: { parse: [] } });
-    gw.sig = sig(row.toJSON());
-    getG(guild.id).giveaways[msg.id] = gw;
-    save();
-    return `Giveaway « ${prize} » lancé dans #${channel.name} (fin dans ${fmtMin(minutes)}).`;
-  },
-
-  async ticket_panel(guild, p) {
-    const name = jobText(p.config, 30);
-    let cfg = getG(guild.id).tickets[name];
-    if (!cfg) { // la config vient peut-être d'être enregistrée sur le site : on resynchronise une fois
-      await syncDashConfig();
-      cfg = getG(guild.id).tickets[name];
-    }
-    if (!cfg) throw new Error("Configuration de ticket introuvable : enregistre-la d'abord dans l'onglet Tickets.");
-    const salon = await guild.channels.fetch(jobId(p.channelId) || '0').catch(() => null);
-    if (!salon?.send) throw new Error('Salon introuvable.');
-
-    const customDesc = jobText(p.description, 4000);
-    const imgUrl = jobText(p.image, 500);
-    const footer = jobText(p.footer, 200);
-    const embed = new EmbedBuilder()
-      .setColor(parseColor(p.color, '#ED4245'))
-      .setTitle(jobText(p.title, 256) || `🎫 Support — ${cfg.name}`)
-      .setDescription(customDesc || panelDesc(cfg))
-      .setTimestamp();
-    if (footer) embed.setFooter({ text: footer });
-    if (isUrl(imgUrl)) embed.setImage(imgUrl);
-
-    const row = panelRow(cfg);
-    const sent = await salon.send({ embeds: [embed], components: [row] });
-    cfg.panels.push({
-      channelId: salon.id,
-      messageId: sent.id,
-      customDesc: !!customDesc,
-      sig: sig({ row: row.toJSON(), desc: customDesc ? null : panelDesc(cfg) }),
-    });
-    save();
-    return `Panel envoyé dans #${salon.name}.`;
-  },
-};
-
-const jobsSeen = new Set(); // un job n'est jamais exécuté deux fois, même si la mise à jour du statut échoue
-let jobsBusy = false;
-
-async function runDashJobs() {
-  if (!dash || jobsBusy || !client.isReady()) return;
-  jobsBusy = true;
-  try {
-    const { data, error } = await dash.from('jobs').select('*').eq('guild_id', DASH_GUILD).or(JOB_OPEN).limit(10);
-    if (error) return dashWarn('lecture de la table jobs', error);
-    for (const job of data || []) {
-      if (jobsSeen.has(job.id)) continue;
-      jobsSeen.add(job.id);
-      if (jobsSeen.size > 1000) jobsSeen.clear();
-
-      let status = 'done';
-      let result;
-      try {
-        const run = jobHandlers[job.type];
-        if (!run) throw new Error(`Action inconnue : ${job.type}`);
-        const guild = await client.guilds.fetch(DASH_GUILD);
-        result = await run(guild, job.payload || {});
-      } catch (e) {
-        status = 'error';
-        result = String(e?.message || e).slice(0, 500);
-        console.error(`[dashboard] job ${job.type} :`, e);
-      }
-      const { error: upErr } = await dash.from('jobs').update({ status, result }).eq('id', job.id);
-      if (upErr) dashWarn('mise à jour du statut du job', upErr);
-    }
-  } catch (e) {
-    dashWarn('traitement des jobs', e);
-  } finally {
-    jobsBusy = false;
-  }
-}
-
-// Configuration (bienvenue, tickets) et permissions modifiées sur le site
-let dashConfigStamp = null;
-async function syncDashConfig() {
-  if (!dash) return;
-  try {
-    const d = getG(DASH_GUILD);
-
-    const { data: row, error } = await dash.from('guild_config')
-      .select('welcome,tickets,updated_at').eq('guild_id', DASH_GUILD).maybeSingle();
-    if (error) return dashWarn('lecture de guild_config', error);
-
-    const stamp = row?.updated_at || null;
-    if (row && stamp !== dashConfigStamp) {
-      dashConfigStamp = stamp;
-      if (row.welcome) d.welcome = { ...d.welcome, ...row.welcome };
-      if (row.tickets) {
-        for (const [k, c] of Object.entries(row.tickets)) {
-          const old = d.tickets[k] || {};
-          // Le site ne connaît ni le compteur ni les panels déjà envoyés : on les garde
-          d.tickets[k] = { ...old, ...c, counter: old.counter || 0, panels: old.panels || [], dash: true };
-        }
-        // Une config supprimée sur le site disparaît ici, mais seulement si elle venait du site
-        // (les configs créées avec /ticket config-creer ne sont jamais supprimées par le site)
-        for (const [k, c] of Object.entries(d.tickets)) {
-          if (c.dash && !(k in row.tickets)) delete d.tickets[k];
-        }
-      }
-      save();
-      const guild = client.guilds.cache.get(DASH_GUILD);
-      if (guild && row.tickets) refreshPanels(guild).catch(console.error);
-      console.log('[dashboard] configuration du site synchronisée');
-    }
-
-    const { data: perms, error: pErr } = await dash.from('command_permissions')
-      .select('command,role_ids').eq('guild_id', DASH_GUILD);
-    if (pErr) return dashWarn('lecture de command_permissions', pErr);
-    const map = Object.fromEntries((perms || []).map((r) => [r.command, r.role_ids || []]));
-    if (JSON.stringify(map) !== JSON.stringify(d.dashPerms || {})) {
-      d.dashPerms = map;
-      save();
-      console.log('[dashboard] permissions du site synchronisées');
-    }
-  } catch (e) {
-    dashWarn('synchronisation de la configuration', e);
-  }
-}
-
-client.once(Events.ClientReady, async () => {
-  if (!dash) {
-    console.warn('⚠️ [dashboard] SUPABASE_URL, SUPABASE_SERVICE_KEY ou GUILD_ID manquant : le site ne peut pas contrôler le bot.');
-    return;
-  }
-  // Les ordres envoyés pendant que le bot était éteint sont annulés (le site a déjà abandonné après ~18 s)
-  const { error } = await dash.from('jobs')
-    .update({ status: 'error', result: 'Expiré : le bot était hors ligne' })
-    .eq('guild_id', DASH_GUILD).or(JOB_OPEN);
-  if (error) {
-    console.error('❌ [dashboard] impossible de lire la table jobs :', error.message);
-  } else {
-    console.log('✅ Dashboard connecté (Supabase)');
-  }
-  await syncDashConfig();
-  setInterval(runDashJobs, 2_000);
-  setInterval(syncDashConfig, 10_000);
 });
 
 client.login(process.env.TOKEN);
