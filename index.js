@@ -87,7 +87,7 @@ function getG(id) {
       image: '',
       color: '#5865F2',
     },
-    tickets: {}, // nom -> { name, categoryId, staffRoles[], logChannelId, reasons[], counter, panels[] }
+    tickets: {}, // nom -> { name, categoryId, staffRoles[], logChannelId, reasons[], counter, panels[], placeholder }
     open: {},    // channelId -> { userId, config, reason, claimedBy, staffRoles[] }
   };
   const g = db[id];
@@ -113,6 +113,7 @@ function getG(id) {
   for (const c of Object.values(g.tickets)) {
     c.staffRoles ??= c.staffRoleId ? [c.staffRoleId] : [];
     c.panels ??= []; // panels envoyés : [{ channelId, messageId, customDesc, sig }]
+    c.placeholder ??= null; // texte du menu déroulant (ex : "Choisir une catégorie...")
   }
   return g;
 }
@@ -122,6 +123,19 @@ function getG(id) {
 /* ------------------------------------------------------------------ */
 const EPH = MessageFlags.Ephemeral;
 const isUrl = (u) => /^https?:\/\/\S+$/i.test((u || '').trim());
+
+// Convertit un emoji écrit par l'utilisateur en objet accepté par Discord.
+// Accepte : 🎮  |  <:nitro:123456789012345678>  |  <a:anim:123456789012345678>  |  un ID seul
+function parseEmoji(input) {
+  const s = (input || '').trim();
+  if (!s) return null;
+  const m = s.match(/^<(a?):(\w{2,32}):(\d{17,20})>$/);
+  if (m) return { animated: !!m[1], name: m[2], id: m[3] };
+  if (/^\d{17,20}$/.test(s)) return { id: s };
+  if (/\p{Extended_Pictographic}/u.test(s)) return { name: s };
+  return null;
+}
+
 const parseColor = (c, d = '#5865F2') =>
   /^#?[0-9a-f]{6}$/i.test((c || '').trim()) ? '#' + c.trim().replace('#', '') : d;
 
@@ -780,13 +794,20 @@ const commands = [
         .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true))
         .addRoleOption((o) => o.setName('role').setDescription('Rôle staff à retirer').setRequired(true)))
     .addSubcommand((s) =>
-      s.setName('raison-ajouter').setDescription("Ajouter une raison d'ouverture à une configuration")
+      s.setName('raison-ajouter').setDescription("Ajouter une catégorie au menu du panel")
         .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true))
-        .addStringOption((o) => o.setName('label').setDescription('Nom de la raison').setRequired(true))
+        .addStringOption((o) => o.setName('label').setDescription('Nom de la catégorie (ex : Nitro)').setRequired(true))
+        .addStringOption((o) => o.setName('emoji').setDescription('Emoji : 🎮 ou emoji du serveur (tape :nitro: et choisis-le)'))
         .addStringOption((o) => o.setName('description').setDescription('Description courte'))
-        .addStringOption((o) => o.setName('emoji').setDescription('Emoji (optionnel)'))
         .addRoleOption((o) =>
-          o.setName('role-staff').setDescription('Rôle staff propre à cette raison (remplace ceux de la config)')))
+          o.setName('role-staff').setDescription('Rôle staff propre à cette catégorie (remplace ceux de la config)')))
+    .addSubcommand((s) =>
+      s.setName('raison-modifier').setDescription("Modifier l'emoji, le nom ou la description d'une catégorie")
+        .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true))
+        .addStringOption((o) => o.setName('label').setDescription('Catégorie à modifier').setAutocomplete(true).setRequired(true))
+        .addStringOption((o) => o.setName('emoji').setDescription('Nouvel emoji (écris "aucun" pour le retirer)'))
+        .addStringOption((o) => o.setName('nouveau-nom').setDescription('Nouveau nom').setMaxLength(100))
+        .addStringOption((o) => o.setName('description').setDescription('Nouvelle description').setMaxLength(100)))
     .addSubcommand((s) =>
       s.setName('raison-retirer').setDescription('Retirer une raison')
         .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true))
@@ -799,8 +820,12 @@ const commands = [
             .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(true))
         .addStringOption((o) => o.setName('titre').setDescription('Titre du panel'))
         .addStringOption((o) => o.setName('description').setDescription('Texte du panel'))
-        .addStringOption((o) => o.setName('couleur').setDescription('Couleur hex, ex : #5865F2'))
-        .addAttachmentOption((o) => o.setName('image').setDescription('Image du panel')))
+        .addStringOption((o) => o.setName('couleur').setDescription('Couleur hex, ex : #ED4245'))
+        .addAttachmentOption((o) => o.setName('image').setDescription('Grande bannière du panel (fichier)'))
+        .addStringOption((o) => o.setName('image-url').setDescription('Bannière via un lien (si pas de fichier)'))
+        .addAttachmentOption((o) => o.setName('miniature').setDescription('Petite image en haut à droite'))
+        .addStringOption((o) => o.setName('placeholder').setDescription('Texte du menu (ex : Choisir une catégorie...)').setMaxLength(100))
+        .addStringOption((o) => o.setName('footer').setDescription('Pied de page (ex : YouGate)').setMaxLength(200)))
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setDMPermission(false),
 ];
@@ -942,20 +967,21 @@ async function checkMutes() {
 /*  Tickets                                                            */
 /* ------------------------------------------------------------------ */
 const panelDesc = (cfg) => cfg.reasons.length
-  ? 'Sélectionne la raison de ta demande dans le menu ci-dessous pour ouvrir un ticket.'
+  ? 'Sélectionne la catégorie de ta demande dans le menu ci-dessous pour ouvrir un ticket.'
   : 'Clique sur le bouton ci-dessous pour ouvrir un ticket.';
 
-// Menu déroulant (s'il y a des raisons) ou simple bouton
+// Menu déroulant (s'il y a des catégories) ou simple bouton
 function panelRow(cfg) {
   if (cfg.reasons.length) {
     return new ActionRowBuilder().addComponents(
       new StringSelectMenuBuilder()
         .setCustomId(`tk_open:${cfg.name}`)
-        .setPlaceholder('Choisis une raison...')
+        .setPlaceholder(cfg.placeholder || 'Choisir une catégorie...')
         .addOptions(cfg.reasons.map((r) => {
           const o = { label: r.label, value: r.id };
           if (r.description) o.description = r.description;
-          if (r.emoji) o.emoji = r.emoji;
+          const e = parseEmoji(r.emoji);
+          if (e) o.emoji = e;
           return o;
         })));
   }
@@ -963,7 +989,7 @@ function panelRow(cfg) {
     new ButtonBuilder().setCustomId(`tk_open:${cfg.name}`).setLabel('Ouvrir un ticket').setEmoji('🎫').setStyle(ButtonStyle.Primary));
 }
 
-// Met à jour tous les panels déjà envoyés (raisons ajoutées / retirées, nouveau code du bot...)
+// Met à jour tous les panels déjà envoyés (catégories ajoutées / modifiées / retirées, nouveau code du bot...)
 async function refreshPanels(guild, cfgName) {
   const d = getG(guild.id);
   const names = cfgName ? [cfgName] : Object.keys(d.tickets);
@@ -1053,7 +1079,7 @@ async function openTicket(i, cfgName, reasonId) {
       `Explique-nous ta demande avec un maximum de détails.`)
     .addFields(
       { name: 'Configuration', value: cfg.name, inline: true },
-      { name: 'Raison', value: reason ? reason.label : 'Non précisée', inline: true },
+      { name: 'Catégorie', value: reason ? reason.label : 'Non précisée', inline: true },
     )
     .setTimestamp();
 
@@ -1125,7 +1151,7 @@ async function closeTicket(i) {
     .addFields(
       { name: 'Ticket', value: i.channel.name, inline: true },
       { name: 'Configuration', value: t.config, inline: true },
-      { name: 'Raison', value: t.reason || 'Non précisée', inline: true },
+      { name: 'Catégorie', value: t.reason || 'Non précisée', inline: true },
       { name: 'Ouvert par', value: `<@${t.userId}>`, inline: true },
       { name: 'Fermé par', value: `<@${i.user.id}>`, inline: true },
       { name: 'Pris en charge par', value: t.claimedBy ? `<@${t.claimedBy}>` : 'Personne', inline: true },
@@ -1542,8 +1568,8 @@ const HELP = [
   { title: '🎫 Tickets', level: 'full', lines: [
     '`/ticket config-creer` · `config-liste` · `config-supprimer`',
     '`/ticket staff-ajouter` · `staff-retirer`',
-    '`/ticket raison-ajouter` · `raison-retirer`',
-    '`/ticket panel` — envoyer le panel dans un salon',
+    '`/ticket raison-ajouter` · `raison-modifier` · `raison-retirer` — catégories du menu (emojis perso)',
+    '`/ticket panel` — envoyer le panel (bannière, menu, footer) dans un salon',
   ] },
   { title: '⚙️ Serveur & accès', level: 'full', lines: [
     '`/salon-commandes` — salon privé des commandes (et ses rôles)',
@@ -2352,14 +2378,15 @@ const handlers = {
         reasons: [],
         counter: 0,
         panels: [],
+        placeholder: null,
       };
       save();
       return i.reply({
         content:
           `✅ Configuration **${nom}** créée.\n` +
           `• Autre rôle staff : \`/ticket staff-ajouter\`\n` +
-          `• Raisons d'ouverture : \`/ticket raison-ajouter\`\n` +
-          `• Envoi du panel : \`/ticket panel\``,
+          `• Catégories du menu (avec emojis) : \`/ticket raison-ajouter\`\n` +
+          `• Envoi du panel avec bannière : \`/ticket panel\``,
         flags: EPH,
       });
     }
@@ -2369,7 +2396,7 @@ const handlers = {
       if (!list.length) return i.reply({ content: "Aucune configuration. Crée-en une avec `/ticket config-creer`.", flags: EPH });
       const embed = new EmbedBuilder().setColor('#5865F2').setTitle('🎫 Configurations de tickets').setDescription(
         list.map((c) =>
-          `**${c.name}**\n• Catégorie : <#${c.categoryId}>\n• Staff : ${c.staffRoles.length ? c.staffRoles.map((r) => `<@&${r}>`).join(' ') : 'aucun'}\n• Logs : ${c.logChannelId ? `<#${c.logChannelId}>` : 'aucun'}\n• Raisons : ${c.reasons.length ? c.reasons.map((r) => r.label + (r.staffRoleId ? ` (staff : <@&${r.staffRoleId}>)` : '')).join(', ') : 'aucune'}`
+          `**${c.name}**\n• Catégorie : <#${c.categoryId}>\n• Staff : ${c.staffRoles.length ? c.staffRoles.map((r) => `<@&${r}>`).join(' ') : 'aucun'}\n• Logs : ${c.logChannelId ? `<#${c.logChannelId}>` : 'aucun'}\n• Menu : ${c.reasons.length ? c.reasons.map((r) => (r.emoji ? r.emoji + ' ' : '') + r.label + (r.staffRoleId ? ` (staff : <@&${r.staffRoleId}>)` : '')).join(', ') : 'aucune catégorie'}`
         ).join('\n\n').slice(0, 4096));
       return i.reply({ embeds: [embed], flags: EPH, allowedMentions: { parse: [] } });
     }
@@ -2393,7 +2420,7 @@ const handlers = {
       cfg.staffRoles.push(role.id);
       save();
       return i.reply({
-        content: `✅ <@&${role.id}> peut maintenant voir et répondre aux **nouveaux** tickets de **${cfgName}** (sauf ceux dont la raison a son propre rôle staff).`,
+        content: `✅ <@&${role.id}> peut maintenant voir et répondre aux **nouveaux** tickets de **${cfgName}** (sauf ceux dont la catégorie a son propre rôle staff).`,
         flags: EPH, allowedMentions: { parse: [] },
       });
     }
@@ -2415,21 +2442,46 @@ const handlers = {
     }
 
     if (sub === 'raison-ajouter') {
-      if (cfg.reasons.length >= 25) return i.reply({ content: '❌ 25 raisons maximum par configuration.', flags: EPH });
+      if (cfg.reasons.length >= 25) return i.reply({ content: '❌ 25 catégories maximum par configuration.', flags: EPH });
       const staff = i.options.getRole('role-staff');
       if (staff && staff.id === i.guild.id) return i.reply({ content: '❌ Tu ne peux pas choisir @everyone.', flags: EPH });
+      const emojiRaw = (i.options.getString('emoji') || '').trim();
+      if (emojiRaw && !parseEmoji(emojiRaw)) {
+        return i.reply({ content: "❌ Emoji invalide. Utilise un emoji normal ou un emoji du serveur (tape `:nom:` puis choisis-le dans la liste).", flags: EPH });
+      }
       cfg.reasons.push({
         id: crypto.randomUUID().slice(0, 8),
         label: i.options.getString('label', true).slice(0, 100),
         description: (i.options.getString('description') || '').slice(0, 100),
-        emoji: i.options.getString('emoji') || null,
+        emoji: emojiRaw || null,
         staffRoleId: staff?.id || null,
       });
       save();
       await i.reply({
-        content: `✅ Raison ajoutée à **${cfgName}** (${cfg.reasons.length} au total)${staff ? ` — staff : <@&${staff.id}>` : ''}. Les panels déjà envoyés se mettent à jour automatiquement.`,
+        content: `✅ Catégorie ajoutée à **${cfgName}** (${cfg.reasons.length} au total)${staff ? ` — staff : <@&${staff.id}>` : ''}. Les panels déjà envoyés se mettent à jour automatiquement.`,
         flags: EPH, allowedMentions: { parse: [] },
       });
+      return refreshPanels(i.guild, cfgName).catch(console.error);
+    }
+
+    if (sub === 'raison-modifier') {
+      const label = i.options.getString('label', true);
+      const r = cfg.reasons.find((x) => x.label.toLowerCase() === label.toLowerCase());
+      if (!r) return i.reply({ content: '❌ Catégorie introuvable.', flags: EPH });
+
+      const emojiRaw = (i.options.getString('emoji') || '').trim();
+      if (emojiRaw) {
+        if (emojiRaw.toLowerCase() === 'aucun') r.emoji = null;
+        else if (!parseEmoji(emojiRaw)) {
+          return i.reply({ content: '❌ Emoji invalide.', flags: EPH });
+        } else r.emoji = emojiRaw;
+      }
+      const nom = i.options.getString('nouveau-nom');
+      if (nom) r.label = nom.slice(0, 100);
+      const desc = i.options.getString('description');
+      if (desc !== null) r.description = desc.slice(0, 100);
+      save();
+      await i.reply({ content: '✅ Catégorie modifiée. Les panels se mettent à jour automatiquement.', flags: EPH });
       return refreshPanels(i.guild, cfgName).catch(console.error);
     }
 
@@ -2440,7 +2492,7 @@ const handlers = {
       save();
       const removed = cfg.reasons.length < before;
       await i.reply({
-        content: removed ? '🗑️ Raison retirée. Les panels déjà envoyés se mettent à jour automatiquement.' : '❌ Raison introuvable.',
+        content: removed ? '🗑️ Catégorie retirée. Les panels déjà envoyés se mettent à jour automatiquement.' : '❌ Catégorie introuvable.',
         flags: EPH,
       });
       if (removed) await refreshPanels(i.guild, cfgName).catch(console.error);
@@ -2450,26 +2502,40 @@ const handlers = {
     if (sub === 'panel') {
       const salon = i.options.getChannel('salon', true);
       const img = i.options.getAttachment('image');
+      const imgUrl = (i.options.getString('image-url') || '').trim();
+      const thumb = i.options.getAttachment('miniature');
+      const footer = i.options.getString('footer');
+      const placeholder = i.options.getString('placeholder');
       const customDesc = i.options.getString('description');
       await i.deferReply({ flags: EPH });
 
+      if (placeholder) { cfg.placeholder = placeholder.slice(0, 150); save(); }
+
       const embed = new EmbedBuilder()
-        .setColor(parseColor(i.options.getString('couleur')))
+        .setColor(parseColor(i.options.getString('couleur'), '#ED4245'))
         .setTitle(i.options.getString('titre') || `🎫 Support — ${cfg.name}`)
-        .setDescription(customDesc || panelDesc(cfg));
-
-      const files = [];
-      if (img) {
-        const f = await toFile(img, 'panel');
-        files.push(f);
-        embed.setImage(`attachment://${f.name}`);
-      }
-
-      const row = panelRow(cfg);
+        .setDescription(customDesc || panelDesc(cfg))
+        .setTimestamp();
+      if (footer) embed.setFooter({ text: footer });
 
       try {
+        const files = [];
+        if (img) {
+          const f = await toFile(img, 'panel');
+          files.push(f);
+          embed.setImage(`attachment://${f.name}`);
+        } else if (isUrl(imgUrl)) {
+          embed.setImage(imgUrl);
+        }
+        if (thumb) {
+          const f = await toFile(thumb, 'miniature');
+          files.push(f);
+          embed.setThumbnail(`attachment://${f.name}`);
+        }
+
+        const row = panelRow(cfg);
         const sent = await salon.send({ embeds: [embed], files, components: [row] });
-        // On mémorise le panel : il sera mis à jour tout seul (nouvelles raisons, nouveau code du bot...)
+        // On mémorise le panel : il sera mis à jour tout seul (nouvelles catégories, nouveau code du bot...)
         cfg.panels.push({
           channelId: salon.id,
           messageId: sent.id,
@@ -2478,9 +2544,11 @@ const handlers = {
         });
         save();
         await i.editReply(`✅ Panel envoyé dans <#${salon.id}>. Il se mettra à jour tout seul.`);
+        // Si le texte du menu a changé, les autres panels de cette configuration sont mis à jour aussi
+        if (placeholder) refreshPanels(i.guild, cfgName).catch(console.error);
       } catch (e) {
         console.error(e);
-        await i.editReply("❌ Envoi impossible : vérifie mes permissions dans ce salon et que les emojis des raisons sont valides.");
+        await i.editReply("❌ Envoi impossible : vérifie mes permissions dans ce salon, le lien de l'image et les emojis des catégories.");
       }
     }
   },
