@@ -87,7 +87,7 @@ function getG(id) {
       image: '',
       color: '#5865F2',
     },
-    tickets: {}, // nom -> { name, categoryId, staffRoles[], logChannelId, reasons[], counter, panels[], placeholder }
+    tickets: {}, // nom -> { name, categoryId, staffRoles[], logChannelId, reasons[], counter, panels[], placeholder, openMsg }
     open: {},    // channelId -> { userId, config, reason, claimedBy, staffRoles[] }
   };
   const g = db[id];
@@ -116,8 +116,9 @@ function getG(id) {
   // Migration : un seul rôle staff -> plusieurs rôles staff
   for (const c of Object.values(g.tickets)) {
     c.staffRoles ??= c.staffRoleId ? [c.staffRoleId] : [];
-    c.panels ??= []; // panels envoyés : [{ channelId, messageId, customDesc, sig }]
+    c.panels ??= []; // panels envoyés : [{ channelId, messageId, customDesc, sig, button, btnLabel, btnStyle, openMsg }]
     c.placeholder ??= null; // texte du menu déroulant (ex : "Choisir une catégorie...")
+    c.openMsg ??= null;     // message d'ouverture par défaut de cette configuration (modifiable avec /ticket message)
   }
   return g;
 }
@@ -164,9 +165,78 @@ const fmt = (txt, member) =>
     .replaceAll('{server}', member.guild.name)
     .replaceAll('{count}', String(member.guild.memberCount));
 
+// Couleurs possibles pour un bouton Discord
+const BTN_COLORS = [
+  { name: 'Bleu', value: 'Primary' },
+  { name: 'Gris', value: 'Secondary' },
+  { name: 'Vert', value: 'Success' },
+  { name: 'Rouge', value: 'Danger' },
+];
+const btnStyle = (s) => ButtonStyle[s] ?? ButtonStyle.Primary;
+const BTN_NAMES = { Primary: 'bleu', Secondary: 'gris', Success: 'vert', Danger: 'rouge' };
+
+/* ---------- Mentions et salons cliquables ---------- */
+// Transforme ce qui est tapé à la main en vraies mentions cliquables, comme dans un message normal :
+//   @Pseudo  ->  <@id>      @NomDuRôle  ->  <@&id>      #nom-du-salon  ->  <#id>
+// Les mentions déjà écrites (<@id>, <@&id>, <#id>) sont gardées telles quelles.
+// Un "\n" écrit à la main (dans les options de commande sur une seule ligne) devient un retour à la ligne.
+// Renvoie { text, users[], roles[] } : users et roles servent à mentionner réellement (notification).
+const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+async function rich(guild, input) {
+  let text = String(input ?? '').replace(/\\n/g, '\n');
+  const users = new Set();
+  const roles = new Set();
+  for (const m of text.matchAll(/<@!?(\d{15,25})>/g)) users.add(m[1]);
+  for (const m of text.matchAll(/<@&(\d{15,25})>/g)) roles.add(m[1]);
+  const out = () => ({ text, users: [...users], roles: [...roles] });
+  if (!guild || !/[@#]/.test(text)) return out();
+
+  const hasAt = text.includes('@');
+  const hasHash = text.includes('#');
+  if (hasAt && guild.members.cache.size < guild.memberCount) {
+    await guild.members.fetch().catch(() => {});
+  }
+
+  const cands = [];
+  if (hasAt) {
+    for (const r of guild.roles.cache.values()) {
+      if (r.id !== guild.id) cands.push({ key: '@' + r.name, mention: `<@&${r.id}>`, kind: 'role', id: r.id });
+    }
+    for (const m of guild.members.cache.values()) {
+      for (const n of new Set([m.displayName, m.user.username])) {
+        if (['everyone', 'here'].includes(String(n).toLowerCase())) continue;
+        cands.push({ key: '@' + n, mention: `<@${m.id}>`, kind: 'user', id: m.id });
+      }
+    }
+  }
+  if (hasHash) {
+    for (const c of guild.channels.cache.values()) {
+      if (c.type === ChannelType.GuildCategory) continue;
+      cands.push({ key: '#' + c.name, mention: `<#${c.id}>`, kind: 'channel', id: c.id });
+    }
+  }
+
+  // Les noms les plus longs d'abord (pour que "@Admin Chef" passe avant "@Admin")
+  const lower = text.toLowerCase();
+  const found = cands
+    .filter((c) => c.key.length > 1 && lower.includes(c.key.toLowerCase()))
+    .sort((a, b) => b.key.length - a.key.length);
+
+  for (const c of found) {
+    const re = new RegExp(`(?<![<\\p{L}\\p{N}_])${escRe(c.key)}(?![\\p{L}\\p{N}_-])`, 'giu');
+    if (!re.test(text)) continue;
+    re.lastIndex = 0;
+    text = text.replace(re, c.mention);
+    if (c.kind === 'user') users.add(c.id);
+    if (c.kind === 'role') roles.add(c.id);
+  }
+  return out();
+}
+
 function field(id, label, style, { required = false, value, max, placeholder } = {}) {
   const t = new TextInputBuilder().setCustomId(id).setLabel(label).setStyle(style).setRequired(required);
-  if (value) t.setValue(value.slice(0, max || 4000));
+  if (value) t.setValue(String(value).slice(0, max || 4000));
   if (max) t.setMaxLength(max);
   if (placeholder) t.setPlaceholder(placeholder);
   return new ActionRowBuilder().addComponents(t);
@@ -183,7 +253,9 @@ async function toFile(att, baseName) {
 function announceModal(modalId, title, textLabel = "Texte de l'annonce (Markdown accepté)") {
   return new ModalBuilder().setCustomId(modalId).setTitle(title).addComponents(
     field('titre', 'Titre', TextInputStyle.Short, { max: 256 }),
-    field('texte', textLabel, TextInputStyle.Paragraph, { required: true, max: 4000 }),
+    field('texte', textLabel, TextInputStyle.Paragraph, {
+      required: true, max: 4000, placeholder: '@Pseudo  @Rôle  #salon  → deviennent cliquables',
+    }),
     field('image_url', "URL d'image (si pas de fichier)", TextInputStyle.Short, { max: 500 }),
     field('footer', 'Pied de page', TextInputStyle.Short, { max: 2048 }),
     field('couleur', 'Couleur hex (ex : #FF0000)', TextInputStyle.Short, { max: 7 }),
@@ -197,7 +269,10 @@ async function buildAnnounce(m, img, thumb) {
   const footer = m.fields.getTextInputValue('footer');
   const couleur = m.fields.getTextInputValue('couleur');
 
-  const embed = new EmbedBuilder().setColor(parseColor(couleur)).setDescription(texte);
+  // @Pseudo / @Rôle / #salon -> vraies mentions cliquables
+  const r = await rich(m.guild, texte);
+
+  const embed = new EmbedBuilder().setColor(parseColor(couleur)).setDescription(r.text.slice(0, 4096));
   if (titre) embed.setTitle(titre);
   if (footer) embed.setFooter({ text: footer });
   embed.setTimestamp();
@@ -215,16 +290,25 @@ async function buildAnnounce(m, img, thumb) {
     files.push(f);
     embed.setThumbnail(`attachment://${f.name}`);
   }
-  return { embed, files };
+  return { embed, files, mentions: { users: r.users, roles: r.roles } };
 }
 
-function buildMentions(ping, mentionOpt) {
+// extra = { users[], roles[] } : personnes / rôles mentionnés dans le texte, ils sont aussi notifiés
+function buildMentions(ping, mentionOpt, extra = {}) {
   const parts = [];
   const allowed = { parse: [], roles: [], users: [] };
   if (ping) { parts.push(`@${ping}`); allowed.parse.push('everyone'); }
   if (mentionOpt?.role) { parts.push(`<@&${mentionOpt.role.id}>`); allowed.roles.push(mentionOpt.role.id); }
   else if (mentionOpt?.user) { parts.push(`<@${mentionOpt.user.id}>`); allowed.users.push(mentionOpt.user.id); }
-  return { content: parts.join(' ') || undefined, allowed };
+  for (const id of extra.roles || []) {
+    if (allowed.roles.includes(id) || allowed.roles.length >= 20) continue;
+    parts.push(`<@&${id}>`); allowed.roles.push(id);
+  }
+  for (const id of extra.users || []) {
+    if (allowed.users.includes(id) || allowed.users.length >= 20) continue;
+    parts.push(`<@${id}>`); allowed.users.push(id);
+  }
+  return { content: parts.join(' ').slice(0, 2000) || undefined, allowed };
 }
 
 /* ------------------------------------------------------------------ */
@@ -520,7 +604,7 @@ const commands = [
             ))
         .addIntegerOption((o) =>
           o.setName('gagnants').setDescription('Nombre de gagnants (1 par défaut)').setMinValue(1).setMaxValue(20))
-        .addStringOption((o) => o.setName('description').setDescription('Texte sous le titre').setMaxLength(1000))
+        .addStringOption((o) => o.setName('description').setDescription('Texte sous le titre (@Pseudo, @Rôle, #salon et \\n acceptés)').setMaxLength(1000))
         .addRoleOption((o) => o.setName('role-requis').setDescription('Rôle nécessaire pour participer'))
         .addIntegerOption((o) =>
           o.setName('invites-min').setDescription("Nombre d'invitations minimum pour participer")
@@ -899,13 +983,29 @@ const commands = [
         .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true))
         .addStringOption((o) => o.setName('label').setDescription('Raison à retirer').setAutocomplete(true).setRequired(true)))
     .addSubcommand((s) =>
+      s.setName('message').setDescription("Modifier le message envoyé quand un ticket s'ouvre (par panel ou pour toute la config)")
+        .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true))
+        .addStringOption((o) =>
+          o.setName('panel').setDescription('Panel concerné (vide = tous les panels de la configuration)').setAutocomplete(true))
+        .addBooleanOption((o) =>
+          o.setName('reinitialiser').setDescription('Remettre le message par défaut au lieu de le modifier')))
+    .addSubcommand((s) =>
+      s.setName('bouton').setDescription("Changer la couleur ou le texte du bouton d'un panel déjà envoyé")
+        .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true))
+        .addStringOption((o) =>
+          o.setName('panel').setDescription('Panel à modifier').setAutocomplete(true).setRequired(true))
+        .addStringOption((o) =>
+          o.setName('couleur').setDescription('Nouvelle couleur du bouton').addChoices(...BTN_COLORS))
+        .addStringOption((o) =>
+          o.setName('texte').setDescription('Nouveau texte du bouton').setMaxLength(80)))
+    .addSubcommand((s) =>
       s.setName('panel').setDescription('Envoyer le panel de tickets dans un salon (ensuite mis à jour automatiquement)')
         .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true))
         .addChannelOption((o) =>
           o.setName('salon').setDescription('Salon où poster le panel')
             .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(true))
         .addStringOption((o) => o.setName('titre').setDescription('Titre du panel'))
-        .addStringOption((o) => o.setName('description').setDescription('Texte du panel'))
+        .addStringOption((o) => o.setName('description').setDescription('Texte du panel (@Pseudo, @Rôle, #salon et \\n acceptés)'))
         .addStringOption((o) => o.setName('couleur').setDescription('Couleur hex, ex : #ED4245'))
         .addAttachmentOption((o) => o.setName('image').setDescription('Grande bannière du panel (fichier)'))
         .addStringOption((o) => o.setName('image-url').setDescription('Bannière via un lien (si pas de fichier)'))
@@ -916,7 +1016,9 @@ const commands = [
         .addStringOption((o) =>
           o.setName('type').setDescription("Bouton ou menu déroulant (menu seulement s'il y a des catégories)")
             .addChoices({ name: 'Bouton', value: 'bouton' }, { name: 'Menu déroulant', value: 'menu' }))
-        .addStringOption((o) => o.setName('bouton-texte').setDescription('Texte du bouton (défaut : Ouvrir un ticket)').setMaxLength(80)))
+        .addStringOption((o) => o.setName('bouton-texte').setDescription('Texte du bouton (défaut : Ouvrir un ticket)').setMaxLength(80))
+        .addStringOption((o) =>
+          o.setName('couleur-bouton').setDescription('Couleur du bouton (défaut : bleu)').addChoices(...BTN_COLORS)))
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setDMPermission(false),
 ];
@@ -942,20 +1044,21 @@ function scheduleCount(guild) {
 /* ------------------------------------------------------------------ */
 /*  Bienvenue                                                          */
 /* ------------------------------------------------------------------ */
-function buildWelcome(member) {
+async function buildWelcome(member) {
   const w = getG(member.guild.id).welcome;
   const embed = new EmbedBuilder()
     .setColor(parseColor(w.color))
     .setThumbnail(member.user.displayAvatarURL())
     .setTimestamp();
+  // @Pseudo / @Rôle / #salon écrits à la main deviennent de vraies mentions cliquables
   const title = fmt(w.title, member);
-  const desc = fmt(w.description, member);
+  const desc = (await rich(member.guild, fmt(w.description, member))).text;
   if (title) embed.setTitle(title.slice(0, 256));
   if (desc) embed.setDescription(desc.slice(0, 4096));
   if (isUrl(w.image)) embed.setImage(w.image.trim());
 
   const hasEmbed = title || desc || isUrl(w.image);
-  let content = fmt(w.content, member);
+  let content = (await rich(member.guild, fmt(w.content, member))).text;
   if (!content && !hasEmbed) content = `<@${member.id}>`;
   return {
     content: content || undefined,
@@ -1062,7 +1165,8 @@ const panelDesc = (cfg, button = false) => cfg.reasons.length && !button
   : 'Clique sur le bouton ci-dessous pour ouvrir un ticket.';
 
 // Menu déroulant (s'il y a des catégories et qu'on ne force pas le bouton) ou simple bouton
-function panelRow(cfg, { button = false, label = null } = {}) {
+// style : 'Primary' (bleu) · 'Secondary' (gris) · 'Success' (vert) · 'Danger' (rouge) — uniquement pour le bouton
+function panelRow(cfg, { button = false, label = null, style = 'Primary' } = {}) {
   if (cfg.reasons.length && !button) {
     return new ActionRowBuilder().addComponents(
       new StringSelectMenuBuilder()
@@ -1077,7 +1181,7 @@ function panelRow(cfg, { button = false, label = null } = {}) {
         })));
   }
   return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`tk_open:${cfg.name}`).setLabel(label || 'Ouvrir un ticket').setEmoji('🎫').setStyle(ButtonStyle.Primary));
+    new ButtonBuilder().setCustomId(`tk_open:${cfg.name}`).setLabel(label || 'Ouvrir un ticket').setEmoji('🎫').setStyle(btnStyle(style)));
 }
 
 // Met à jour tous les panels déjà envoyés (catégories ajoutées / modifiées / retirées, nouveau code du bot...)
@@ -1092,7 +1196,7 @@ async function refreshPanels(guild, cfgName) {
       if (gone) { cfg.panels = cfg.panels.filter((x) => x !== p); save(); continue; }
       if (!msg) continue;
 
-      const row = panelRow(cfg, { button: p.button, label: p.btnLabel });
+      const row = panelRow(cfg, { button: p.button, label: p.btnLabel, style: p.btnStyle });
       const desc = p.customDesc ? null : panelDesc(cfg, p.button);
       const s = sig({ row: row.toJSON(), desc });
       if (p.sig === s) continue;
@@ -1110,6 +1214,48 @@ async function refreshPanels(guild, cfgName) {
       }
     }
   }
+}
+
+// Message envoyé dans le salon du ticket à son ouverture.
+// Priorité : message du panel (/ticket message panel:...) > message de la configuration > message par défaut.
+// Variables : {user} {username} {server} {category} {config} {staff}
+async function buildOpenMessage(i, cfg, panel, reason, staffRoles) {
+  const m = panel?.openMsg || cfg.openMsg || {};
+  const staffMention = staffRoles.map((r) => `<@&${r}>`).join(' ');
+  const vars = (txt) => String(txt ?? '')
+    .replaceAll('{user}', `<@${i.user.id}>`)
+    .replaceAll('{username}', i.user.username)
+    .replaceAll('{server}', i.guild.name)
+    .replaceAll('{category}', reason ? reason.label : 'Non précisée')
+    .replaceAll('{config}', cfg.name)
+    .replaceAll('{staff}', staffMention);
+
+  const rc = m.content ? await rich(i.guild, vars(m.content)) : null;
+  const rd = m.description ? await rich(i.guild, vars(m.description)) : null;
+
+  const embed = new EmbedBuilder()
+    .setColor(parseColor(m.color, '#5865F2'))
+    .setTitle((m.title ? vars(m.title) : `🎫 Ticket — ${reason ? reason.label : cfg.name}`).slice(0, 256))
+    .setDescription((rd ? rd.text : (
+      `Bonjour <@${i.user.id}>, un membre du staff va te répondre bientôt.\n` +
+      `Explique-nous ta demande avec un maximum de détails.`)).slice(0, 4096))
+    .setTimestamp();
+  if (!rd) {
+    embed.addFields(
+      { name: 'Configuration', value: cfg.name, inline: true },
+      { name: 'Catégorie', value: reason ? reason.label : 'Non précisée', inline: true },
+    );
+  }
+  if (isUrl(m.image)) embed.setImage(m.image.trim());
+
+  return {
+    content: (rc ? rc.text : `<@${i.user.id}> ${staffMention}`).slice(0, 2000) || undefined,
+    embeds: [embed],
+    allowedMentions: {
+      users: [...new Set([i.user.id, ...(rc?.users || [])])].slice(0, 100),
+      roles: [...new Set([...staffRoles, ...(rc?.roles || [])])].slice(0, 100),
+    },
+  };
 }
 
 async function openTicket(i, cfgName, reasonId) {
@@ -1162,29 +1308,16 @@ async function openTicket(i, cfgName, reasonId) {
   };
   save();
 
-  const embed = new EmbedBuilder()
-    .setColor('#5865F2')
-    .setTitle(`🎫 Ticket — ${reason ? reason.label : cfg.name}`)
-    .setDescription(
-      `Bonjour <@${i.user.id}>, un membre du staff va te répondre bientôt.\n` +
-      `Explique-nous ta demande avec un maximum de détails.`)
-    .addFields(
-      { name: 'Configuration', value: cfg.name, inline: true },
-      { name: 'Catégorie', value: reason ? reason.label : 'Non précisée', inline: true },
-    )
-    .setTimestamp();
+  // Le panel d'où vient le clic (pour utiliser son message d'ouverture personnalisé)
+  const panel = cfg.panels.find((p) => p.messageId === i.message?.id);
+  const payload = await buildOpenMessage(i, cfg, panel, reason, staffRoles);
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('tk_claim').setLabel('Prendre en charge').setEmoji('🙋').setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId('tk_close').setLabel('Fermer').setEmoji('🔒').setStyle(ButtonStyle.Danger),
   );
 
-  await channel.send({
-    content: `<@${i.user.id}> ${staffRoles.map((r) => `<@&${r}>`).join(' ')}`,
-    embeds: [embed],
-    components: [row],
-    allowedMentions: { users: [i.user.id], roles: staffRoles },
-  });
+  await channel.send({ ...payload, components: [row] });
   await i.editReply(`✅ Ton ticket a été créé : <#${channel.id}>`);
 }
 
@@ -1647,7 +1780,7 @@ const HELP = [
     '`/giveaway liste` — giveaways en cours',
   ] },
   { title: '📢 Annonces & rôles', level: 'full', lines: [
-    '`/annonce` — envoyer une annonce (titre, texte, images, mentions)',
+    '`/annonce` — envoyer une annonce (titre, texte, images, mentions). Écris @Pseudo, @Rôle ou #salon : ils deviennent cliquables',
     '`/autorole creer` · `liste` · `supprimer` — réaction qui donne un rôle',
     '`/bienvenue configurer` · `activer` · `desactiver` · `test`',
   ] },
@@ -1662,7 +1795,9 @@ const HELP = [
     '`/ticket config-creer` · `config-liste` · `config-supprimer`',
     '`/ticket staff-ajouter` · `staff-retirer`',
     '`/ticket raison-ajouter` · `raison-modifier` · `raison-retirer` — catégories du menu (emojis perso)',
-    '`/ticket panel` — envoyer le panel (bannière, menu ou bouton, sans texte possible) dans un salon',
+    '`/ticket panel` — envoyer le panel (bannière, menu ou bouton coloré, sans texte possible) dans un salon',
+    "`/ticket message` — modifier le message d'ouverture des tickets (par panel ou pour toute la config)",
+    '`/ticket bouton` — changer la couleur / le texte du bouton d\'un panel déjà envoyé',
   ] },
   { title: '⚙️ Serveur & accès', level: 'full', lines: [
     '`/salon-commandes` — salon privé des commandes (et ses rôles)',
@@ -1834,10 +1969,14 @@ const handlers = {
         entrants: [], ended: false, winnerIds: [],
       };
       try {
+        // @Pseudo / @Rôle / #salon dans la description -> mentions cliquables
+        const rd = await rich(i.guild, description);
+        gw.description = rd.text.slice(0, 1500);
+
         const embed = new EmbedBuilder()
           .setColor('#F1C40F')
           .setTitle(`🎉 ${prize}`.slice(0, 256))
-          .setDescription(gwDescription(gw))
+          .setDescription(gwDescription(gw).slice(0, 4096))
           .setFooter({ text: 'Se termine' })
           .setTimestamp(new Date(gw.endAt));
         const files = [];
@@ -1847,7 +1986,7 @@ const handlers = {
           embed.setImage(`attachment://${f.name}`);
         }
         const row = gwRow(gw);
-        const { content, allowed } = buildMentions(ping, mentionOpt);
+        const { content, allowed } = buildMentions(ping, mentionOpt, rd);
         const msg = await salon.send({ content, embeds: [embed], files, components: [row], allowedMentions: allowed });
         gw.sig = sig(row.toJSON());
         d.giveaways[msg.id] = gw;
@@ -2465,8 +2604,8 @@ const handlers = {
 
     await m.deferReply({ flags: EPH });
     try {
-      const { embed, files } = await buildAnnounce(m, img, thumb);
-      const { content, allowed } = buildMentions(ping, mentionOpt);
+      const { embed, files, mentions } = await buildAnnounce(m, img, thumb);
+      const { content, allowed } = buildMentions(ping, mentionOpt, mentions);
       await salon.send({ content, embeds: [embed], files, allowedMentions: allowed });
       await m.editReply(`✅ Annonce envoyée dans <#${salon.id}>.`);
     } catch (e) {
@@ -2543,8 +2682,8 @@ const handlers = {
     await m.deferReply({ flags: EPH });
     let msg;
     try {
-      const { embed, files } = await buildAnnounce(m, img, thumb);
-      const { content, allowed } = buildMentions(ping, mentionOpt);
+      const { embed, files, mentions } = await buildAnnounce(m, img, thumb);
+      const { content, allowed } = buildMentions(ping, mentionOpt, mentions);
       msg = await salon.send({ content, embeds: [embed], files, allowedMentions: allowed });
       const reaction = await msg.react(emojiInput);
 
@@ -2583,7 +2722,8 @@ const handlers = {
     }
 
     if (sub === 'test') {
-      return i.reply({ ...buildWelcome(i.member), flags: EPH });
+      await i.deferReply({ flags: EPH });
+      return i.editReply(await buildWelcome(i.member));
     }
 
     // configurer
@@ -2596,9 +2736,9 @@ const handlers = {
     const modalId = `welcome_${i.id}`;
     await i.showModal(
       new ModalBuilder().setCustomId(modalId).setTitle("Message de bienvenue").addComponents(
-        field('content', 'Texte au-dessus ({user}, <@&IDrole>)', TextInputStyle.Short, { value: w.content, max: 500 }),
+        field('content', 'Texte au-dessus ({user}, @Rôle, #salon)', TextInputStyle.Short, { value: w.content, max: 500 }),
         field('title', "Titre de l'embed", TextInputStyle.Short, { value: w.title, max: 256 }),
-        field('description', 'Description (voir variables ci-dessous)', TextInputStyle.Paragraph, { value: w.description, max: 4000, placeholder: '{user} {username} {server} {count}' }),
+        field('description', 'Description (voir variables ci-dessous)', TextInputStyle.Paragraph, { value: w.description, max: 4000, placeholder: '{user} {username} {server} {count} @Rôle #salon' }),
         field('image', "URL de l'image (optionnel)", TextInputStyle.Short, { value: w.image, max: 500 }),
         field('color', 'Couleur hex (ex : #5865F2)', TextInputStyle.Short, { value: w.color, max: 7 }),
       ));
@@ -2619,7 +2759,7 @@ const handlers = {
     save();
 
     await m.reply({ content: `✅ Bienvenue configuré dans <#${w.channelId}> et activé. Aperçu :`, flags: EPH });
-    await m.followUp({ ...buildWelcome(i.member), flags: EPH });
+    await m.followUp({ ...(await buildWelcome(i.member)), flags: EPH });
   },
 
   /* ---------- /ticket ---------- */
@@ -2644,6 +2784,7 @@ const handlers = {
         counter: 0,
         panels: [],
         placeholder: null,
+        openMsg: null,
       };
       save();
       return i.reply({
@@ -2651,7 +2792,8 @@ const handlers = {
           `✅ Configuration **${nom}** créée.\n` +
           `• Autre rôle staff : \`/ticket staff-ajouter\`\n` +
           `• Catégories du menu (avec emojis) : \`/ticket raison-ajouter\`\n` +
-          `• Envoi du panel avec bannière : \`/ticket panel\``,
+          `• Envoi du panel avec bannière : \`/ticket panel\`\n` +
+          `• Message d'ouverture des tickets : \`/ticket message\``,
         flags: EPH,
       });
     }
@@ -2764,6 +2906,90 @@ const handlers = {
       return;
     }
 
+    /* ----- Message envoyé à l'ouverture d'un ticket (par panel ou pour toute la config) ----- */
+    if (sub === 'message') {
+      const panelId = i.options.getString('panel');
+      const panel = panelId ? cfg.panels.find((p) => p.messageId === panelId) : null;
+      if (panelId && !panel) {
+        return i.reply({ content: '❌ Panel introuvable. Choisis-le dans la liste proposée.', flags: EPH });
+      }
+      const scope = panel ? 'ce panel' : `tous les panels de **${cfgName}**`;
+
+      if (i.options.getBoolean('reinitialiser')) {
+        if (panel) delete panel.openMsg; else cfg.openMsg = null;
+        save();
+        return i.reply({ content: `✅ Message par défaut remis pour ${scope}.`, flags: EPH });
+      }
+
+      const cur = panel?.openMsg || cfg.openMsg || {};
+      const modalId = `tkmsg_${i.id}`;
+      await i.showModal(
+        new ModalBuilder().setCustomId(modalId).setTitle("Message d'ouverture du ticket").addComponents(
+          field('content', 'Texte au-dessus (vide = ping par défaut)', TextInputStyle.Paragraph,
+            { value: cur.content, max: 1000, placeholder: '{user} {staff} @Rôle #salon' }),
+          field('title', 'Titre', TextInputStyle.Short,
+            { value: cur.title, max: 256, placeholder: '🎫 Ticket — {category}' }),
+          field('description', 'Description (vide = texte par défaut)', TextInputStyle.Paragraph,
+            { value: cur.description, max: 4000, placeholder: '{user} {username} {server} {category} {staff} @Rôle #salon' }),
+          field('image', "URL de l'image (optionnel)", TextInputStyle.Short, { value: cur.image, max: 500 }),
+          field('color', 'Couleur hex (ex : #5865F2)', TextInputStyle.Short, { value: cur.color, max: 7 }),
+        ));
+
+      const m = await i.awaitModalSubmit({
+        time: 15 * 60_000,
+        filter: (x) => x.customId === modalId && x.user.id === i.user.id,
+      }).catch(() => null);
+      if (!m) return;
+
+      const val = (k) => m.fields.getTextInputValue(k).trim() || null;
+      const image = val('image');
+      const color = val('color');
+      const data = {
+        content: val('content'),
+        title: val('title'),
+        description: val('description'),
+        image: image && isUrl(image) ? image : null,
+        color: color ? parseColor(color) : null,
+      };
+      const empty = Object.values(data).every((v) => !v);
+      if (panel) panel.openMsg = empty ? undefined : data;
+      else cfg.openMsg = empty ? null : data;
+      if (panel && empty) delete panel.openMsg;
+      save();
+
+      return m.reply({
+        content: empty
+          ? `✅ Message par défaut remis pour ${scope}.`
+          : `✅ Message d'ouverture enregistré pour ${scope}. Il s'applique aux **nouveaux** tickets.\n` +
+            'Variables : `{user}` `{username}` `{server}` `{category}` `{config}` `{staff}` — ' +
+            '`@Pseudo`, `@Rôle` et `#salon` deviennent cliquables.',
+        flags: EPH,
+      });
+    }
+
+    /* ----- Couleur / texte du bouton d'un panel déjà envoyé ----- */
+    if (sub === 'bouton') {
+      const panel = cfg.panels.find((p) => p.messageId === i.options.getString('panel', true));
+      if (!panel) return i.reply({ content: '❌ Panel introuvable. Choisis-le dans la liste proposée.', flags: EPH });
+      const style = i.options.getString('couleur');
+      const label = (i.options.getString('texte') || '').trim();
+      if (!style && !label) return i.reply({ content: '❌ Choisis une couleur et/ou un texte.', flags: EPH });
+      if (cfg.reasons.length && !panel.button) {
+        return i.reply({
+          content: '❌ Ce panel utilise un **menu déroulant** (pas de couleur possible). ' +
+            'Renvoie-le avec `/ticket panel` en choisissant `type : Bouton`.',
+          flags: EPH,
+        });
+      }
+      if (style) panel.btnStyle = style;
+      if (label) panel.btnLabel = label.slice(0, 80);
+      panel.button = true;
+      save();
+      await i.deferReply({ flags: EPH });
+      await refreshPanels(i.guild, cfgName);
+      return i.editReply(`✅ Bouton mis à jour${style ? ` (couleur : ${BTN_NAMES[style]})` : ''}.`);
+    }
+
     if (sub === 'panel') {
       const salon = i.options.getChannel('salon', true);
       const img = i.options.getAttachment('image');
@@ -2775,6 +3001,7 @@ const handlers = {
       const noText = i.options.getBoolean('sans-texte') ?? false;
       const asButton = i.options.getString('type') === 'bouton';
       const btnLabel = (i.options.getString('bouton-texte') || '').trim().slice(0, 80) || null;
+      const style = i.options.getString('couleur-bouton') || 'Primary';
 
       if (noText && !img && !isUrl(imgUrl)) {
         return i.reply({ content: '❌ Pour un panel sans texte, ajoute une image (fichier ou lien).', flags: EPH });
@@ -2783,11 +3010,14 @@ const handlers = {
 
       if (placeholder) { cfg.placeholder = placeholder.slice(0, 150); save(); }
 
+      // @Pseudo / @Rôle / #salon dans la description -> mentions cliquables
+      const richDesc = customDesc ? (await rich(i.guild, customDesc)).text : null;
+
       const embed = new EmbedBuilder().setColor(parseColor(i.options.getString('couleur'), '#ED4245'));
       if (!noText) {
         embed
           .setTitle(i.options.getString('titre') || `🎫 Support — ${cfg.name}`)
-          .setDescription(customDesc || panelDesc(cfg, asButton))
+          .setDescription((richDesc || panelDesc(cfg, asButton)).slice(0, 4096))
           .setTimestamp();
         if (footer) embed.setFooter({ text: footer });
       }
@@ -2807,7 +3037,7 @@ const handlers = {
           embed.setThumbnail(`attachment://${f.name}`);
         }
 
-        const row = panelRow(cfg, { button: asButton, label: btnLabel });
+        const row = panelRow(cfg, { button: asButton, label: btnLabel, style });
         const sent = await salon.send({ embeds: [embed], files, components: [row] });
         // texte figé : le bot ne modifiera jamais le texte (ni l'absence de texte) de ce panel
         const fixed = !!customDesc || noText;
@@ -2817,10 +3047,13 @@ const handlers = {
           customDesc: fixed,
           button: asButton,
           btnLabel,
+          btnStyle: style,
           sig: sig({ row: row.toJSON(), desc: fixed ? null : panelDesc(cfg, asButton) }),
         });
         save();
-        await i.editReply(`✅ Panel envoyé dans <#${salon.id}>. Il se mettra à jour tout seul.`);
+        await i.editReply(
+          `✅ Panel envoyé dans <#${salon.id}>. Il se mettra à jour tout seul.\n` +
+          "Pour changer le message d'ouverture des tickets de ce panel : `/ticket message` (choisis ce panel).");
         if (placeholder) refreshPanels(i.guild, cfgName).catch(console.error);
       } catch (e) {
         console.error(e);
@@ -2841,6 +3074,21 @@ async function autocomplete(i) {
   if (f.name === 'config') {
     return i.respond(
       Object.keys(d.tickets).filter((n) => n.includes(q)).slice(0, 25).map((n) => ({ name: n, value: n })));
+  }
+  if (f.name === 'panel') {
+    // Panels déjà envoyés d'une configuration (pour /ticket message et /ticket bouton)
+    const cfg = d.tickets[i.options.getString('config')];
+    return i.respond(
+      (cfg?.panels || [])
+        .map((p, n) => {
+          const kind = cfg.reasons.length && !p.button ? 'menu' : `bouton ${BTN_NAMES[p.btnStyle || 'Primary']}`;
+          return {
+            name: `Panel ${n + 1} · #${i.guild.channels.cache.get(p.channelId)?.name || '?'} · ${kind}`.slice(0, 100),
+            value: p.messageId,
+          };
+        })
+        .filter((o) => o.name.toLowerCase().includes(q))
+        .slice(0, 25));
   }
   if (f.name === 'label') {
     const cfg = d.tickets[i.options.getString('config')];
@@ -3011,7 +3259,7 @@ client.on(Events.GuildMemberAdd, async (member) => {
   const w = d.welcome;
   if (!w.enabled || !w.channelId) return;
   const ch = await member.guild.channels.fetch(w.channelId).catch(() => null);
-  if (ch) ch.send(buildWelcome(member)).catch(console.error);
+  if (ch) ch.send(await buildWelcome(member)).catch(console.error);
 });
 
 client.on(Events.GuildMemberRemove, (member) => {
