@@ -938,6 +938,26 @@ const commands = [
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setDMPermission(false),
 
+  // ---------- Installation automatique du ticket paiement ----------
+  new SlashCommandBuilder()
+    .setName('setup-paiement')
+    .setDescription('Installe tout : menu en MP (PayPal / Wero...), catégories du serveur et panel')
+    .addRoleOption((o) => o.setName('role-staff').setDescription('Rôle staff qui gère les tickets').setRequired(true))
+    .addChannelOption((o) =>
+      o.setName('salon').setDescription('Salon où envoyer le panel')
+        .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(true))
+    .addStringOption((o) =>
+      o.setName('moyens').setDescription('Moyens de paiement séparés par une virgule (défaut : PayPal, Wero)').setMaxLength(300))
+    .addStringOption((o) =>
+      o.setName('nom').setDescription('Nom de la configuration (défaut : paiement)').setMaxLength(30))
+    .addChannelOption((o) =>
+      o.setName('salon-logs').setDescription('Salon où envoyer les transcripts à la fermeture')
+        .addChannelTypes(ChannelType.GuildText))
+    .addStringOption((o) => o.setName('titre').setDescription('Titre du panel'))
+    .addStringOption((o) => o.setName('description').setDescription('Texte du panel'))
+    .setDefaultMemberPermissions('0')
+    .setDMPermission(false),
+
   // ---------- Tickets ----------
   new SlashCommandBuilder()
     .setName('ticket')
@@ -1956,6 +1976,7 @@ const HELP = [
     '`/classement-invites-maj` — forcer sa mise à jour',
   ] },
   { title: '🎫 Tickets', level: 'full', lines: [
+    '`/setup-paiement` — installe tout le ticket paiement en une commande (menu MP, catégories, panel)',
     '`/ticket config-creer` · `config-liste` · `config-supprimer`',
     '`/ticket staff-ajouter` · `staff-retirer`',
     '`/ticket raison-ajouter` · `raison-modifier` · `raison-retirer` — catégories du menu (emoji perso + catégorie du serveur liée)',
@@ -2926,6 +2947,106 @@ const handlers = {
 
     await m.reply({ content: `✅ Bienvenue configuré dans <#${w.channelId}> et activé. Aperçu :`, flags: EPH });
     await m.followUp({ ...(await buildWelcome(i.member)), flags: EPH });
+  },
+
+  /* ---------- /setup-paiement ---------- */
+  async 'setup-paiement'(i) {
+    const staff = i.options.getRole('role-staff', true);
+    const salon = i.options.getChannel('salon', true);
+    const logCh = i.options.getChannel('salon-logs');
+    const nom = (i.options.getString('nom') || 'paiement').toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 30);
+    const d = getG(i.guildId);
+
+    if (staff.id === i.guild.id) return i.reply({ content: '❌ Tu ne peux pas choisir @everyone.', flags: EPH });
+    if (d.tickets[nom]) {
+      return i.reply({ content: `❌ La configuration **${nom}** existe déjà. Supprime-la avec \`/ticket config-supprimer\` ou choisis un autre nom.`, flags: EPH });
+    }
+
+    const EMOJIS = { paypal: '💳', wero: '🏦', virement: '🏛️', crypto: '🪙', carte: '💳', cb: '💳' };
+    const moyens = (i.options.getString('moyens') || 'PayPal, Wero')
+      .split(',').map((s) => s.trim()).filter(Boolean).slice(0, 25);
+    if (!moyens.length) return i.reply({ content: '❌ Indique au moins un moyen de paiement.', flags: EPH });
+
+    await i.deferReply({ flags: EPH });
+    const P = PermissionFlagsBits;
+    try {
+      // Une catégorie du serveur par moyen de paiement
+      const reasons = [];
+      for (const label of moyens) {
+        const cat = await i.guild.channels.create({
+          name: `Tickets ${label}`.slice(0, 100),
+          type: ChannelType.GuildCategory,
+          permissionOverwrites: [
+            { id: i.guild.id, deny: [P.ViewChannel] },
+            { id: staff.id, allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.ManageMessages] },
+            { id: client.user.id, allow: [P.ViewChannel, P.SendMessages, P.ManageChannels, P.ReadMessageHistory, P.EmbedLinks] },
+          ],
+          reason: `/setup-paiement par ${i.user.tag}`,
+        });
+        reasons.push({
+          id: crypto.randomUUID().slice(0, 8),
+          label: label.slice(0, 100),
+          description: `Paiement par ${label}`.slice(0, 100),
+          emoji: EMOJIS[label.toLowerCase()] || '💶',
+          staffRoleId: null,
+          categoryId: cat.id,
+        });
+      }
+
+      const cfg = {
+        name: nom,
+        categoryId: reasons[0].categoryId,
+        staffRoles: [staff.id],
+        logChannelId: logCh?.id || null,
+        reasons,
+        counter: 0,
+        panels: [],
+        placeholder: 'Choisis ton moyen de paiement...',
+        openMsg: null,
+        dm: true,
+        dmMsg: {
+          title: '💳 Choisis ton moyen de paiement',
+          description: 'Sélectionne ton moyen de paiement dans le menu ci-dessous.\n' +
+            '⚠️ **Ton choix est définitif** : une fois validé, ce menu disparaît. ' +
+            'Pour ouvrir un autre ticket, reclique sur le panel du serveur.',
+          image: null,
+          color: null,
+        },
+      };
+      d.tickets[nom] = cfg;
+      save();
+
+      // Panel (bouton, le menu est envoyé en MP)
+      const customDesc = i.options.getString('description');
+      const richDesc = customDesc ? (await rich(i.guild, customDesc)).text : null;
+      const embed = new EmbedBuilder()
+        .setColor('#57F287')
+        .setTitle(i.options.getString('titre') || '🎫 Passer commande')
+        .setDescription((richDesc || 'Clique sur le bouton ci-dessous pour passer commande.\n' +
+          'Tu recevras un **message privé** pour choisir ton moyen de paiement.').slice(0, 4096))
+        .setTimestamp();
+      const row = panelRow(cfg, { button: true, label: 'Commander', style: 'Success' });
+      const sent = await salon.send({ embeds: [embed], components: [row] });
+      cfg.panels.push({
+        channelId: salon.id, messageId: sent.id, customDesc: true, button: true,
+        btnLabel: 'Commander', btnStyle: 'Success',
+        sig: sig({ row: row.toJSON(), desc: null }),
+      });
+      save();
+
+      await i.editReply({
+        content:
+          `✅ Tout est installé (config **${nom}**) :\n` +
+          reasons.map((r) => `• ${r.emoji} **${r.label}** → <#${r.categoryId}>`).join('\n') +
+          `\n• Staff : <@&${staff.id}>\n• Panel envoyé dans <#${salon.id}>` +
+          `${logCh ? `\n• Transcripts : <#${logCh.id}>` : ''}\n` +
+          "Le membre clique sur **Commander**, reçoit un MP avec le menu, choisit, et le ticket s'ouvre dans la bonne catégorie.",
+        allowedMentions: { parse: [] },
+      });
+    } catch (e) {
+      console.error('[setup-paiement]', e);
+      await i.editReply('❌ Installation impossible. Il me faut **Gérer les salons** et **Gérer les rôles**, et mon rôle doit être au-dessus du rôle staff.');
+    }
   },
 
   /* ---------- /ticket ---------- */
