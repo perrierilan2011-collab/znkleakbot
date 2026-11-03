@@ -29,6 +29,7 @@ const client = new Client({
 // avec un chemin HORS du dossier du code (ou sur un volume persistant chez ton hébergeur).
 // Exemple : DB_FILE=/data/data.json
 // Et ne remplace jamais data.json quand tu envoies la nouvelle version du code.
+// Le dossier "images/" (image du MP des tickets) est créé à côté de ce fichier.
 const DB_FILE = process.env.DB_FILE || path.join(__dirname, 'data.json');
 const BACKUP_FILE = DB_FILE + '.bak';
 fs.mkdirSync(path.dirname(DB_FILE), { recursive: true });
@@ -87,7 +88,7 @@ function getG(id) {
       image: '',
       color: '#5865F2',
     },
-    tickets: {}, // nom -> { name, categoryId, staffRoles[], logChannelId, reasons[], counter, panels[], placeholder, openMsg, dm, dmMsg }
+    tickets: {}, // nom -> { name, categoryId, staffRoles[], logChannelId, reasons[], counter, panels[], placeholder, openMsg, dm, dmChoices[], dmTexts, dmImage }
     open: {},    // channelId -> { userId, config, reason, claimedBy, staffRoles[] }
   };
   const g = db[id];
@@ -113,15 +114,24 @@ function getG(id) {
   g.invites.joinedVia ??= {};  // membre -> { code, inviterId, at }  (par quel lien il est arrivé)
   g.cmdPerms ??= {};           // commande -> [roleIds]  (rôles autorisés par commande)
   g.disabledCommands ??= [];   // commandes retirées de Discord
-  g.pendingDm ??= {};          // "userId:config" -> { guildId, messageId, channelId, panelId, at }  (menus de MP en attente)
+  g.pendingDm ??= {};          // "userId:config" -> { messageId, channelId, panelId }  (menu de MP en attente)
   // Migration : un seul rôle staff -> plusieurs rôles staff
   for (const c of Object.values(g.tickets)) {
     c.staffRoles ??= c.staffRoleId ? [c.staffRoleId] : [];
-    c.panels ??= []; // panels envoyés : [{ channelId, messageId, customDesc, sig, button, btnLabel, btnStyle, openMsg, dmMsg }]
-    c.placeholder ??= null; // texte du menu déroulant (ex : "Choisir une catégorie...")
+    c.panels ??= []; // panels envoyés : [{ channelId, messageId, customDesc, sig, button, btnLabel, btnStyle, openMsg }]
+    c.placeholder ??= null; // texte du menu déroulant du panel (ex : "Choisir une catégorie...")
     c.openMsg ??= null;     // message d'ouverture par défaut de cette configuration (modifiable avec /ticket message)
     c.dm ??= false;         // ouverture des tickets par message privé (menu dans le MP)
-    c.dmMsg ??= null;       // message du MP par défaut de cette configuration (modifiable avec /ticket mp-message)
+    c.dmChoices ??= [];     // choix du menu du MP : [{ id, label, emoji, description, categoryId, staffRoleId }]
+    c.dmTexts ??= null;     // { title, description, placeholder, color, sentReply, doneTitle, doneText, invalid }
+    c.dmImage ??= null;     // nom du fichier image du MP (dans le dossier images/)
+    if (!c.dmMigrated) {    // une seule fois : reprise de l'ancien système de MP
+      c.dmMigrated = true;
+      if (c.dm && !c.dmChoices.length) c.dmChoices = c.reasons.map((r) => ({ ...r }));
+      if (c.dmMsg && !c.dmTexts) {
+        c.dmTexts = { title: c.dmMsg.title || null, description: c.dmMsg.description || null, color: c.dmMsg.color || null };
+      }
+    }
   }
   return g;
 }
@@ -1011,17 +1021,48 @@ const commands = [
       s.setName('raison-retirer').setDescription('Retirer une raison')
         .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true))
         .addStringOption((o) => o.setName('label').setDescription('Raison à retirer').setAutocomplete(true).setRequired(true)))
+    // ----- Ouverture par message privé (menu dans le MP) -----
     .addSubcommand((s) =>
-      s.setName('mp-activer').setDescription("Activer / désactiver l'ouverture des tickets par message privé (menu dans le MP)")
+      s.setName('mp-activer').setDescription("Activer / désactiver l'ouverture des tickets par message privé")
         .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true))
         .addBooleanOption((o) => o.setName('actif').setDescription('Activer le mode MP').setRequired(true)))
     .addSubcommand((s) =>
-      s.setName('mp-message').setDescription('Modifier le message envoyé en MP (par panel ou pour toute la config)')
+      s.setName('mp-menu').setDescription('Modifier le menu envoyé en MP (titre, texte, couleur, menu, image)')
         .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true))
-        .addStringOption((o) =>
-          o.setName('panel').setDescription('Panel concerné (vide = tous les panels de la configuration)').setAutocomplete(true))
-        .addBooleanOption((o) =>
-          o.setName('reinitialiser').setDescription('Remettre le message par défaut au lieu de le modifier')))
+        .addAttachmentOption((o) => o.setName('image').setDescription('Image affichée dans le MP'))
+        .addBooleanOption((o) => o.setName('retirer-image').setDescription("Retirer l'image actuelle du MP")))
+    .addSubcommand((s) =>
+      s.setName('mp-textes').setDescription('Modifier les autres textes : réponse au clic, message final, menu expiré')
+        .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true)))
+    .addSubcommand((s) =>
+      s.setName('mp-reinitialiser').setDescription('Remettre les textes du MP par défaut')
+        .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true))
+        .addBooleanOption((o) => o.setName('image').setDescription("Retirer aussi l'image")))
+    .addSubcommand((s) =>
+      s.setName('mp-choix-ajouter').setDescription('Ajouter un choix au menu du MP')
+        .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true))
+        .addStringOption((o) => o.setName('label').setDescription('Nom du choix (ex : PayPal)').setMaxLength(100).setRequired(true))
+        .addChannelOption((o) =>
+          o.setName('categorie').setDescription("Catégorie du serveur où les tickets de ce choix s'ouvrent")
+            .addChannelTypes(ChannelType.GuildCategory).setRequired(true))
+        .addStringOption((o) => o.setName('emoji').setDescription('Emoji : 🎮 ou emoji du serveur'))
+        .addStringOption((o) => o.setName('description').setDescription('Description courte').setMaxLength(100))
+        .addRoleOption((o) => o.setName('role-staff').setDescription('Rôle staff propre à ce choix (remplace ceux de la config)')))
+    .addSubcommand((s) =>
+      s.setName('mp-choix-modifier').setDescription('Modifier un choix du menu du MP')
+        .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true))
+        .addStringOption((o) => o.setName('choix').setDescription('Choix à modifier').setAutocomplete(true).setRequired(true))
+        .addStringOption((o) => o.setName('nouveau-nom').setDescription('Nouveau nom').setMaxLength(100))
+        .addStringOption((o) => o.setName('emoji').setDescription('Nouvel emoji (écris "aucun" pour le retirer)'))
+        .addStringOption((o) => o.setName('description').setDescription('Nouvelle description').setMaxLength(100))
+        .addChannelOption((o) =>
+          o.setName('categorie').setDescription('Nouvelle catégorie du serveur')
+            .addChannelTypes(ChannelType.GuildCategory))
+        .addRoleOption((o) => o.setName('role-staff').setDescription('Nouveau rôle staff propre à ce choix')))
+    .addSubcommand((s) =>
+      s.setName('mp-choix-retirer').setDescription('Retirer un choix du menu du MP')
+        .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true))
+        .addStringOption((o) => o.setName('choix').setDescription('Choix à retirer').setAutocomplete(true).setRequired(true)))
     .addSubcommand((s) =>
       s.setName('message').setDescription("Modifier le message envoyé quand un ticket s'ouvre (par panel ou pour toute la config)")
         .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true))
@@ -1301,15 +1342,16 @@ async function buildOpenMessage(guild, user, cfg, panel, reason, staffRoles) {
 
 // Création du salon du ticket (utilisée par le mode normal ET par le mode MP).
 // Un membre peut ouvrir autant de tickets qu'il veut (chaque salon a son numéro).
+// Le choix (reasonId) est cherché dans le menu du panel ET dans le menu du MP.
 // Renvoie { channel } ou { error }.
 async function createTicket(guild, user, cfgName, reasonId, panel) {
   const data = getG(guild.id);
   const cfg = data.tickets[cfgName];
   if (!cfg) return { error: "❌ Cette configuration n'existe plus." };
 
-  const reason = cfg.reasons.find((r) => r.id === reasonId);
+  const reason = [...cfg.reasons, ...(cfg.dmChoices || [])].find((r) => r.id === reasonId);
 
-  // Rôles staff : ceux de la raison (s'il y en a un) sinon ceux de la configuration
+  // Rôles staff : ceux du choix (s'il y en a un) sinon ceux de la configuration
   const staffRoles = (reason?.staffRoleId ? [reason.staffRoleId] : cfg.staffRoles)
     .filter((id) => guild.roles.cache.has(id));
   if (!staffRoles.length) {
@@ -1362,114 +1404,164 @@ async function createTicket(guild, user, cfgName, reasonId, panel) {
 }
 
 /* ---------- Ouverture de ticket par message privé ---------- */
-// Le membre clique sur le panel -> le bot lui envoie un MP avec un menu déroulant.
-// Chaque MP ne sert qu'UNE fois : dès que le membre choisit, le menu disparaît et ne peut plus être utilisé.
-// Pour ouvrir un autre ticket, le membre doit recliquer sur le panel du serveur (nouveau MP, nouveau menu).
-const DM_TTL = 10 * 60_000; // durée de validité d'un menu de MP
+// Clic sur le panel -> MP avec image + menu déroulant -> choix -> le MP est supprimé
+// -> nouveau MP qui dit d'aller dans le salon du ticket (mentionné).
+// Chaque MP ne sert qu'UNE fois. Un nouveau clic sur le panel remplace l'ancien MP.
+// Tout se règle avec : /ticket mp-choix-ajouter · mp-menu · mp-textes · mp-activer
+const IMG_DIR = path.join(path.dirname(DB_FILE), 'images');
 
-// Message + menu envoyés en MP. Priorité : message du panel > message de la configuration > défaut.
-// Variables : {user} {username} {server} {config}
-function buildDmMessage(guild, user, cfg, panel) {
-  const m = panel?.dmMsg || cfg.dmMsg || {};
-  const vars = (txt) => String(txt ?? '')
+// Textes par défaut (tous modifiables avec /ticket mp-menu et /ticket mp-textes)
+// Variables : {user} {username} {server} {config} — et dans le message final : {channel} {link} {choice}
+const DM_DEFAULT = {
+  title: '🎫 Ouvrir un ticket — {server}',
+  description: 'Choisis la catégorie de ta demande dans le menu ci-dessous.',
+  sentReply: "📩 Je t'ai envoyé un message privé : choisis ta catégorie là-bas pour ouvrir ton ticket.",
+  doneTitle: '✅ Ton ticket est ouvert',
+  doneText: 'Va dans {channel} pour continuer ta demande.',
+  invalid: "❌ Ce menu n'est plus valide. Reclique sur le panel du serveur pour en obtenir un nouveau.",
+};
+const dmText = (cfg, k) => cfg.dmTexts?.[k] || DM_DEFAULT[k];
+const dmVars = (txt, { guild, user, cfg, channel, choice }) =>
+  String(txt ?? '')
     .replaceAll('\\n', '\n')
     .replaceAll('{user}', user.username)
     .replaceAll('{username}', user.username)
     .replaceAll('{server}', guild.name)
-    .replaceAll('{config}', cfg.name);
+    .replaceAll('{config}', cfg.name)
+    .replaceAll('{choice}', choice?.label || '')
+    .replaceAll('{channel}', channel ? `<#${channel.id}>` : '')
+    .replaceAll('{link}', channel ? channel.url : '');
 
-  const embed = new EmbedBuilder()
-    .setColor(parseColor(m.color, '#5865F2'))
-    .setTitle((m.title ? vars(m.title) : `🎫 Ouvrir un ticket — ${guild.name}`).slice(0, 256))
-    .setDescription((m.description ? vars(m.description) : (
-      'Choisis la catégorie de ta demande dans le menu ci-dessous.\n' +
-      '⚠️ **Ton choix est définitif** : une fois validé, ce menu disparaît. ' +
-      'Pour ouvrir un autre ticket, reclique sur le panel du serveur.')).slice(0, 4096))
-    .setTimestamp();
-  if (isUrl(m.image)) embed.setImage(m.image.trim());
+// ----- Image du MP (enregistrée sur le disque : les liens Discord expirent) -----
+const dmImagePath = (cfg) => (cfg.dmImage ? path.join(IMG_DIR, cfg.dmImage) : null);
 
-  const menu = new StringSelectMenuBuilder()
-    .setCustomId(`tk_dm:${cfg.name}:${guild.id}`)
-    .setPlaceholder(cfg.placeholder || 'Choisir une catégorie...')
-    .addOptions(cfg.reasons.slice(0, 25).map((r) => {
-      const o = { label: r.label, value: r.id };
-      if (r.description) o.description = r.description;
-      const e = parseEmoji(r.emoji);
-      if (e) o.emoji = e;
-      return o;
-    }));
-  return { embeds: [embed], components: [new ActionRowBuilder().addComponents(menu)] };
+function removeDmImage(cfg) {
+  const p = dmImagePath(cfg);
+  if (p) { try { fs.rmSync(p, { force: true }); } catch { /* rien */ } }
+  cfg.dmImage = null;
 }
 
-// Désactive un ancien MP (remplacé par un nouveau ou expiré) : le menu disparaît
-async function closeOldDm(p) {
+async function saveDmImage(guildId, cfg, att) {
+  if (!att.contentType?.startsWith('image/')) throw new Error("ce fichier n'est pas une image");
+  const res = await fetch(att.url);
+  if (!res.ok) throw new Error(`téléchargement impossible (${res.status})`);
+  const ext = (att.name || '').match(/\.(png|jpe?g|gif|webp)$/i)?.[0]?.toLowerCase() || '.png';
+  const file = `${guildId}-${cfg.name}-mp${ext}`;
+  removeDmImage(cfg);
+  fs.mkdirSync(IMG_DIR, { recursive: true });
+  fs.writeFileSync(path.join(IMG_DIR, file), Buffer.from(await res.arrayBuffer()));
+  cfg.dmImage = file;
+}
+
+// Message + menu envoyés en MP
+function buildDmMessage(guild, user, cfg) {
+  const ctx = { guild, user, cfg };
+  const embed = new EmbedBuilder()
+    .setColor(parseColor(cfg.dmTexts?.color, '#5865F2'))
+    .setTitle(dmVars(dmText(cfg, 'title'), ctx).slice(0, 256))
+    .setDescription(dmVars(dmText(cfg, 'description'), ctx).slice(0, 4096))
+    .setTimestamp();
+
+  const files = [];
+  const p = dmImagePath(cfg);
+  if (p && fs.existsSync(p)) {
+    const name = 'image' + path.extname(p);
+    files.push(new AttachmentBuilder(p, { name }));
+    embed.setImage(`attachment://${name}`);
+  }
+
+  const components = [];
+  if (cfg.dmChoices.length) {
+    components.push(new ActionRowBuilder().addComponents(
+      new StringSelectMenuBuilder()
+        .setCustomId(`tk_dm:${cfg.name}:${guild.id}`)
+        .setPlaceholder((cfg.dmTexts?.placeholder || 'Choisir une catégorie...').slice(0, 150))
+        .addOptions(cfg.dmChoices.slice(0, 25).map((r) => {
+          const o = { label: r.label, value: r.id };
+          if (r.description) o.description = r.description;
+          const e = parseEmoji(r.emoji);
+          if (e) o.emoji = e;
+          return o;
+        }))));
+  }
+  return { embeds: [embed], files, components };
+}
+
+// Supprime un ancien MP de menu
+async function deleteDm(user, p) {
   try {
-    const ch = await client.channels.fetch(p.channelId);
+    const ch = await user.createDM();
     const msg = await ch.messages.fetch(p.messageId);
-    await msg.edit({ content: "⏰ Ce menu n'est plus valide. Reclique sur le panel du serveur pour en obtenir un nouveau.", embeds: [], components: [] });
-  } catch { /* message déjà supprimé : rien à faire */ }
+    await msg.delete();
+  } catch { /* déjà supprimé */ }
 }
 
 async function startDmFlow(i, cfg, panel) {
   const data = getG(i.guildId);
-  if (!cfg.reasons.length) {
-    return i.editReply("❌ Aucune catégorie n'est configurée pour ce ticket. Préviens un administrateur.");
+  if (!cfg.dmChoices.length) {
+    return i.editReply("❌ Aucun choix n'est configuré pour ce ticket. Préviens un administrateur.");
   }
+  const ctx = { guild: i.guild, user: i.user, cfg };
 
   // Un seul menu actif par membre et par configuration : le nouveau remplace l'ancien
   const key = `${i.user.id}:${cfg.name}`;
   const old = data.pendingDm[key];
-  if (old) { delete data.pendingDm[key]; await closeOldDm(old); }
+  if (old) { delete data.pendingDm[key]; await deleteDm(i.user, old); }
 
+  let dm;
   try {
-    const dm = await i.user.send(buildDmMessage(i.guild, i.user, cfg, panel));
-    data.pendingDm[key] = {
-      guildId: i.guildId, messageId: dm.id, channelId: dm.channelId, panelId: panel?.messageId || null, at: Date.now(),
-    };
-    save();
-    await i.editReply("📩 Je t'ai envoyé un message privé : choisis ta catégorie là-bas pour ouvrir ton ticket.");
+    dm = await i.user.send(buildDmMessage(i.guild, i.user, cfg));
   } catch {
-    await i.editReply("❌ Je ne peux pas t'envoyer de MP. Active les messages privés des membres de ce serveur, puis réessaie.");
+    return i.editReply("❌ Je ne peux pas t'envoyer de MP. Active les messages privés des membres de ce serveur, puis réessaie.");
   }
+  data.pendingDm[key] = { messageId: dm.id, channelId: dm.channelId, panelId: panel?.messageId || null };
+  save();
+  await i.editReply(dmVars(dmText(cfg, 'sentReply'), ctx).slice(0, 2000));
 }
 
-// Le membre choisit sa catégorie dans le menu du MP
+// Le membre choisit dans le menu du MP
 async function dmChoose(i) {
   const [, cfgName, guildId] = i.customId.split(':');
-  const gone = (content) => i.update({ content, embeds: [], components: [] });
-
   const guild = client.guilds.cache.get(guildId);
-  if (!guild) return gone('❌ Serveur introuvable.');
-  const data = getG(guildId);
+  const data = guild ? getG(guildId) : null;
+  const cfg = data?.tickets[cfgName];
   const key = `${i.user.id}:${cfgName}`;
-  const p = data.pendingDm[key];
+  const p = data?.pendingDm[key];
 
-  // Usage unique : l'enregistrement est supprimé AVANT toute opération asynchrone.
-  // Un double clic, un ancien MP ou un menu déjà utilisé ne peuvent donc jamais créer de ticket.
-  if (!p || p.messageId !== i.message.id) {
-    return gone("⏰ Ce menu n'est plus valide. Retourne sur le serveur et clique sur le panel.");
+  // Usage unique : l'enregistrement est supprimé AVANT toute opération asynchrone
+  // (double clic ou ancien menu = aucun ticket créé).
+  if (!cfg || !p || p.messageId !== i.message.id) {
+    const txt = cfg ? dmText(cfg, 'invalid') : DM_DEFAULT.invalid;
+    return i.update({ content: txt, embeds: [], components: [], attachments: [] });
   }
   delete data.pendingDm[key];
   save();
-  if (Date.now() - p.at > DM_TTL) return gone('⏰ Ce menu a expiré. Retourne sur le serveur et clique sur le panel.');
-
   await i.deferUpdate();
-  const finish = (content) => i.editReply({ content, embeds: [], components: [] }); // le menu disparaît du MP
 
-  const cfg = data.tickets[cfgName];
+  // Dans tous les cas le menu disparaît (message supprimé), puis on envoie un nouveau MP
+  const reply = async (payload) => {
+    await i.message.delete().catch(() => {});
+    await i.user.send(payload).catch(() => {});
+  };
+
   const member = await guild.members.fetch(i.user.id).catch(() => null);
-  if (!cfg || !member) return finish("❌ Impossible d'ouvrir le ticket (configuration supprimée ou tu as quitté le serveur).");
-  if (data.muted[i.user.id]) return finish('❌ Tu ne peux pas ouvrir de ticket pendant ton mute.');
-
-  const reasonId = i.values[0];
-  if (!cfg.reasons.some((r) => r.id === reasonId)) {
-    return finish("❌ Cette catégorie n'existe plus. Reclique sur le panel du serveur.");
-  }
+  if (!member) return reply("❌ Impossible d'ouvrir le ticket : tu as quitté le serveur.");
+  if (data.muted[i.user.id]) return reply('❌ Tu ne peux pas ouvrir de ticket pendant ton mute.');
+  const choice = cfg.dmChoices.find((r) => r.id === i.values[0]);
+  if (!choice) return reply("❌ Ce choix n'existe plus. Reclique sur le panel du serveur.");
 
   const panel = cfg.panels.find((x) => x.messageId === p.panelId);
-  const r = await createTicket(guild, i.user, cfgName, reasonId, panel);
-  if (r.error) return finish(r.error);
-  return finish(`✅ Ton ticket a été créé : ${r.channel.url}`);
+  const r = await createTicket(guild, i.user, cfgName, choice.id, panel);
+  if (r.error) return reply(r.error);
+
+  const ctx = { guild, user: i.user, cfg, channel: r.channel, choice };
+  return reply({
+    embeds: [new EmbedBuilder()
+      .setColor(parseColor(cfg.dmTexts?.color, '#57F287'))
+      .setTitle(dmVars(dmText(cfg, 'doneTitle'), ctx).slice(0, 256))
+      .setDescription(dmVars(dmText(cfg, 'doneText'), ctx).slice(0, 4096))
+      .setTimestamp()],
+  });
 }
 
 async function openTicket(i, cfgName, reasonId) {
@@ -1879,21 +1971,9 @@ async function refreshGuild(guild) {
     ['autoroles', () => syncAutoroles(guild)],
     ['giveaways', () => refreshGiveaways(guild)],
     ['classement invitations', () => refreshBoard(guild)],
-    ['menus MP tickets', () => cleanDmMenus(guild)],
   ];
   for (const [name, fn] of steps) {
     await fn().catch((e) => console.error(`[maj auto] ${name} :`, e));
-  }
-}
-
-// Menus de MP restés en attente (expirés pendant que le bot était éteint) : on les désactive
-async function cleanDmMenus(guild) {
-  const d = getG(guild.id);
-  for (const [key, p] of Object.entries(d.pendingDm)) {
-    if (Date.now() - p.at < DM_TTL) continue;
-    delete d.pendingDm[key];
-    save();
-    await closeOldDm(p);
   }
 }
 
@@ -1979,12 +2059,17 @@ const HELP = [
     '`/setup-paiement` — installe tout le ticket paiement en une commande (menu MP, catégories, panel)',
     '`/ticket config-creer` · `config-liste` · `config-supprimer`',
     '`/ticket staff-ajouter` · `staff-retirer`',
-    '`/ticket raison-ajouter` · `raison-modifier` · `raison-retirer` — catégories du menu (emoji perso + catégorie du serveur liée)',
-    '`/ticket mp-activer` — le menu est envoyé en message privé (usage unique par message)',
-    '`/ticket mp-message` — modifier le message envoyé en MP (par panel ou pour toute la config)',
+    '`/ticket raison-ajouter` · `raison-modifier` · `raison-retirer` — catégories du menu du panel (emoji perso + catégorie du serveur liée)',
     '`/ticket panel` — envoyer le panel (bannière, menu ou bouton coloré, sans texte possible) dans un salon',
     "`/ticket message` — modifier le message d'ouverture des tickets (par panel ou pour toute la config)",
     '`/ticket bouton` — changer la couleur / le texte du bouton d\'un panel déjà envoyé',
+  ] },
+  { title: '📩 Tickets par MP', level: 'full', lines: [
+    '`/ticket mp-activer` — ouverture des tickets par MP (menu déroulant en message privé)',
+    '`/ticket mp-choix-ajouter` · `mp-choix-modifier` · `mp-choix-retirer` — choix du menu (1 catégorie du serveur par choix)',
+    '`/ticket mp-menu` — titre, texte, couleur, menu et **image** du MP',
+    '`/ticket mp-textes` — réponse au clic, message final (avec le salon du ticket), menu expiré',
+    '`/ticket mp-reinitialiser` — remettre les textes par défaut',
   ] },
   { title: '⚙️ Serveur & accès', level: 'full', lines: [
     '`/salon-commandes` — salon privé des commandes (et ses rôles)',
@@ -2970,8 +3055,8 @@ const handlers = {
     await i.deferReply({ flags: EPH });
     const P = PermissionFlagsBits;
     try {
-      // Une catégorie du serveur par moyen de paiement
-      const reasons = [];
+      // Une catégorie du serveur par moyen de paiement = un choix du menu en MP
+      const choices = [];
       for (const label of moyens) {
         const cat = await i.guild.channels.create({
           name: `Tickets ${label}`.slice(0, 100),
@@ -2983,7 +3068,7 @@ const handlers = {
           ],
           reason: `/setup-paiement par ${i.user.tag}`,
         });
-        reasons.push({
+        choices.push({
           id: crypto.randomUUID().slice(0, 8),
           label: label.slice(0, 100),
           description: `Paiement par ${label}`.slice(0, 100),
@@ -2995,22 +3080,22 @@ const handlers = {
 
       const cfg = {
         name: nom,
-        categoryId: reasons[0].categoryId,
+        categoryId: choices[0].categoryId,
         staffRoles: [staff.id],
         logChannelId: logCh?.id || null,
-        reasons,
+        reasons: [],
         counter: 0,
         panels: [],
-        placeholder: 'Choisis ton moyen de paiement...',
+        placeholder: null,
         openMsg: null,
         dm: true,
-        dmMsg: {
+        dmMigrated: true,
+        dmChoices: choices,
+        dmImage: null,
+        dmTexts: {
           title: '💳 Choisis ton moyen de paiement',
-          description: 'Sélectionne ton moyen de paiement dans le menu ci-dessous.\n' +
-            '⚠️ **Ton choix est définitif** : une fois validé, ce menu disparaît. ' +
-            'Pour ouvrir un autre ticket, reclique sur le panel du serveur.',
-          image: null,
-          color: null,
+          description: 'Sélectionne ton moyen de paiement dans le menu ci-dessous.',
+          placeholder: 'Choisis ton moyen de paiement...',
         },
       };
       d.tickets[nom] = cfg;
@@ -3037,10 +3122,11 @@ const handlers = {
       await i.editReply({
         content:
           `✅ Tout est installé (config **${nom}**) :\n` +
-          reasons.map((r) => `• ${r.emoji} **${r.label}** → <#${r.categoryId}>`).join('\n') +
+          choices.map((r) => `• ${r.emoji} **${r.label}** → <#${r.categoryId}>`).join('\n') +
           `\n• Staff : <@&${staff.id}>\n• Panel envoyé dans <#${salon.id}>` +
           `${logCh ? `\n• Transcripts : <#${logCh.id}>` : ''}\n` +
-          "Le membre clique sur **Commander**, reçoit un MP avec le menu, choisit, et le ticket s'ouvre dans la bonne catégorie.",
+          "Le membre clique sur **Commander**, reçoit un MP avec le menu, choisit, et le ticket s'ouvre dans la bonne catégorie.\n" +
+          'Personnalise le MP avec `/ticket mp-menu` (titre, texte, image) et `/ticket mp-textes`.',
         allowedMentions: { parse: [] },
       });
     } catch (e) {
@@ -3073,15 +3159,18 @@ const handlers = {
         placeholder: null,
         openMsg: null,
         dm: false,
-        dmMsg: null,
+        dmMigrated: true,
+        dmChoices: [],
+        dmTexts: null,
+        dmImage: null,
       };
       save();
       return i.reply({
         content:
           `✅ Configuration **${nom}** créée.\n` +
           `• Autre rôle staff : \`/ticket staff-ajouter\`\n` +
-          `• Catégories du menu (avec emojis et catégorie du serveur liée) : \`/ticket raison-ajouter\`\n` +
-          `• Ouverture par MP (menu dans les messages privés) : \`/ticket mp-activer\` puis \`/ticket mp-message\`\n` +
+          `• Catégories du menu du panel (avec emojis et catégorie du serveur liée) : \`/ticket raison-ajouter\`\n` +
+          `• Ouverture par MP : \`/ticket mp-choix-ajouter\`, \`/ticket mp-menu\`, \`/ticket mp-textes\` puis \`/ticket mp-activer\`\n` +
           `• Envoi du panel avec bannière : \`/ticket panel\`\n` +
           `• Message d'ouverture des tickets : \`/ticket message\``,
         flags: EPH,
@@ -3093,7 +3182,11 @@ const handlers = {
       if (!list.length) return i.reply({ content: "Aucune configuration. Crée-en une avec `/ticket config-creer`.", flags: EPH });
       const embed = new EmbedBuilder().setColor('#5865F2').setTitle('🎫 Configurations de tickets').setDescription(
         list.map((c) =>
-          `**${c.name}**${c.dm ? ' · 📩 mode MP' : ''}\n• Catégorie par défaut : <#${c.categoryId}>\n• Staff : ${c.staffRoles.length ? c.staffRoles.map((r) => `<@&${r}>`).join(' ') : 'aucun'}\n• Logs : ${c.logChannelId ? `<#${c.logChannelId}>` : 'aucun'}\n• Menu : ${c.reasons.length ? c.reasons.map((r) => (r.emoji ? r.emoji + ' ' : '') + r.label + (r.categoryId ? ` → <#${r.categoryId}>` : '') + (r.staffRoleId ? ` (staff : <@&${r.staffRoleId}>)` : '')).join(', ') : 'aucune catégorie'}`
+          `**${c.name}**${c.dm ? ' · 📩 mode MP' : ''}\n• Catégorie par défaut : <#${c.categoryId}>\n• Staff : ${c.staffRoles.length ? c.staffRoles.map((r) => `<@&${r}>`).join(' ') : 'aucun'}\n• Logs : ${c.logChannelId ? `<#${c.logChannelId}>` : 'aucun'}\n• Menu du panel : ${c.reasons.length ? c.reasons.map((r) => (r.emoji ? r.emoji + ' ' : '') + r.label + (r.categoryId ? ` → <#${r.categoryId}>` : '') + (r.staffRoleId ? ` (staff : <@&${r.staffRoleId}>)` : '')).join(', ') : 'aucune catégorie'}` +
+          (c.dm
+            ? `\n• Menu MP : ${c.dmChoices.length ? c.dmChoices.map((r) => (r.emoji ? r.emoji + ' ' : '') + r.label + (r.categoryId ? ` → <#${r.categoryId}>` : '') + (r.staffRoleId ? ` (staff : <@&${r.staffRoleId}>)` : '')).join(', ') : 'aucun choix'}` +
+              `\n• Image du MP : ${c.dmImage ? 'oui' : 'non'}`
+            : '')
         ).join('\n\n').slice(0, 4096));
       return i.reply({ embeds: [embed], flags: EPH, allowedMentions: { parse: [] } });
     }
@@ -3103,6 +3196,7 @@ const handlers = {
     if (!cfg) return i.reply({ content: '❌ Configuration introuvable.', flags: EPH });
 
     if (sub === 'config-supprimer') {
+      removeDmImage(cfg);
       delete d.tickets[cfgName];
       save();
       return i.reply({ content: `🗑️ Configuration **${cfgName}** supprimée. Les anciens panels ne fonctionneront plus.`, flags: EPH });
@@ -3205,9 +3299,9 @@ const handlers = {
     /* ----- Mode MP : activer / désactiver ----- */
     if (sub === 'mp-activer') {
       const on = i.options.getBoolean('actif', true);
-      if (on && !cfg.reasons.length) {
+      if (on && !cfg.dmChoices.length) {
         return i.reply({
-          content: "❌ Ajoute d'abord des catégories avec `/ticket raison-ajouter` (avec l'option `categorie` pour choisir la catégorie du serveur).",
+          content: "❌ Ajoute d'abord des choix avec `/ticket mp-choix-ajouter` (chaque choix a sa catégorie du serveur).",
           flags: EPH,
         });
       }
@@ -3215,40 +3309,28 @@ const handlers = {
       save();
       await i.deferReply({ flags: EPH });
       await refreshPanels(i.guild, cfgName); // les panels passent en bouton (ou reviennent en menu)
-      const sans = cfg.reasons.filter((r) => !r.categoryId).map((r) => r.label);
-      return i.editReply(
-        on
-          ? `✅ Mode MP activé pour **${cfgName}** : le clic sur le panel envoie un MP avec le menu (usage unique par MP).` +
-            (sans.length
-              ? `\n⚠️ Choix sans catégorie du serveur liée (ils utiliseront la catégorie par défaut de la config) : ${sans.join(', ')}`
-              : '')
-          : `⏸️ Mode MP désactivé pour **${cfgName}** : les panels reviennent au fonctionnement normal.`);
+      return i.editReply(on
+        ? `✅ Mode MP activé pour **${cfgName}** : le clic sur le panel envoie un MP avec le menu.\n` +
+          'Personnalise : `/ticket mp-menu` (titre, texte, image) · `/ticket mp-textes` (autres textes) · `/ticket mp-choix-ajouter`.'
+        : `⏸️ Mode MP désactivé pour **${cfgName}** : les panels reviennent au fonctionnement normal.`);
     }
 
-    /* ----- Mode MP : message envoyé en MP (par panel ou pour toute la config) ----- */
-    if (sub === 'mp-message') {
-      const panelId = i.options.getString('panel');
-      const panel = panelId ? cfg.panels.find((p) => p.messageId === panelId) : null;
-      if (panelId && !panel) {
-        return i.reply({ content: '❌ Panel introuvable. Choisis-le dans la liste proposée.', flags: EPH });
+    /* ----- Mode MP : titre, texte, couleur, texte du menu + image ----- */
+    if (sub === 'mp-menu') {
+      const img = i.options.getAttachment('image');
+      const rmImg = i.options.getBoolean('retirer-image');
+      if (img && !img.contentType?.startsWith('image/')) {
+        return i.reply({ content: '❌ Le fichier doit être une image (png, jpg, gif, webp).', flags: EPH });
       }
-      const scope = panel ? 'ce panel' : `tous les panels de **${cfgName}**`;
-
-      if (i.options.getBoolean('reinitialiser')) {
-        if (panel) delete panel.dmMsg; else cfg.dmMsg = null;
-        save();
-        return i.reply({ content: `✅ Message MP par défaut remis pour ${scope}.`, flags: EPH });
-      }
-
-      const cur = panel?.dmMsg || cfg.dmMsg || {};
-      const modalId = `tkdm_${i.id}`;
+      const cur = cfg.dmTexts || {};
+      const modalId = `tkdmmenu_${i.id}`;
       await i.showModal(
-        new ModalBuilder().setCustomId(modalId).setTitle('Message envoyé en MP').addComponents(
-          field('title', 'Titre', TextInputStyle.Short,
-            { value: cur.title, max: 256, placeholder: '🎫 Ouvrir un ticket — {server}' }),
-          field('description', 'Texte (vide = texte par défaut)', TextInputStyle.Paragraph,
-            { value: cur.description, max: 4000, placeholder: '{username} {server} {config}' }),
-          field('image', "URL de l'image (optionnel)", TextInputStyle.Short, { value: cur.image, max: 500 }),
+        new ModalBuilder().setCustomId(modalId).setTitle('Menu envoyé en MP').addComponents(
+          field('title', 'Titre', TextInputStyle.Short, { value: cur.title || DM_DEFAULT.title, max: 256 }),
+          field('description', 'Texte au-dessus du menu', TextInputStyle.Paragraph,
+            { value: cur.description || DM_DEFAULT.description, max: 4000, placeholder: '{username} {server} {config}' }),
+          field('placeholder', 'Texte du menu déroulant', TextInputStyle.Short,
+            { value: cur.placeholder, max: 100, placeholder: 'Choisir une catégorie...' }),
           field('color', 'Couleur hex (ex : #5865F2)', TextInputStyle.Short, { value: cur.color, max: 7 }),
         ));
 
@@ -3258,25 +3340,135 @@ const handlers = {
       }).catch(() => null);
       if (!m) return;
 
+      await m.deferReply({ flags: EPH });
       const val = (k) => m.fields.getTextInputValue(k).trim() || null;
-      const image = val('image');
       const color = val('color');
-      const data = {
+      cfg.dmTexts = {
+        ...(cfg.dmTexts || {}),
         title: val('title'),
         description: val('description'),
-        image: image && isUrl(image) ? image : null,
+        placeholder: val('placeholder'),
         color: color ? parseColor(color) : null,
       };
-      const empty = Object.values(data).every((v) => !v);
-      if (panel) { if (empty) delete panel.dmMsg; else panel.dmMsg = data; }
-      else cfg.dmMsg = empty ? null : data;
+
+      let warn = '';
+      if (rmImg && !img) removeDmImage(cfg);
+      if (img) {
+        try { await saveDmImage(i.guildId, cfg, img); }
+        catch (e) { console.error('[mp-image]', e); warn = `\n⚠️ Image non enregistrée : ${e.message}`; }
+      }
       save();
 
+      const pv = buildDmMessage(i.guild, i.user, cfg);
+      return m.editReply({
+        content: `✅ Menu MP enregistré pour **${cfgName}**. Aperçu :${warn}\n` +
+          'Variables : `{username}` `{server}` `{config}`',
+        embeds: pv.embeds,
+        files: pv.files,
+      });
+    }
+
+    /* ----- Mode MP : réponse au clic, message final, menu expiré ----- */
+    if (sub === 'mp-textes') {
+      const cur = cfg.dmTexts || {};
+      const modalId = `tkdmtxt_${i.id}`;
+      await i.showModal(
+        new ModalBuilder().setCustomId(modalId).setTitle('Textes du système MP').addComponents(
+          field('sentReply', 'Réponse après le clic sur le panel', TextInputStyle.Paragraph,
+            { value: cur.sentReply || DM_DEFAULT.sentReply, max: 500 }),
+          field('doneTitle', 'Titre du message final (en MP)', TextInputStyle.Short,
+            { value: cur.doneTitle || DM_DEFAULT.doneTitle, max: 256 }),
+          field('doneText', 'Texte du message final ({channel} = ticket)', TextInputStyle.Paragraph,
+            { value: cur.doneText || DM_DEFAULT.doneText, max: 2000, placeholder: '{channel} {link} {choice} {username} {server}' }),
+          field('invalid', 'Texte quand un ancien menu est utilisé', TextInputStyle.Paragraph,
+            { value: cur.invalid || DM_DEFAULT.invalid, max: 500 }),
+        ));
+
+      const m = await i.awaitModalSubmit({
+        time: 15 * 60_000,
+        filter: (x) => x.customId === modalId && x.user.id === i.user.id,
+      }).catch(() => null);
+      if (!m) return;
+
+      const val = (k) => m.fields.getTextInputValue(k).trim() || null;
+      cfg.dmTexts = {
+        ...(cfg.dmTexts || {}),
+        sentReply: val('sentReply'),
+        doneTitle: val('doneTitle'),
+        doneText: val('doneText'),
+        invalid: val('invalid'),
+      };
+      save();
       return m.reply({
-        content: empty
-          ? `✅ Message MP par défaut remis pour ${scope}.`
-          : `✅ Message MP enregistré pour ${scope}. Variables : \`{username}\` \`{server}\` \`{config}\`.\n` +
-            "_(Les @Rôle et #salon ne fonctionnent pas dans un message privé.)_",
+        content: `✅ Textes enregistrés pour **${cfgName}**.\n` +
+          'Variables : `{channel}` (mention du ticket) `{link}` `{choice}` `{username}` `{server}` `{config}`',
+        flags: EPH,
+      });
+    }
+
+    if (sub === 'mp-reinitialiser') {
+      const withImage = !!i.options.getBoolean('image');
+      cfg.dmTexts = null;
+      if (withImage) removeDmImage(cfg);
+      save();
+      return i.reply({ content: `✅ Textes du MP remis par défaut pour **${cfgName}**${withImage ? ' (image retirée)' : ''}.`, flags: EPH });
+    }
+
+    /* ----- Mode MP : choix du menu ----- */
+    if (sub === 'mp-choix-ajouter') {
+      if (cfg.dmChoices.length >= 25) return i.reply({ content: '❌ 25 choix maximum.', flags: EPH });
+      const staff = i.options.getRole('role-staff');
+      if (staff && staff.id === i.guild.id) return i.reply({ content: '❌ Tu ne peux pas choisir @everyone.', flags: EPH });
+      const emojiRaw = (i.options.getString('emoji') || '').trim();
+      if (emojiRaw && !parseEmoji(emojiRaw)) {
+        return i.reply({ content: '❌ Emoji invalide. Utilise un emoji normal ou un emoji du serveur.', flags: EPH });
+      }
+      const cat = i.options.getChannel('categorie', true);
+      cfg.dmChoices.push({
+        id: crypto.randomUUID().slice(0, 8),
+        label: i.options.getString('label', true).slice(0, 100),
+        description: (i.options.getString('description') || '').slice(0, 100),
+        emoji: emojiRaw || null,
+        staffRoleId: staff?.id || null,
+        categoryId: cat.id,
+      });
+      save();
+      return i.reply({
+        content: `✅ Choix ajouté au menu MP de **${cfgName}** (${cfg.dmChoices.length} au total) — tickets créés dans <#${cat.id}>` +
+          `${staff ? ` — staff : <@&${staff.id}>` : ''}.`,
+        flags: EPH, allowedMentions: { parse: [] },
+      });
+    }
+
+    if (sub === 'mp-choix-modifier') {
+      const label = i.options.getString('choix', true);
+      const r = cfg.dmChoices.find((x) => x.label.toLowerCase() === label.toLowerCase());
+      if (!r) return i.reply({ content: '❌ Choix introuvable.', flags: EPH });
+      const emojiRaw = (i.options.getString('emoji') || '').trim();
+      if (emojiRaw) {
+        if (emojiRaw.toLowerCase() === 'aucun') r.emoji = null;
+        else if (!parseEmoji(emojiRaw)) return i.reply({ content: '❌ Emoji invalide.', flags: EPH });
+        else r.emoji = emojiRaw;
+      }
+      const nom = i.options.getString('nouveau-nom');
+      if (nom) r.label = nom.slice(0, 100);
+      const desc = i.options.getString('description');
+      if (desc !== null) r.description = desc.slice(0, 100);
+      const cat = i.options.getChannel('categorie');
+      if (cat) r.categoryId = cat.id;
+      const staff = i.options.getRole('role-staff');
+      if (staff && staff.id !== i.guild.id) r.staffRoleId = staff.id;
+      save();
+      return i.reply({ content: '✅ Choix modifié (valable pour les prochains MP).', flags: EPH });
+    }
+
+    if (sub === 'mp-choix-retirer') {
+      const label = i.options.getString('choix', true);
+      const before = cfg.dmChoices.length;
+      cfg.dmChoices = cfg.dmChoices.filter((r) => r.label.toLowerCase() !== label.toLowerCase());
+      save();
+      return i.reply({
+        content: cfg.dmChoices.length < before ? '🗑️ Choix retiré du menu MP.' : '❌ Choix introuvable.',
         flags: EPH,
       });
     }
@@ -3428,7 +3620,7 @@ const handlers = {
         save();
         await i.editReply(
           `✅ Panel envoyé dans <#${salon.id}>. Il se mettra à jour tout seul.\n` +
-          "Message d'ouverture des tickets de ce panel : `/ticket message` · message envoyé en MP : `/ticket mp-message` (choisis ce panel).");
+          "Message d'ouverture des tickets de ce panel : `/ticket message` · menu et textes du MP : `/ticket mp-menu` et `/ticket mp-textes`.");
         if (placeholder) refreshPanels(i.guild, cfgName).catch(console.error);
       } catch (e) {
         console.error(e);
@@ -3451,7 +3643,7 @@ async function autocomplete(i) {
       Object.keys(d.tickets).filter((n) => n.includes(q)).slice(0, 25).map((n) => ({ name: n, value: n })));
   }
   if (f.name === 'panel') {
-    // Panels déjà envoyés d'une configuration (pour /ticket message, /ticket mp-message et /ticket bouton)
+    // Panels déjà envoyés d'une configuration (pour /ticket message et /ticket bouton)
     const cfg = d.tickets[i.options.getString('config')];
     return i.respond(
       (cfg?.panels || [])
@@ -3469,6 +3661,13 @@ async function autocomplete(i) {
     const cfg = d.tickets[i.options.getString('config')];
     return i.respond(
       (cfg?.reasons || []).filter((r) => r.label.toLowerCase().includes(q)).slice(0, 25)
+        .map((r) => ({ name: r.label, value: r.label })));
+  }
+  if (f.name === 'choix') {
+    // Choix du menu envoyé en MP (pour /ticket mp-choix-modifier et mp-choix-retirer)
+    const cfg = d.tickets[i.options.getString('config')];
+    return i.respond(
+      (cfg?.dmChoices || []).filter((r) => r.label.toLowerCase().includes(q)).slice(0, 25)
         .map((r) => ({ name: r.label, value: r.label })));
   }
   if (f.name === 'message') {
@@ -3570,11 +3769,6 @@ client.once(Events.ClientReady, async () => {
   // Le classement des invitations se met à jour tout seul toutes les 5 minutes
   setInterval(() => {
     client.guilds.cache.forEach((g) => refreshBoard(g).catch(console.error));
-  }, 5 * 60_000);
-
-  // Les menus de MP expirés sont désactivés toutes les 5 minutes
-  setInterval(() => {
-    client.guilds.cache.forEach((g) => cleanDmMenus(g).catch(console.error));
   }, 5 * 60_000);
 });
 
