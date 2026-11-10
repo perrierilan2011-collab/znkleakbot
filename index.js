@@ -114,6 +114,8 @@ function getG(id) {
   g.invites.joinedVia ??= {};  // membre -> { code, inviterId, at }  (par quel lien il est arrivé)
   g.cmdPerms ??= {};           // commande -> [roleIds]  (rôles autorisés par commande)
   g.disabledCommands ??= [];   // commandes retirées de Discord
+  g.catPerms ??= {};            // clé de catégorie de commandes -> [roleIds]
+  g.catAccess ??= {};           // id catégorie Discord -> { content: [roleIds], preview: [roleIds] }
   g.pendingDm ??= {};          // "userId:config" -> { messageId, channelId, panelId }  (menu de MP en attente)
   // Migration : un seul rôle staff -> plusieurs rôles staff
   for (const c of Object.values(g.tickets)) {
@@ -334,10 +336,27 @@ const isOwner = (i) => i.guild.ownerId === i.user.id;
 const hasFullAccess = (i) =>
   isOwner(i) || i.member.roles.cache.some((r) => getG(i.guildId).fullRoles.includes(r.id));
 
-// Rôles autorisés pour la commande utilisée (choisis avec /permissions)
+// Catégories de commandes : un rôle donné à une catégorie a accès à toutes ses commandes
+const CMD_CATEGORIES = {
+  moderation:  { label: '🛡️ Modération', commands: ['ban', 'unban', 'mute', 'unmute', 'sanctions-actives', 'historique-sanctions'] },
+  giveaways:   { label: '🎉 Giveaways', commands: ['giveaway'] },
+  annonces:    { label: '📢 Annonces & rôles', commands: ['annonce', 'autorole', 'bienvenue'] },
+  invitations: { label: '📈 Invitations (admin)', commands: ['invites-config', 'lien-invite', 'qui-a-invite', 'classement-invites', 'classement-invites-maj'] },
+  tickets:     { label: '🎫 Tickets', commands: ['ticket', 'setup-paiement'] },
+  serveur:     { label: '⚙️ Serveur', commands: ['salon-commandes', 'salon-sanctions', 'membercount', 'acces-categorie'] },
+};
+const CMD_CATEGORY = {};
+for (const [key, c] of Object.entries(CMD_CATEGORIES)) {
+  for (const name of c.commands) CMD_CATEGORY[name] = key;
+}
+
+// Rôles autorisés pour la commande utilisée (/permissions) ou sa catégorie (/permissions-categorie)
 const cmdAllowed = (i) => {
-  const ids = getG(i.guildId).cmdPerms[i.commandName];
-  return !!ids?.length && i.member.roles.cache.some((r) => ids.includes(r.id));
+  const d = getG(i.guildId);
+  const ids = [...(d.cmdPerms[i.commandName] || [])];
+  const cat = CMD_CATEGORY[i.commandName];
+  if (cat) ids.push(...(d.catPerms[cat] || []));
+  return !!ids.length && i.member.roles.cache.some((r) => ids.includes(r.id));
 };
 
 // Accès total OU un rôle /roles-mod OU un rôle autorisé pour cette commande avec /permissions
@@ -349,9 +368,9 @@ const MOD_COMMANDS = new Set(['ban', 'unban', 'mute', 'unmute', 'sanctions-activ
 // Commandes ouvertes à tout le monde
 const PUBLIC_COMMANDS = new Set(['help', 'invites']);
 // Commandes qu'on ne peut jamais désactiver (sinon on se bloque soi-même)
-const ALWAYS_ON = new Set(['help', 'commandes', 'permissions', 'salon-commandes']);
+const ALWAYS_ON = new Set(['help', 'commandes', 'permissions', 'permissions-categorie', 'salon-commandes']);
 // Commandes réservées au propriétaire (on ne peut pas les donner à un rôle)
-const OWNER_ONLY = new Set(['permissions', 'commandes', 'role-total']);
+const OWNER_ONLY = new Set(['permissions', 'permissions-categorie', 'commandes', 'role-total']);
 const commandAllowed = (i) =>
   PUBLIC_COMMANDS.has(i.commandName) || hasFullAccess(i) ||
   (MOD_COMMANDS.has(i.commandName) && canModerate(i)) || cmdAllowed(i);
@@ -376,7 +395,10 @@ function wrongChannel(i) {
 function commandChannelOverwrites(guild) {
   const d = getG(guild.id);
   const P = PermissionFlagsBits;
-  const ids = [...new Set([...d.fullRoles, ...d.modRoles, ...d.commandChannelRoles, ...Object.values(d.cmdPerms).flat()])]
+  const ids = [...new Set([
+    ...d.fullRoles, ...d.modRoles, ...d.commandChannelRoles,
+    ...Object.values(d.cmdPerms).flat(), ...Object.values(d.catPerms).flat(),
+  ])]
     .filter((id) => id !== guild.id && guild.roles.cache.has(id));
   return [
     { id: guild.id, deny: [P.ViewChannel] },
@@ -578,6 +600,11 @@ function onInviteLeave(member) {
 /* ------------------------------------------------------------------ */
 /*  Définition des commandes                                           */
 /* ------------------------------------------------------------------ */
+const catAndRole = (s) => s
+  .addChannelOption((o) => o.setName('categorie').setDescription('La catégorie de salons')
+    .addChannelTypes(ChannelType.GuildCategory).setRequired(true))
+  .addRoleOption((o) => o.setName('role').setDescription('Le rôle (@everyone possible)').setRequired(true));
+
 const commands = [
   // ---------- Salon privé des commandes ----------
   new SlashCommandBuilder()
@@ -801,6 +828,17 @@ const commands = [
     .setDefaultMemberPermissions('0')
     .setDMPermission(false),
 
+  // ---------- Accès aux catégories de salons ----------
+  new SlashCommandBuilder()
+    .setName('acces-categorie')
+    .setDescription('Choisir qui voit le contenu ou seulement les salons d’une catégorie')
+    .addSubcommand((s) => catAndRole(s.setName('contenu').setDescription('Ce rôle voit les salons ET leur contenu')))
+    .addSubcommand((s) => catAndRole(s.setName('apercu').setDescription('Ce rôle voit les salons mais PAS leur historique')))
+    .addSubcommand((s) => catAndRole(s.setName('retirer').setDescription('Retirer les règles de ce rôle sur la catégorie')))
+    .addSubcommand((s) => s.setName('liste').setDescription('Voir les catégories configurées'))
+    .setDefaultMemberPermissions('0')
+    .setDMPermission(false),
+
   // ---------- Rôles autorisés par commande (👑) ----------
   new SlashCommandBuilder()
     .setName('permissions')
@@ -814,6 +852,24 @@ const commands = [
         .addStringOption((o) => o.setName('commande').setDescription('La commande').setAutocomplete(true).setRequired(true))
         .addRoleOption((o) => o.setName('role').setDescription('Le rôle à retirer').setRequired(true)))
     .addSubcommand((s) => s.setName('liste').setDescription('Voir qui a accès à quoi'))
+    .setDefaultMemberPermissions('0')
+    .setDMPermission(false),
+
+  // ---------- Rôles autorisés par catégorie de commandes (👑) ----------
+  new SlashCommandBuilder()
+    .setName('permissions-categorie')
+    .setDescription('👑 Donner à un rôle l’accès à toute une catégorie de commandes')
+    .addSubcommand((s) =>
+      s.setName('ajouter').setDescription('Autoriser un rôle à utiliser toute une catégorie')
+        .addStringOption((o) => o.setName('categorie').setDescription('Catégorie de commandes').setRequired(true)
+          .addChoices(...Object.entries(CMD_CATEGORIES).map(([value, c]) => ({ name: c.label, value }))))
+        .addRoleOption((o) => o.setName('role').setDescription('Le rôle à autoriser').setRequired(true)))
+    .addSubcommand((s) =>
+      s.setName('retirer').setDescription('Retirer l’accès d’un rôle à une catégorie')
+        .addStringOption((o) => o.setName('categorie').setDescription('Catégorie de commandes').setRequired(true)
+          .addChoices(...Object.entries(CMD_CATEGORIES).map(([value, c]) => ({ name: c.label, value }))))
+        .addRoleOption((o) => o.setName('role').setDescription('Le rôle à retirer').setRequired(true)))
+    .addSubcommand((s) => s.setName('liste').setDescription('Voir qui a accès à quelle catégorie'))
     .setDefaultMemberPermissions('0')
     .setDMPermission(false),
 
@@ -1961,12 +2017,55 @@ async function gwLeave(i) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Accès aux catégories : contenu visible / salons visibles sans historique */
+/* ------------------------------------------------------------------ */
+async function applyAccessTo(ch, cfg) {
+  if (!ch.permissionOverwrites) return;
+  const has = (id) => ch.guild.roles.cache.has(id) || id === ch.guild.id;
+  for (const id of (cfg.content || []).filter(has)) {
+    await ch.permissionOverwrites.edit(id, {
+      ViewChannel: true,
+      ReadMessageHistory: true,
+    }, { reason: 'Accès catégorie (contenu)' }).catch(console.error);
+  }
+  for (const id of (cfg.preview || []).filter(has)) {
+    await ch.permissionOverwrites.edit(id, {
+      ViewChannel: true,
+      ReadMessageHistory: false,
+    }, { reason: 'Accès catégorie (salons seulement)' }).catch(console.error);
+  }
+}
+
+async function applyCategoryAccess(guild, categoryId) {
+  const cfg = getG(guild.id).catAccess[categoryId];
+  if (!cfg) return false;
+  const cat = await guild.channels.fetch(categoryId).catch(() => null);
+  if (!cat || cat.type !== ChannelType.GuildCategory) {
+    delete getG(guild.id).catAccess[categoryId];
+    save();
+    return false;
+  }
+  await applyAccessTo(cat, cfg);
+  for (const ch of guild.channels.cache.filter((c) => c.parentId === categoryId).values()) {
+    await applyAccessTo(ch, cfg);
+  }
+  return true;
+}
+
+async function syncCategoryAccess(guild) {
+  for (const id of Object.keys(getG(guild.id).catAccess)) {
+    await applyCategoryAccess(guild, id).catch(console.error);
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /*  Mise à jour automatique de TOUS les systèmes                       */
 /* ------------------------------------------------------------------ */
 // Lancée à chaque démarrage du bot : plus rien à renvoyer à la main après une mise à jour du code
 async function refreshGuild(guild) {
   const steps = [
     ['salon commandes', () => syncCommandChannel(guild)],
+    ['accès catégories', () => syncCategoryAccess(guild)],
     ['panels tickets', () => refreshPanels(guild)],
     ['autoroles', () => syncAutoroles(guild)],
     ['giveaways', () => refreshGiveaways(guild)],
@@ -2075,12 +2174,14 @@ const HELP = [
     '`/salon-commandes` — salon privé des commandes (et ses rôles)',
     '`/salon-sanctions` — salon par défaut des annonces ban / mute',
     '`/membercount` — salon vocal avec le nombre de membres',
+    '`/acces-categorie` — qui voit le contenu / seulement les salons d’une catégorie',
     '`/roles-mod` — rôles autorisés à modérer',
     '`/roles-proteges` — rôles que les modérateurs ne peuvent pas sanctionner',
   ] },
   { title: '👑 Propriétaire', level: 'owner', lines: [
     '`/role-total` — rôles avec accès à TOUTES les commandes',
     '`/permissions` — choisir quel rôle a accès à quelle commande',
+    '`/permissions-categorie` — donner à un rôle toute une catégorie de commandes',
     '`/commandes` — retirer / remettre des commandes',
   ] },
 ];
@@ -2097,7 +2198,9 @@ async function registerCommands(guild) {
   const body = commands
     .filter((c) => ALWAYS_ON.has(c.name) || !d.disabledCommands.includes(c.name))
     .map((c) => {
+      const cat = CMD_CATEGORY[c.name];
       const visible = PUBLIC_COMMANDS.has(c.name) || d.cmdPerms[c.name]?.length ||
+        (cat && d.catPerms[cat]?.length) ||
         (MOD_COMMANDS.has(c.name) && d.modRoles.length);
       return c.setDefaultMemberPermissions(visible ? null : '0').toJSON();
     });
@@ -2516,6 +2619,99 @@ const handlers = {
         : `🗑️ <@&${role.id}> n'a plus accès à \`/${name}\`.`,
       allowedMentions: { parse: [] },
     });
+  },
+
+  /* ---------- /permissions-categorie (👑) ---------- */
+  async 'permissions-categorie'(i) {
+    if (!isOwner(i)) return i.reply({ content: '❌ Seul le propriétaire du serveur (👑) peut utiliser cette commande.', flags: EPH });
+    const d = getG(i.guildId);
+    const sub = i.options.getSubcommand();
+
+    if (sub === 'liste') {
+      const txt = Object.entries(CMD_CATEGORIES).map(([key, c]) =>
+        `**${c.label}** — ${c.commands.map((name) => `\`/${name}\``).join(' ')}\n→ ` +
+        (d.catPerms[key]?.length ? d.catPerms[key].map((id) => `<@&${id}>`).join(' ') : 'aucun rôle')
+      ).join('\n\n');
+      return i.reply({ content: txt.slice(0, 1990), flags: EPH, allowedMentions: { parse: [] } });
+    }
+
+    const key = i.options.getString('categorie', true);
+    const role = i.options.getRole('role', true);
+    if (!CMD_CATEGORIES[key]) return i.reply({ content: '❌ Catégorie inconnue.', flags: EPH });
+    if (role.id === i.guild.id) return i.reply({ content: '❌ Tu ne peux pas choisir @everyone.', flags: EPH });
+
+    await i.deferReply({ flags: EPH });
+    const list = (d.catPerms[key] ??= []);
+    if (sub === 'ajouter') {
+      if (!list.includes(role.id)) list.push(role.id);
+    } else {
+      d.catPerms[key] = list.filter((id) => id !== role.id);
+      if (!d.catPerms[key].length) delete d.catPerms[key];
+    }
+    save();
+    await registerCommands(i.guild);
+    await syncCommandChannel(i.guild);
+    return i.editReply({
+      content: sub === 'ajouter'
+        ? `✅ <@&${role.id}> peut maintenant utiliser toutes les commandes de **${CMD_CATEGORIES[key].label}**.`
+        : `🗑️ <@&${role.id}> n'a plus accès à **${CMD_CATEGORIES[key].label}**.`,
+      allowedMentions: { parse: [] },
+    });
+  },
+
+  /* ---------- /acces-categorie ---------- */
+  async 'acces-categorie'(i) {
+    const d = getG(i.guildId);
+    const sub = i.options.getSubcommand();
+
+    if (sub === 'liste') {
+      const lines = Object.entries(d.catAccess).map(([id, cfg]) =>
+        `📁 <#${id}>\n• 👁️ Contenu visible : ${(cfg.content || []).length ? cfg.content.map((r) => r === i.guildId ? '@everyone' : `<@&${r}>`).join(' ') : 'aucun'}` +
+        `\n• 🚪 Salons visibles sans contenu : ${(cfg.preview || []).length ? cfg.preview.map((r) => r === i.guildId ? '@everyone' : `<@&${r}>`).join(' ') : 'aucun'}`
+      );
+      return i.reply({
+        content: lines.length ? lines.join('\n\n').slice(0, 1990) : 'Aucune catégorie configurée. Utilise `/acces-categorie contenu` ou `apercu`.',
+        flags: EPH, allowedMentions: { parse: [] },
+      });
+    }
+
+    const cat = i.options.getChannel('categorie', true);
+    const role = i.options.getRole('role', true);
+    await i.deferReply({ flags: EPH });
+    const cfg = (d.catAccess[cat.id] ??= { content: [], preview: [] });
+    cfg.content ??= [];
+    cfg.preview ??= [];
+    const without = (arr) => arr.filter((id) => id !== role.id);
+    const label = role.id === i.guildId ? '@everyone' : `<@&${role.id}>`;
+
+    try {
+      const targets = [cat, ...i.guild.channels.cache.filter((ch) => ch.parentId === cat.id).values()];
+      if (sub === 'retirer') {
+        cfg.content = without(cfg.content);
+        cfg.preview = without(cfg.preview);
+        if (!cfg.content.length && !cfg.preview.length) delete d.catAccess[cat.id];
+        save();
+        for (const ch of targets) {
+          await ch.permissionOverwrites.edit(role.id, { ViewChannel: null, ReadMessageHistory: null }).catch(() => {});
+        }
+        return i.editReply({ content: `🗑️ Règles de ${label} retirées sur **${cat.name}**.`, allowedMentions: { parse: [] } });
+      }
+
+      cfg.content = without(cfg.content);
+      cfg.preview = without(cfg.preview);
+      (sub === 'contenu' ? cfg.content : cfg.preview).push(role.id);
+      save();
+      await applyCategoryAccess(i.guild, cat.id);
+      return i.editReply({
+        content: sub === 'contenu'
+          ? `✅ ${label} voit les salons de **${cat.name}** et leur contenu.`
+          : `✅ ${label} voit les salons de **${cat.name}** mais pas leur historique.\nℹ️ Les nouveaux messages envoyés pendant qu'il a le salon ouvert restent visibles en direct : c'est une limite de Discord.`,
+        allowedMentions: { parse: [] },
+      });
+    } catch (e) {
+      console.error(e);
+      return i.editReply('❌ Impossible de modifier les permissions. Il me faut **Gérer les salons** et **Gérer les rôles**, avec mon rôle au-dessus des autres.');
+    }
   },
 
   /* ---------- /commandes (👑) ---------- */
@@ -3785,12 +3981,15 @@ client.on(Events.InviteCreate, (inv) => {
 });
 client.on(Events.GuildCreate, (guild) => { snapshotInvites(guild); registerCommands(guild); });
 
-// Un nouveau salon doit aussi être invisible pour les membres mute
+// Un nouveau salon reprend aussi les règles de sa catégorie et reste invisible pour les membres mute
 client.on(Events.ChannelCreate, (ch) => {
   if (!ch.guild || !ch.permissionOverwrites) return;
-  const id = getG(ch.guild.id).muteRoleId;
+  const d = getG(ch.guild.id);
+  const id = d.muteRoleId;
   const role = id && ch.guild.roles.cache.get(id);
   if (role) ch.permissionOverwrites.edit(role, { ViewChannel: false }).catch(() => {});
+  const access = ch.parentId && d.catAccess[ch.parentId];
+  if (access) applyAccessTo(ch, access).catch(console.error);
 });
 
 // Salon des commandes : personne ne lit les messages des autres.
