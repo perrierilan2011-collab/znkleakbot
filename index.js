@@ -98,6 +98,7 @@ function getG(id) {
   g.muteRoleId ??= null;    // rôle "Muté" créé par le bot
   g.muted ??= {};           // userId -> { roles[], until, reason, by }
   g.reactionRoles ??= {};   // messageId -> { channelId, roleId, emoji, label }
+  g.joinRoles ??= [];       // rôles donnés automatiquement à l'arrivée d'un membre (/role-arrivee)
   g.sanctionChannel ??= null; // salon par défaut où annoncer les ban / mute
   g.fullRoles ??= [];       // rôles qui ont accès à TOUTES les commandes
   g.history ??= {};         // userId -> [{ type, by, reason, duration, at }]
@@ -340,7 +341,7 @@ const hasFullAccess = (i) =>
 const CMD_CATEGORIES = {
   moderation:  { label: '🛡️ Modération', commands: ['ban', 'unban', 'mute', 'unmute', 'sanctions-actives', 'historique-sanctions'] },
   giveaways:   { label: '🎉 Giveaways', commands: ['giveaway'] },
-  annonces:    { label: '📢 Annonces & rôles', commands: ['annonce', 'autorole', 'bienvenue'] },
+  annonces:    { label: '📢 Annonces & rôles', commands: ['annonce', 'autorole', 'role-arrivee', 'bienvenue'] },
   invitations: { label: '📈 Invitations (admin)', commands: ['invites-config', 'lien-invite', 'qui-a-invite', 'classement-invites', 'classement-invites-maj'] },
   tickets:     { label: '🎫 Tickets', commands: ['ticket', 'setup-paiement'] },
   serveur:     { label: '⚙️ Serveur', commands: ['salon-commandes', 'salon-sanctions', 'membercount', 'acces-categorie'] },
@@ -986,6 +987,20 @@ const commands = [
       s.setName('supprimer').setDescription('Supprimer un autorole (et son message)')
         .addStringOption((o) =>
           o.setName('message').setDescription('Autorole à supprimer').setAutocomplete(true).setRequired(true)))
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
+    .setDMPermission(false),
+
+  // ---------- Rôle automatique à l'arrivée ----------
+  new SlashCommandBuilder()
+    .setName('role-arrivee')
+    .setDescription("Rôles donnés automatiquement à chaque nouveau membre (sans réaction)")
+    .addSubcommand((s) =>
+      s.setName('ajouter').setDescription("Donner ce rôle à tous les nouveaux membres")
+        .addRoleOption((o) => o.setName('role').setDescription('Le rôle à donner').setRequired(true)))
+    .addSubcommand((s) =>
+      s.setName('retirer').setDescription("Ne plus donner ce rôle à l'arrivée")
+        .addRoleOption((o) => o.setName('role').setDescription('Le rôle à retirer').setRequired(true)))
+    .addSubcommand((s) => s.setName('liste').setDescription("Voir les rôles donnés à l'arrivée"))
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
     .setDMPermission(false),
 
@@ -2145,6 +2160,7 @@ const HELP = [
   { title: '📢 Annonces & rôles', level: 'full', lines: [
     '`/annonce` — envoyer une annonce (titre, texte, images, mentions). Écris @Pseudo, @Rôle ou #salon : ils deviennent cliquables',
     '`/autorole creer` · `liste` · `supprimer` — réaction qui donne un rôle',
+    '`/role-arrivee ajouter` · `retirer` · `liste` — rôle donné automatiquement aux nouveaux membres',
     '`/bienvenue configurer` · `activer` · `desactiver` · `test`',
   ] },
   { title: '📈 Invitations (admin)', level: 'full', lines: [
@@ -3175,6 +3191,58 @@ const handlers = {
     }
   },
 
+  /* ---------- /role-arrivee ---------- */
+  async 'role-arrivee'(i) {
+    const d = getG(i.guildId);
+    const sub = i.options.getSubcommand();
+
+    if (sub === 'liste') {
+      const txt = d.joinRoles.length
+        ? d.joinRoles.map((id) => `• <@&${id}>`).join('\n')
+        : "Aucun rôle automatique. Ajoute-en un avec `/role-arrivee ajouter`.";
+      return i.reply({ content: `**Rôles donnés à l'arrivée**\n${txt}`, flags: EPH, allowedMentions: { parse: [] } });
+    }
+
+    const roleOpt = i.options.getRole('role', true);
+    if (roleOpt.id === i.guild.id) return i.reply({ content: '❌ Tu ne peux pas choisir @everyone.', flags: EPH });
+
+    if (sub === 'retirer') {
+      if (!d.joinRoles.includes(roleOpt.id)) {
+        return i.reply({ content: "❌ Ce rôle n'est pas dans la liste.", flags: EPH });
+      }
+      d.joinRoles = d.joinRoles.filter((id) => id !== roleOpt.id);
+      save();
+      return i.reply({
+        content: `🗑️ <@&${roleOpt.id}> ne sera plus donné à l'arrivée (les membres qui l'ont déjà le gardent).`,
+        flags: EPH, allowedMentions: { parse: [] },
+      });
+    }
+
+    // ajouter
+    const role = i.guild.roles.cache.get(roleOpt.id);
+    if (!role || role.managed) {
+      return i.reply({ content: '❌ Choisis un rôle normal (pas un rôle de bot ou de boost).', flags: EPH });
+    }
+    if (!role.editable) {
+      return i.reply({ content: '❌ Mon rôle doit être **au-dessus** de ce rôle dans la liste des rôles du serveur.', flags: EPH });
+    }
+    if (!isOwner(i) && i.member.roles.highest.position <= role.position) {
+      return i.reply({ content: '❌ Tu ne peux pas distribuer un rôle supérieur ou égal au tien.', flags: EPH });
+    }
+    if (d.joinRoles.includes(role.id)) {
+      return i.reply({ content: '❌ Ce rôle est déjà donné à l\'arrivée.', flags: EPH });
+    }
+    if (d.joinRoles.length >= 10) {
+      return i.reply({ content: '❌ 10 rôles automatiques maximum.', flags: EPH });
+    }
+    d.joinRoles.push(role.id);
+    save();
+    return i.reply({
+      content: `✅ Chaque nouveau membre recevra automatiquement <@&${role.id}>.`,
+      flags: EPH, allowedMentions: { parse: [] },
+    });
+  },
+
   /* ---------- /bienvenue ---------- */
   async bienvenue(i) {
     const sub = i.options.getSubcommand();
@@ -4026,6 +4094,17 @@ client.on(Events.GuildMemberAdd, async (member) => {
     } else {
       delete d.muted[member.id];
       save();
+    }
+  }
+
+  // Rôles automatiques à l'arrivée (pas pour les bots, ni pour un membre encore mute)
+  if (!member.user.bot && !(rec && rec.until > Date.now())) {
+    const ids = d.joinRoles.filter((id) => {
+      const r = member.guild.roles.cache.get(id);
+      return r && !r.managed && r.editable;
+    });
+    if (ids.length) {
+      await member.roles.add(ids, "Rôle automatique à l'arrivée").catch(console.error);
     }
   }
 
