@@ -341,7 +341,7 @@ const hasFullAccess = (i) =>
 const CMD_CATEGORIES = {
   moderation:  { label: '🛡️ Modération', commands: ['ban', 'unban', 'mute', 'unmute', 'sanctions-actives', 'historique-sanctions'] },
   giveaways:   { label: '🎉 Giveaways', commands: ['giveaway'] },
-  annonces:    { label: '📢 Annonces & rôles', commands: ['annonce', 'message-mp', 'autorole', 'role-arrivee', 'bienvenue'] },
+  annonces:    { label: '📢 Annonces & rôles', commands: ['annonce', 'autorole', 'role-arrivee', 'bienvenue'] },
   invitations: { label: '📈 Invitations (admin)', commands: ['invites-config', 'lien-invite', 'qui-a-invite', 'classement-invites', 'classement-invites-maj'] },
   tickets:     { label: '🎫 Tickets', commands: ['ticket', 'setup-paiement'] },
   serveur:     { label: '⚙️ Serveur', commands: ['salon-commandes', 'salon-sanctions', 'membercount', 'acces-categorie'] },
@@ -367,7 +367,7 @@ const canModerate = (i) =>
 // Les rôles /roles-mod n'ont accès qu'à ces commandes.
 const MOD_COMMANDS = new Set(['ban', 'unban', 'mute', 'unmute', 'sanctions-actives', 'historique-sanctions']);
 // Commandes ouvertes à tout le monde
-const PUBLIC_COMMANDS = new Set(['help', 'invites']);
+const PUBLIC_COMMANDS = new Set(['help', 'invites', 'message-mp']);
 // Commandes qu'on ne peut jamais désactiver (sinon on se bloque soi-même)
 const ALWAYS_ON = new Set(['help', 'commandes', 'permissions', 'permissions-categorie', 'salon-commandes']);
 // Commandes réservées au propriétaire (on ne peut pas les donner à un rôle)
@@ -968,7 +968,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName('message-mp')
     .setDescription('Envoyer un message privé à tous les membres du serveur (sauf bots)')
-    .setDefaultMemberPermissions('0')
+    .setDefaultMemberPermissions(null)
     .setDMPermission(false),
 
   // ---------- Autorole par réaction ----------
@@ -2148,6 +2148,7 @@ const HELP = [
   { title: '📨 Invitations', level: 'public', lines: [
     "`/invites` — voir ton nombre d'invitations",
     '`/help` — voir les commandes auxquelles tu as accès',
+    '`/message-mp` — envoyer un message privé à **tous** les membres du serveur',
   ] },
   { title: '🛡️ Modération', level: 'mod', lines: [
     '`/ban` — bannir un membre',
@@ -2166,7 +2167,6 @@ const HELP = [
   ] },
   { title: '📢 Annonces & rôles', level: 'full', lines: [
     '`/annonce` — envoyer une annonce (titre, texte, images, mentions). Écris @Pseudo, @Rôle ou #salon : ils deviennent cliquables',
-    '`/message-mp` — envoyer un message privé à **tous** les membres du serveur (owner / rôle-total uniquement)',
     '`/autorole creer` · `liste` · `supprimer` — réaction qui donne un rôle',
     '`/role-arrivee ajouter` · `retirer` · `liste` — rôle donné automatiquement aux nouveaux membres',
     '`/bienvenue configurer` · `activer` · `desactiver` · `test`',
@@ -3108,10 +3108,6 @@ const handlers = {
 
   /* ---------- /message-mp ---------- */
   async 'message-mp'(i) {
-    if (!hasFullAccess(i)) {
-      return i.reply({ content: "❌ Seul le propriétaire ou un rôle `/role-total` peut utiliser cette commande.", flags: EPH });
-    }
-
     const modalId = `mpmass_${i.id}`;
     await i.showModal(
       new ModalBuilder()
