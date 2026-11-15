@@ -341,7 +341,7 @@ const hasFullAccess = (i) =>
 const CMD_CATEGORIES = {
   moderation:  { label: '🛡️ Modération', commands: ['ban', 'unban', 'mute', 'unmute', 'sanctions-actives', 'historique-sanctions'] },
   giveaways:   { label: '🎉 Giveaways', commands: ['giveaway'] },
-  annonces:    { label: '📢 Annonces & rôles', commands: ['annonce', 'autorole', 'role-arrivee', 'bienvenue'] },
+  annonces:    { label: '📢 Annonces & rôles', commands: ['annonce', 'message-mp', 'autorole', 'role-arrivee', 'bienvenue'] },
   invitations: { label: '📈 Invitations (admin)', commands: ['invites-config', 'lien-invite', 'qui-a-invite', 'classement-invites', 'classement-invites-maj'] },
   tickets:     { label: '🎫 Tickets', commands: ['ticket', 'setup-paiement'] },
   serveur:     { label: '⚙️ Serveur', commands: ['salon-commandes', 'salon-sanctions', 'membercount', 'acces-categorie'] },
@@ -962,6 +962,13 @@ const commands = [
     .addAttachmentOption((o) => o.setName('image').setDescription('Grande image en bas de l\'annonce'))
     .addAttachmentOption((o) => o.setName('miniature').setDescription('Petite image en haut à droite'))
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
+    .setDMPermission(false),
+
+  // ---------- Message privé de masse ----------
+  new SlashCommandBuilder()
+    .setName('message-mp')
+    .setDescription('Envoyer un message privé à tous les membres du serveur (sauf bots)')
+    .setDefaultMemberPermissions('0')
     .setDMPermission(false),
 
   // ---------- Autorole par réaction ----------
@@ -2159,6 +2166,7 @@ const HELP = [
   ] },
   { title: '📢 Annonces & rôles', level: 'full', lines: [
     '`/annonce` — envoyer une annonce (titre, texte, images, mentions). Écris @Pseudo, @Rôle ou #salon : ils deviennent cliquables',
+    '`/message-mp` — envoyer un message privé à **tous** les membres du serveur (owner / rôle-total uniquement)',
     '`/autorole creer` · `liste` · `supprimer` — réaction qui donne un rôle',
     '`/role-arrivee ajouter` · `retirer` · `liste` — rôle donné automatiquement aux nouveaux membres',
     '`/bienvenue configurer` · `activer` · `desactiver` · `test`',
@@ -3096,6 +3104,87 @@ const handlers = {
       console.error(e);
       await m.editReply("❌ Impossible d'envoyer l'annonce (vérifie mes permissions dans ce salon et les liens d'images).");
     }
+  },
+
+  /* ---------- /message-mp ---------- */
+  async 'message-mp'(i) {
+    if (!hasFullAccess(i)) {
+      return i.reply({ content: "❌ Seul le propriétaire ou un rôle `/role-total` peut utiliser cette commande.", flags: EPH });
+    }
+
+    const modalId = `mpmass_${i.id}`;
+    await i.showModal(
+      new ModalBuilder()
+        .setCustomId(modalId)
+        .setTitle('Message privé de masse')
+        .addComponents(
+          field('titre', 'Titre (optionnel)', TextInputStyle.Short, { max: 256 }),
+          field('texte', 'Message (Markdown accepté)', TextInputStyle.Paragraph, {
+            required: true,
+            max: 2000,
+            placeholder: 'Tu peux utiliser @Pseudo, @Rôle, #salon → ils deviennent cliquables',
+          }),
+          field('couleur', 'Couleur hex de l\'embed (ex : #5865F2)', TextInputStyle.Short, { max: 7 }),
+        ),
+    );
+
+    const m = await i.awaitModalSubmit({
+      time: 15 * 60_000,
+      filter: (x) => x.customId === modalId && x.user.id === i.user.id,
+    }).catch(() => null);
+    if (!m) return;
+
+    await m.deferReply({ flags: EPH });
+
+    const titre = m.fields.getTextInputValue('titre')?.trim() || null;
+    const texte = m.fields.getTextInputValue('texte');
+    const couleur = m.fields.getTextInputValue('couleur');
+
+    // Convertit @Pseudo / @Rôle / #salon en vraies mentions
+    const r = await rich(m.guild, texte);
+
+    const embed = new EmbedBuilder()
+      .setColor(parseColor(couleur, '#5865F2'))
+      .setDescription(r.text.slice(0, 4096))
+      .setTimestamp()
+      .setFooter({ text: `Envoyé depuis ${m.guild.name}` });
+
+    if (titre) embed.setTitle(titre.slice(0, 256));
+
+    // Récupère tous les membres (sauf bots)
+    await m.guild.members.fetch().catch(() => {});
+    const members = m.guild.members.cache.filter((mem) => !mem.user.bot);
+
+    let sent = 0;
+    let failed = 0;
+    const total = members.size;
+
+    await m.editReply(`📤 Envoi en cours… 0/${total} (ne ferme pas le bot)`);
+
+    // Envoi avec délai pour éviter le rate-limit
+    for (const member of members.values()) {
+      try {
+        await member.send({ embeds: [embed] });
+        sent++;
+      } catch {
+        failed++; // MP fermés ou bloqué
+      }
+
+      // Mise à jour toutes les 25 personnes
+      if ((sent + failed) % 25 === 0) {
+        await m.editReply(`📤 Envoi en cours… ${sent + failed}/${total} (${sent} envoyés · ${failed} échecs)`).catch(() => {});
+      }
+
+      // Délai important (1,2 seconde)
+      await new Promise((r) => setTimeout(r, 1200));
+    }
+
+    await m.editReply(
+      `✅ **Envoi terminé**\n` +
+      `• Membres ciblés : **${total}**\n` +
+      `• Envoyés : **${sent}**\n` +
+      `• Échecs (MP fermés / bloqués) : **${failed}**`
+    );
   },
 
   /* ---------- /autorole ---------- */
