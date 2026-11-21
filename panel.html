@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ZNK Bot — Panel</title>
+<style>
+:root{--bg:#0b0d14;--p1:#12141f;--p2:#181b2a;--bd:#262a3d;--tx:#e8eaf6;--mu:#8b90ab;--ac:#6c63ff;--ac2:#a855f7;--ok:#23c552;--ko:#f23f5d}
+*{box-sizing:border-box;margin:0}body{font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:radial-gradient(900px 500px at 80% -10%,#2a1f5c55,transparent),var(--bg);color:var(--tx);height:100vh;display:flex;overflow:hidden}
+[hidden]{display:none!important}
+aside{width:270px;background:var(--p1);border-right:1px solid var(--bd);display:flex;flex-direction:column;flex-shrink:0}
+.logo{padding:18px;font-weight:800;font-size:18px;background:linear-gradient(90deg,var(--ac),var(--ac2));-webkit-background-clip:text;color:transparent}
+aside select,aside input{margin:0 14px 10px;width:calc(100% - 28px)}
+#nav{overflow:auto;padding:0 10px 20px;flex:1}
+.cat{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--mu);margin:16px 8px 6px}
+.ni{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:9px;cursor:pointer;color:#c7cae0}
+.ni:hover{background:var(--p2)}.ni.on{background:linear-gradient(90deg,#6c63ff33,#a855f71a);color:#fff;box-shadow:inset 3px 0 var(--ac)}
+.ni em{font-style:normal;font-size:10px;color:var(--ko)}
+main{flex:1;overflow:auto;padding:26px 30px;display:grid;grid-template-columns:minmax(340px,1fr) minmax(340px,1fr);gap:22px;align-content:start}
+.card{background:var(--p1);border:1px solid var(--bd);border-radius:16px;padding:20px;box-shadow:0 10px 30px #0006}
+.head{grid-column:1/-1}.head h1{font-size:26px}.head p{color:var(--mu);margin-top:2px}
+.bd{display:inline-block;font-size:11px;padding:2px 8px;border-radius:20px;background:#6c63ff2a;color:#b9b4ff;margin:8px 6px 0 0}.bd.r{background:#f23f5d22;color:#ff8da0}
+.tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px}
+.tab{background:var(--p2);border:1px solid var(--bd);color:#c7cae0;padding:6px 12px;border-radius:20px;cursor:pointer;font:inherit}
+.tab.on{background:linear-gradient(90deg,var(--ac),var(--ac2));border-color:transparent;color:#fff}
+.f{display:block;margin-bottom:14px}.f span{font-weight:600}.f small{display:block;color:var(--mu);font-size:12px;margin-bottom:4px}.req{color:var(--ko);margin-left:3px}
+input,select,textarea{width:100%;background:var(--p2);border:1px solid var(--bd);color:var(--tx);border-radius:10px;padding:9px 11px;font:inherit;outline:0}
+input:focus,select:focus,textarea:focus{border-color:var(--ac);box-shadow:0 0 0 3px #6c63ff33}textarea{min-height:110px;resize:vertical}
+.combo{position:relative}.dd{position:absolute;z-index:9;left:0;right:0;top:100%;margin-top:4px;background:#1d2033;border:1px solid var(--bd);border-radius:10px;max-height:220px;overflow:auto}
+.dd div,.dd i{display:block;padding:8px 11px;cursor:pointer;color:var(--mu)}.dd div{color:var(--tx)}.dd div:hover{background:#6c63ff33}
+h3{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mu);margin:6px 0 12px}
+.run{width:100%;margin-top:6px;border:0;border-radius:12px;padding:12px;font:700 15px inherit;color:#fff;cursor:pointer;background:linear-gradient(90deg,var(--ac),var(--ac2));box-shadow:0 8px 24px #6c63ff55}
+.run:hover{filter:brightness(1.1)}.run:disabled{opacity:.5;cursor:wait}
+.sticky{position:sticky;top:0;align-self:start}
+.slash{font:12px ui-monospace,Consolas,monospace;background:#0007;border-radius:8px;padding:8px 10px;margin-bottom:12px;color:#b9b4ff;word-break:break-all}
+.where{font-size:12px;color:var(--mu);margin:0 0 8px}
+.dc{background:#313338;border-radius:12px;padding:16px;color:#dbdee1;font:14px/1.4 "gg sans",system-ui,sans-serif;margin-bottom:12px}
+.dc .m{display:flex;gap:12px}.av{width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,var(--ac),var(--ac2));flex-shrink:0;display:grid;place-items:center;font-weight:800;color:#fff}
+.nm{font-weight:600;color:#fff}.tg{background:#5865f2;color:#fff;font-size:10px;border-radius:4px;padding:1px 5px;margin-left:5px;vertical-align:middle}.dt{color:#949ba4;font-size:12px;margin-left:6px}
+.mc{min-width:0;flex:1;word-wrap:break-word}.mc code{background:#1e1f22;border-radius:4px;padding:1px 4px;font-size:13px}.mc pre{background:#1e1f22;border-radius:6px;padding:8px;margin:4px 0;white-space:pre-wrap}.mc a{color:#00a8fc}
+.pill{background:#5865f24d;color:#c9cdfb;border-radius:4px;padding:0 3px;font-weight:500}
+.emb{position:relative;display:flex;justify-content:space-between;gap:12px;background:#2b2d31;border-left:4px solid #5865f2;border-radius:4px;padding:10px 14px;margin-top:6px;max-width:520px}
+.eb{min-width:0;flex:1}.et{font-weight:700;color:#fff;margin-bottom:4px;font-size:16px}.ed{font-size:14px}.ea{font-weight:600;font-size:13px;margin-bottom:4px}
+.ef{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}.ef>div{flex:1 1 100%}.ef>div.in{flex:1 1 30%}.ef b{display:block;font-size:13px;color:#fff}
+.ei{max-width:100%;border-radius:4px;margin-top:10px;display:block}.eth{width:72px;height:72px;object-fit:cover;border-radius:4px}.fileimg{margin-top:8px;color:#949ba4;font-size:12px}.efoot{font-size:12px;color:#949ba4;margin-top:8px}
+.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}.b{border-radius:4px;padding:6px 14px;font-size:14px;font-weight:500;color:#fff}.sel{background:#1e1f22;border:1px solid #3f4147;border-radius:4px;padding:8px 12px;color:#949ba4;min-width:260px;display:flex;justify-content:space-between}
+.rx{display:inline-block;margin-top:6px;background:#5865f233;border:1px solid #5865f2;border-radius:8px;padding:1px 8px}
+.empty{color:var(--mu);text-align:center;padding:18px}
+#toasts{position:fixed;right:18px;bottom:18px;display:flex;flex-direction:column;gap:8px;z-index:99}.toast{padding:11px 16px;border-radius:10px;color:#fff;box-shadow:0 8px 24px #0008;animation:u .25s}.toast.ok{background:var(--ok)}.toast.ko{background:var(--ko)}@keyframes u{from{transform:translateY(12px);opacity:0}}
+#login{position:fixed;inset:0;background:var(--bg);display:grid;place-items:center;z-index:100}#login .card{width:340px;text-align:center}#login h1{margin-bottom:14px}#login input{margin-bottom:12px}
+@media(max-width:900px){aside{display:none}main{grid-template-columns:1fr;padding:14px}.sticky{position:static}}
+</style></head><body>
+<div id="login" hidden><form class="card" onsubmit="login(event)"><h1 class="logo" style="padding:0">ZNK Bot Panel</h1><input id="pw" type="password" placeholder="Mot de passe" autofocus><button class="run">Se connecter</button></form></div>
+<aside><div class="logo">⚡ ZNK Bot Panel</div><select id="guild" onchange="loadGuild(this.value)"></select><input id="q" placeholder="🔎 Rechercher une commande…" oninput="nav()"><div id="nav"></div></aside>
+<main id="main"><div class="empty" style="grid-column:1/-1">Choisis une commande dans le menu de gauche.</div></main>
+<div id="toasts"></div>
+<script>
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const S={vals:{},modal:{}};
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const toast=(m,ok=true)=>{const t=document.createElement('div');t.className='toast '+(ok?'ok':'ko');t.textContent=m;$('#toasts').append(t);setTimeout(()=>t.remove(),4500)};
+const api=async(p,b)=>{const r=await fetch(p,b?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}:{});const j=await r.json().catch(()=>({}));if(r.status===401){$('#login').hidden=false;throw new Error(j.error||'Connexion requise')}if(!r.ok)throw new Error(j.error||'Erreur');return j};
+async function login(e){e.preventDefault();try{await api('/api/login',{password:$('#pw').value});$('#login').hidden=true;boot()}catch(x){toast(x.message,false)}}
+async function boot(){const me=await fetch('/api/me').then(r=>r.json());if(!me.authed)return $('#login').hidden=false;
+ [S.schema,S.guilds]=await Promise.all([api('/api/schema'),api('/api/guilds')]);
+ $('#guild').innerHTML=S.guilds.map(g=>`<option value="${g.id}">${esc(g.name)} (${g.members})</option>`).join('');
+ if(S.guilds[0])await loadGuild(S.guilds[0].id)}
+async function loadGuild(id){S.gid=id;S.g=await api('/api/guild?id='+id);nav();if(S.cmd)render()}
+function nav(){const q=$('#q').value.toLowerCase(),d=S.g?.disabled||[];let h='';
+ for(const [k,l] of Object.entries(S.schema.categories)){const cs=S.schema.commands.filter(c=>c.category==k&&c.name.includes(q));if(!cs.length)continue;
+  h+=`<div class="cat">${esc(l)}</div>`+cs.map(c=>`<div class="ni ${S.cmd?.name==c.name?'on':''}" onclick="pick('${c.name}')">/${c.name}${d.includes(c.name)?'<em>désactivée</em>':''}</div>`).join('')}
+ $('#nav').innerHTML=h}
+function pick(n){S.cmd=S.schema.commands.find(c=>c.name==n);S.sub=S.cmd.options?.find(o=>o.type==1)||null;S.res=null;nav();render()}
+const subs=()=>S.cmd.options.filter(o=>o.type==1),def=()=>S.sub||S.cmd,key=()=>S.cmd.name+(S.sub?'/'+S.sub.name:''),MODAL=()=>S.schema.modals[key()];
+function field(o){const r=o.required?'<b class="req">*</b>':'',t=o.type;let i;
+ const sel=(l)=>`<select data-o="${o.name}">${l}</select>`;
+ if(o.choices?.length)i=sel('<option value="">—</option>'+o.choices.map(c=>`<option value="${esc(c.value)}">${esc(c.name)}</option>`).join(''));
+ else if(t==5)i=sel('<option value="">Non précisé</option><option value="true">Oui</option><option value="false">Non</option>');
+ else if(t==7){const ok=o.channel_types;i=sel('<option value="">— choisir un salon —</option>'+S.g.channels.filter(c=>!ok||ok.includes(c.type)).map(c=>`<option value="${c.id}">${c.type==4?'📁 ':'# '}${esc(c.name)}</option>`).join(''))}
+ else if(t==8)i=sel('<option value="">— choisir un rôle —</option>'+S.g.roles.map(x=>`<option value="${x.id}">@${esc(x.name)}</option>`).join(''));
+ else if(o.autocomplete||t==6||t==9)i=`<div class="combo"><input data-o="${o.name}" data-src="${o.autocomplete?'ac':t==6?'user':'mention'}" autocomplete="off" placeholder="${o.autocomplete?'Choisir ou saisir…':'Rechercher un membre…'}"><div class="dd" hidden></div></div>`;
+ else if(t==4||t==10)i=`<input data-o="${o.name}" type="number" ${o.min_value!=null?`min="${o.min_value}"`:''} ${o.max_value!=null?`max="${o.max_value}"`:''}>`;
+ else if(t==11)i=`<input data-o="${o.name}" placeholder="https://… (lien de l'image)">`;
+ else i=`<input data-o="${o.name}" ${o.max_length?`maxlength="${o.max_length}"`:''}>`;
+ return `<label class="f"><span>${esc(o.name)}${r}</span><small>${esc(o.description)}</small>${i}</label>`}
+function mfield(f){return `<label class="f"><span>${esc(f.label)}${f.req?'<b class="req">*</b>':''}</span>${f.long?`<textarea data-m="${f.id}" maxlength="${f.max}"></textarea>`:`<input data-m="${f.id}" maxlength="${f.max}">`}</label>`}
+function render(){const c=S.cmd,fl=c.flags,off=S.g.disabled.includes(c.name),m=MODAL();
+ $('#main').innerHTML=`<div class="head card"><h1>/${c.name}</h1><p>${esc(c.description)}</p>
+  ${fl.owner?'<span class="bd r">Propriétaire uniquement</span>':''}${fl.public?'<span class="bd">Ouverte à tous</span>':''}${fl.always?'<span class="bd">Toujours active</span>':''}${off?'<span class="bd r">Désactivée</span>':''}</div>
+  <div class="card"><div class="tabs">${subs().map(s=>`<button class="tab ${S.sub?.name==s.name?'on':''}" onclick="S.sub=subs().find(x=>x.name=='${s.name}');render()" title="${esc(s.description)}">${s.name}</button>`).join('')}</div>
+  ${S.sub?`<p class="where" style="margin-bottom:14px">${esc(S.sub.description)}</p>`:''}
+  ${(def().options||[]).filter(o=>o.type!=1).map(field).join('')}
+  ${m?`<h3>✏️ Contenu du message</h3>${m.map(mfield).join('')}`:''}
+  ${!(def().options||[]).filter(o=>o.type!=1).length&&!m?'<p class="where">Aucune option : clique simplement sur Exécuter.</p>':''}
+  <button class="run" id="go" onclick="run()">▶ Exécuter la commande</button></div>
+  <div class="sticky"><h3>👁️ Aperçu</h3><div id="pv"></div><div id="res"></div></div>`;
+ if(key()=='bienvenue/configurer'){const w=S.g.welcome||{};for(const k of['content','title','description','image','color'])if($(`[data-m=${k}]`))$(`[data-m=${k}]`).value=w[k]||''}
+ sync()}
+function collect(){const vals={},modal={};$$('[data-o]').forEach(e=>{const v=e.dataset.v!==undefined?e.dataset.v:e.value;if(v!=='')vals[e.dataset.o]=v});$$('[data-m]').forEach(e=>modal[e.dataset.m]=e.value);return{vals,modal}}
+function sync(){Object.assign(S,collect());preview()}
+async function fill(el){const q=el.value.toLowerCase(),dd=el.nextElementSibling;let l=[];
+ try{if(el.dataset.src=='ac')l=await api('/api/autocomplete',{guildId:S.gid,command:S.cmd.name,sub:S.sub?.name,option:el.dataset.o,value:el.value,options:collect().vals});
+  else{if(el.dataset.src=='mention')l=S.g.roles.filter(r=>r.name.toLowerCase().includes(q)).slice(0,8).map(r=>({name:'@'+r.name,value:r.id}));
+   l=l.concat((await api(`/api/members?id=${S.gid}&q=${encodeURIComponent(el.value)}`)).map(x=>({name:`${x.name} (${x.tag})`,value:x.id})))}}catch{}
+ dd.innerHTML=l.length?l.map(x=>`<div data-v="${esc(x.value)}" data-n="${esc(x.name)}">${esc(x.name)}</div>`).join(''):'<i>Aucun résultat</i>';dd.hidden=false}
+document.addEventListener('focusin',e=>{if(e.target.dataset?.src)fill(e.target)});
+document.addEventListener('input',e=>{const t=e.target;if(t.dataset?.src){delete t.dataset.v;clearTimeout(t._t);t._t=setTimeout(()=>fill(t),250)}if(t.closest('#main'))sync()});
+document.addEventListener('change',e=>{if(e.target.closest('#main'))sync()});
+document.addEventListener('click',e=>{const d=e.target.closest('.dd div');if(d){const i=d.closest('.combo').querySelector('input');i.value=d.dataset.n;i.dataset.v=d.dataset.v;sync()}$$('.dd').forEach(x=>x.hidden=true)});
+/* ---------- rendu façon Discord ---------- */
+const hex=n=>typeof n=='number'?'#'+n.toString(16).padStart(6,'0'):n;
+const col=c=>/^#?[0-9a-f]{6}$/i.test((c||'').trim())?'#'+c.trim().replace('#',''):'#5865F2';
+const url=u=>/^https?:\/\/\S+$/i.test((u||'').trim())?u.trim():null;
+function mdr(t){let h=esc(String(t??'').replace(/\\n/g,'\n'));
+ h=h.replace(/&lt;@&amp;(\d+)&gt;/g,(_,i)=>`<span class="pill">@${esc(S.g.roles.find(r=>r.id==i)?.name||'rôle')}</span>`)
+  .replace(/&lt;#(\d+)&gt;/g,(_,i)=>`<span class="pill">#${esc(S.g.channels.find(c=>c.id==i)?.name||'salon')}</span>`)
+  .replace(/&lt;@!?(\d+)&gt;/g,'<span class="pill">@membre</span>').replace(/&lt;a?:(\w+):\d+&gt;/g,':$1:').replace(/&lt;t:\d+(?::\w)?&gt;/g,'<span class="pill">date</span>');
+ for(const r of [...S.g.roles].sort((a,b)=>b.name.length-a.name.length))h=h.replace(new RegExp('(?<![\\w<])@'+r.name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'(?![\\w-])','gi'),`<span class="pill">@${esc(r.name)}</span>`);
+ for(const c of [...S.g.channels].sort((a,b)=>b.name.length-a.name.length))h=h.replace(new RegExp('(?<![\\w&])#'+c.name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'(?![\\w-])','gi'),`<span class="pill">#${esc(c.name)}</span>`);
+ return h.replace(/```(?:\w+\n)?([\s\S]*?)```/g,'<pre>$1</pre>').replace(/`([^`\n]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>').replace(/__([^_]+)__/g,'<u>$1</u>')
+  .replace(/\*([^*\n]+)\*/g,'<i>$1</i>').replace(/~~([^~]+)~~/g,'<s>$1</s>').replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>')
+  .replace(/^#{1,3} (.+)$/gm,'<b style="font-size:17px">$1</b>').replace(/\n/g,'<br>')}
+const img=u=>u?(typeof u=='string'?url(u):url(u.url)):null;
+function emb(e){const c=typeof e.color=='number'?hex(e.color):(e.color||'#5865F2'),im=img(e.image),th=img(e.thumbnail);
+ return `<div class="emb" style="border-left-color:${esc(c)}"><div class="eb">${e.author?`<div class="ea">${esc(e.author.name)}</div>`:''}${e.title?`<div class="et">${mdr(e.title)}</div>`:''}${e.description?`<div class="ed">${mdr(e.description)}</div>`:''}
+ ${e.fields?.length?`<div class="ef">${e.fields.map(f=>`<div class="${f.inline?'in':''}"><b>${mdr(f.name)}</b>${mdr(f.value)}</div>`).join('')}</div>`:''}
+ ${im?`<img class="ei" src="${esc(im)}">`:e.image?'<div class="fileimg">🖼️ image jointe</div>':''}
+ ${e.footer||e.timestamp?`<div class="efoot">${esc(e.footer?.text||'')}${e.footer&&e.timestamp?' • ':''}${e.timestamp?'aujourd’hui':''}</div>`:''}</div>${th?`<img class="eth" src="${esc(th)}">`:''}</div>`}
+const BC={1:'#5865f2',2:'#4e5058',3:'#248046',4:'#da373c',5:'#4e5058'};
+function comps(cs){return (cs||[]).map(r=>`<div class="btns">${(r.components||[]).map(x=>x.type==2?`<span class="b" style="background:${BC[x.style]||BC[1]}">${x.emoji?.name?esc(x.emoji.name)+' ':''}${esc(x.label||'')}</span>`:`<span class="sel">${esc(x.placeholder||'Choisir…')}<span>⌄</span></span>`).join('')}</div>`).join('')}
+function msg(m,name='ZNK Bot'){return `<div class="dc"><div class="m"><div class="av">Z</div><div class="mc"><span class="nm">${esc(name)}</span><span class="tg">BOT</span><span class="dt">aujourd’hui</span>
+ ${m.content?`<div>${mdr(m.content)}</div>`:''}${(m.embeds||[]).map(emb).join('')}${comps(m.components)}${m.files?.length?`<div class="fileimg">📎 ${m.files.map(esc).join(', ')}</div>`:''}${(m.reactions||[]).map(r=>`<span class="rx">${esc(r)} 1</span>`).join('')}</div></div></div>`}
+function vars(t,x){return String(t??'').replace(/\{(\w+)\}/g,(_,k)=>x[k]??`{${k}}`)}
+function mentions(v){const p=[];if(v.ping)p.push('@'+v.ping);if(v.mention){const r=S.g.roles.find(x=>x.id==v.mention);p.push(r?'<@&'+r.id+'>':'<@'+v.mention+'>')}return p.join(' ')}
+function preview(){const c=S.cmd,v=S.vals,m=S.modal,k=key(),ch=id=>'#'+(S.g.channels.find(x=>x.id==id)?.name||'salon');
+ const slash='/'+k.replace('/',' ')+' '+Object.entries(v).map(([a,b])=>`${a}: ${b}`).join(' ');
+ let where='',ms=[],note='';
+ const ann=()=>({title:m.titre,description:m.texte,color:col(m.couleur),footer:m.footer?{text:m.footer}:null,timestamp:1,image:url(m.image_url)||v.image,thumbnail:v.miniature});
+ if(k=='annonce'||k=='autorole/creer'){where=ch(v.salon);ms=[{content:mentions(v),embeds:[ann()],reactions:k=='autorole/creer'&&v.emoji?[v.emoji]:[]}]}
+ else if(k=='message-mp'){where='Message privé envoyé à chaque membre';ms=[{embeds:[{title:m.titre,description:m.texte,color:col(m.couleur),footer:{text:'Envoyé depuis '+S.g.name},timestamp:1}]}]}
+ else if(k=='bienvenue/configurer'){const x={user:'<@0>',username:'Toi',server:S.g.name,count:S.g.count};where=ch(v.salon||S.g.welcome?.channelId);ms=[{content:vars(m.content,x),embeds:[{title:vars(m.title,x),description:vars(m.description,x),color:col(m.color),image:url(m.image)}]}]}
+ else if(k=='ticket/message'){const x={user:'<@0>',username:'Toi',server:S.g.name,category:'Exemple',config:'support',staff:'@Staff'};where='Dans le ticket à son ouverture';ms=[{content:vars(m.content,x),embeds:[{title:vars(m.title||'🎫 Ticket — {category}',x),description:vars(m.description||'Un membre du staff va te répondre.',x),color:col(m.color),image:url(m.image)}]}]}
+ else if(k=='ticket/mp-menu'){const x={username:'Toi',server:S.g.name,config:'support'};where='Message privé';ms=[{embeds:[{title:vars(m.title,x),description:vars(m.description,x),color:col(m.color)}],components:[{components:[{type:3,placeholder:m.placeholder||'Choisir une catégorie...'}]}]}]}
+ else if(k=='ticket/mp-textes'){where='Message privé';ms=[{content:m.sentReply},{embeds:[{title:m.doneTitle,description:vars(m.doneText,{channel:'#ticket-0001',link:'…',choice:'Choix',username:'Toi',server:S.g.name})}]},{content:m.invalid}].filter(x=>x.content||x.embeds)}
+ else if(k=='giveaway/creer'){note='aperçu indicatif';where=ch(v.salon);ms=[{content:mentions(v),embeds:[{title:'🎉 '+(v.lot||'…'),description:(v.description||'')+`\n\n**Fin :** dans ${v.duree||'…'} ${v.unite||''}\n**Gagnants :** ${v.gagnants||1}\n**Participants :** 0`,color:'#F1C40F',image:v.image}],components:[{components:[{type:2,style:1,label:'🎉 Participer'}]}]}]}
+ else if(k=='setup-paiement'){note='aperçu indicatif';where=ch(v.salon);const mo=(v.moyens||'PayPal, Wero').split(',').map(x=>x.trim()).filter(Boolean);ms=[{embeds:[{title:v.titre||'💳 Paiement',description:v.description||'Choisis ton moyen de paiement pour ouvrir un ticket.',color:'#5865F2'}],components:[{components:[{type:3,placeholder:'Moyen : '+mo.join(' · ')}]}]}]}
+ $('#pv').innerHTML=`<div class="slash">${esc(slash)}</div>`+(ms.length?`<p class="where">📍 ${esc(where)}${note?` — ${note}`:''}</p>`+ms.map(x=>msg(x)).join(''):'<div class="empty card" style="padding:14px">Cette commande répond directement : exécute-la pour voir la réponse du bot ici.</div>');
+ $('#res').innerHTML=S.res?`<h3>🤖 Réponse du bot</h3>${S.res.map(x=>msg(x)).join('')}${S.running?'<p class="where">⏳ L’opération continue en arrière-plan sur le bot.</p>':''}`:''}
+const DANGER=/^(ban|message-mp|giveaway\/(annuler|terminer)|ticket\/config-supprimer|commandes\/desactiver|invites-config\/reset)$/;
+async function run(){const{vals,modal}=collect(),m=MODAL();
+ for(const o of def().options||[])if(o.type!=1&&o.required&&!vals[o.name])return toast(`Champ requis : ${o.name}`,false);
+ for(const f of m||[])if(f.req&&!modal[f.id]?.trim())return toast(`Champ requis : ${f.label}`,false);
+ if(DANGER.test(key())&&!confirm('Confirmer cette action sur le serveur ?'))return;
+ const b=$('#go');b.disabled=true;b.textContent='⏳ Exécution…';
+ try{const r=await api('/api/run',{guildId:S.gid,command:S.cmd.name,sub:S.sub?.name,options:vals,modal:m?modal:null});S.res=r.replies;S.running=r.running;preview();toast(r.running?'Lancé : le bot continue en arrière-plan':'Commande exécutée ✅');api('/api/guild?id='+S.gid).then(g=>{S.g=g;nav()}).catch(()=>{})}
+ catch(e){toast(e.message,false)}finally{b.disabled=false;b.textContent='▶ Exécuter la commande'}}
+boot();
+</script></body></html>
