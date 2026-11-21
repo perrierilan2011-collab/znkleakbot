@@ -1429,7 +1429,7 @@ async function refreshPanels(guild, cfgName) {
 // Message envoyé dans le salon du ticket à son ouverture.
 // Priorité (le plus précis gagne) : dernier choix de sous-panel > catégorie du menu > panel > configuration > message par défaut.
 // Tout se règle depuis le panel web (« Message d'ouverture du ticket ») ou avec /ticket message.
-// Variables : {user} {username} {server} {category} {sub} {sub1} {sub2} {sub3} {config} {staff} {number} {paiement}
+// Variables : {user} {username} {server} {category} {sub} {sub1} {sub2} {sub3} {config} {staff} {number} {paiement} {prix}
 function pickOpenMsg(cfg, panel, reason, subs = []) {
   const chain = [...[...subs].reverse().map((c) => c?.openMsg), reason?.openMsg, panel?.openMsg, cfg.openMsg];
   return chain.find((m) => m && Object.keys(m).length) || {};
@@ -1440,6 +1440,8 @@ async function buildOpenMessage(guild, user, cfg, panel, reason, staffRoles, sub
   // Mode de paiement = le choix fait dans un sous-panel marqué « paiement » (variable {paiement})
   const payChoice = subs.find((c) => cfg.subPanels?.some((sp) => sp.payment && sp.choices.some((x) => x === c || x.id === c.id)));
   const pay = payChoice?.label || 'Non précisé';
+  // Prix = description du dernier choix d'article (hors choix du sous-panel de paiement), sinon celle de la catégorie du menu (variable {prix})
+  const prix = [...subs].reverse().find((c) => c !== payChoice && c?.description?.trim())?.description.trim() || reason?.description?.trim() || 'Non précisé';
   const vars = (txt) => {
     let t = String(txt ?? '')
       .replaceAll('{user}', `<@${user.id}>`)
@@ -1450,6 +1452,7 @@ async function buildOpenMessage(guild, user, cfg, panel, reason, staffRoles, sub
       .replaceAll('{config}', cfg.name)
       .replaceAll('{number}', String(cfg.counter || 0).padStart(4, '0'))
       .replaceAll('{paiement}', pay).replaceAll('{payement}', pay).replaceAll('{payment}', pay)
+      .replaceAll('{prix}', prix).replaceAll('{price}', prix)
       .replaceAll('{staff}', staffMention);
     for (let n = 0; n < 3; n++) t = t.replaceAll(`{sub${n + 1}}`, subs[n]?.label || '');
     return t;
