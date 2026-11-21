@@ -89,7 +89,7 @@ function getG(id) {
       image: '',
       color: '#5865F2',
     },
-    tickets: {}, // nom -> { name, categoryId, staffRoles[], logChannelId, reasons[], counter, panels[], placeholder, openMsg, dm, dmChoices[], dmTexts, dmImage }
+    tickets: {}, // nom -> { name, categoryId, staffRoles[], logChannelId, reasons[], counter, panels[], placeholder, openMsg, dm, dmChoices[], dmTexts, dmImage, subPanels[], subLinks{}, defaultSubPanelId }
     open: {},    // channelId -> { userId, config, reason, claimedBy, staffRoles[] }
   };
   const g = db[id];
@@ -129,6 +129,9 @@ function getG(id) {
     c.dmChoices ??= [];     // choix du menu du MP : [{ id, label, emoji, description, categoryId, staffRoleId }]
     c.dmTexts ??= null;     // { title, description, placeholder, color, sentReply, doneTitle, doneText, invalid }
     c.dmImage ??= null;     // nom du fichier image du MP (dans le dossier images/)
+    c.subPanels ??= [];     // sous-panels : [{ id, name, title, description, placeholder, color, choices: [{ id, label, emoji, description, categoryId, staffRoleId }] }]
+    c.subLinks ??= {};      // id d'une catégorie du menu (panel ou MP) -> id d'un sous-panel, ou 'none' (aucun sous-panel)
+    c.defaultSubPanelId ??= null; // sous-panel de toutes les catégories qui n'ont pas de lien propre
     if (!c.dmMigrated) {    // une seule fois : reprise de l'ancien système de MP
       c.dmMigrated = true;
       if (c.dm && !c.dmChoices.length) c.dmChoices = c.reasons.map((r) => ({ ...r }));
@@ -345,6 +348,7 @@ const CMD_CATEGORIES = {
   annonces:    { label: '📢 Annonces & rôles', commands: ['annonce', 'autorole', 'role-arrivee', 'bienvenue'] },
   invitations: { label: '📈 Invitations (admin)', commands: ['invites-config', 'lien-invite', 'qui-a-invite', 'classement-invites', 'classement-invites-maj'] },
   tickets:     { label: '🎫 Tickets', commands: ['ticket', 'setup-paiement'] },
+  souspanel:   { label: '🗂️ Sous panel', commands: ['sous-panel'] },
   serveur:     { label: '⚙️ Serveur', commands: ['salon-commandes', 'salon-sanctions', 'membercount', 'acces-categorie'] },
 };
 const CMD_CATEGORY = {};
@@ -606,6 +610,12 @@ const catAndRole = (s) => s
   .addChannelOption((o) => o.setName('categorie').setDescription('La catégorie de salons')
     .addChannelTypes(ChannelType.GuildCategory).setRequired(true))
   .addRoleOption((o) => o.setName('role').setDescription('Le rôle (@everyone possible)').setRequired(true));
+
+// Options communes de /sous-panel
+const spCfg = (o) => o.setName('config').setDescription('Configuration de tickets').setAutocomplete(true).setRequired(true);
+const spSub = (o) => o.setName('sous-panel').setDescription('Sous-panel').setAutocomplete(true).setRequired(true);
+const spChoice = (o) => o.setName('sous-choix').setDescription('Choix du sous-panel').setAutocomplete(true).setRequired(true);
+const spPour = (o) => o.setName('pour').setDescription('Toutes les catégories, ou une catégorie précise du panel').setAutocomplete(true).setRequired(true);
 
 const commands = [
   // ---------- Salon privé des commandes ----------
@@ -1047,6 +1057,72 @@ const commands = [
     .setDefaultMemberPermissions('0')
     .setDMPermission(false),
 
+  // ---------- Sous-panels ----------
+  new SlashCommandBuilder()
+    .setName('sous-panel')
+    .setDescription("Sous-panels : un 2e menu proposé après le choix d'une catégorie du panel")
+    .addSubcommand((s) =>
+      s.setName('creer').setDescription('Créer un sous-panel')
+        .addStringOption(spCfg)
+        .addStringOption((o) => o.setName('nom').setDescription('Nom du sous-panel (ex : Nitro)').setMaxLength(60).setRequired(true))
+        .addStringOption((o) => o.setName('titre').setDescription('Titre du message du sous-panel').setMaxLength(256))
+        .addStringOption((o) => o.setName('description').setDescription('Texte du message du sous-panel').setMaxLength(1000))
+        .addStringOption((o) => o.setName('placeholder').setDescription('Texte du menu (ex : Choisir une option...)').setMaxLength(100))
+        .addStringOption((o) => o.setName('couleur').setDescription('Couleur hex, ex : #5865F2').setMaxLength(7)))
+    .addSubcommand((s) =>
+      s.setName('modifier').setDescription("Modifier le nom, le titre, le texte, le menu ou la couleur d'un sous-panel (\"aucun\" = effacer)")
+        .addStringOption(spCfg)
+        .addStringOption(spSub)
+        .addStringOption((o) => o.setName('nouveau-nom').setDescription('Nouveau nom').setMaxLength(60))
+        .addStringOption((o) => o.setName('titre').setDescription('Nouveau titre').setMaxLength(256))
+        .addStringOption((o) => o.setName('description').setDescription('Nouveau texte').setMaxLength(1000))
+        .addStringOption((o) => o.setName('placeholder').setDescription('Nouveau texte du menu').setMaxLength(100))
+        .addStringOption((o) => o.setName('couleur').setDescription('Nouvelle couleur hex').setMaxLength(7)))
+    .addSubcommand((s) =>
+      s.setName('supprimer').setDescription('Supprimer un sous-panel (il est retiré de toutes les catégories)')
+        .addStringOption(spCfg)
+        .addStringOption(spSub))
+    .addSubcommand((s) =>
+      s.setName('choix-ajouter').setDescription('Ajouter un choix au menu du sous-panel')
+        .addStringOption(spCfg)
+        .addStringOption(spSub)
+        .addStringOption((o) => o.setName('label').setDescription('Nom du choix').setMaxLength(100).setRequired(true))
+        .addStringOption((o) => o.setName('emoji').setDescription('Emoji : 🎮 ou emoji du serveur (tape :nitro: et choisis-le)'))
+        .addStringOption((o) => o.setName('description').setDescription('Description courte').setMaxLength(100))
+        .addChannelOption((o) =>
+          o.setName('categorie').setDescription('Catégorie du serveur où les tickets de ce choix seront créés')
+            .addChannelTypes(ChannelType.GuildCategory))
+        .addRoleOption((o) => o.setName('role-staff').setDescription('Rôle staff propre à ce choix')))
+    .addSubcommand((s) =>
+      s.setName('choix-modifier').setDescription("Modifier un choix d'un sous-panel")
+        .addStringOption(spCfg)
+        .addStringOption(spSub)
+        .addStringOption(spChoice)
+        .addStringOption((o) => o.setName('nouveau-nom').setDescription('Nouveau nom').setMaxLength(100))
+        .addStringOption((o) => o.setName('emoji').setDescription('Nouvel emoji ("aucun" pour le retirer)'))
+        .addStringOption((o) => o.setName('description').setDescription('Nouvelle description ("aucun" pour l\'effacer)').setMaxLength(100))
+        .addChannelOption((o) =>
+          o.setName('categorie').setDescription('Nouvelle catégorie du serveur pour les tickets de ce choix')
+            .addChannelTypes(ChannelType.GuildCategory))
+        .addRoleOption((o) => o.setName('role-staff').setDescription('Nouveau rôle staff pour ce choix')))
+    .addSubcommand((s) =>
+      s.setName('choix-retirer').setDescription("Retirer un choix d'un sous-panel")
+        .addStringOption(spCfg)
+        .addStringOption(spSub)
+        .addStringOption(spChoice))
+    .addSubcommand((s) =>
+      s.setName('lier').setDescription('Utiliser un sous-panel pour toutes les catégories, ou pour une seule')
+        .addStringOption(spCfg)
+        .addStringOption(spSub)
+        .addStringOption(spPour))
+    .addSubcommand((s) =>
+      s.setName('delier').setDescription("Retirer le lien d'une catégorie (elle reprend le réglage par défaut) ou le sous-panel par défaut")
+        .addStringOption(spCfg)
+        .addStringOption(spPour))
+    .addSubcommand((s) =>
+      s.setName('liste').setDescription('Voir les sous-panels et à quelles catégories ils sont reliés')
+        .addStringOption(spCfg)),
+
   // ---------- Tickets ----------
   new SlashCommandBuilder()
     .setName('ticket')
@@ -1338,7 +1414,7 @@ async function refreshPanels(guild, cfgName) {
 // Message envoyé dans le salon du ticket à son ouverture.
 // Priorité : message du panel (/ticket message panel:...) > message de la configuration > message par défaut.
 // Variables : {user} {username} {server} {category} {config} {staff}
-async function buildOpenMessage(guild, user, cfg, panel, reason, staffRoles) {
+async function buildOpenMessage(guild, user, cfg, panel, reason, staffRoles, subChoice = null) {
   const m = panel?.openMsg || cfg.openMsg || {};
   const staffMention = staffRoles.map((r) => `<@&${r}>`).join(' ');
   const vars = (txt) => String(txt ?? '')
@@ -1346,6 +1422,7 @@ async function buildOpenMessage(guild, user, cfg, panel, reason, staffRoles) {
     .replaceAll('{username}', user.username)
     .replaceAll('{server}', guild.name)
     .replaceAll('{category}', reason ? reason.label : 'Non précisée')
+    .replaceAll('{sub}', subChoice ? subChoice.label : '')
     .replaceAll('{config}', cfg.name)
     .replaceAll('{staff}', staffMention);
 
@@ -1354,7 +1431,7 @@ async function buildOpenMessage(guild, user, cfg, panel, reason, staffRoles) {
 
   const embed = new EmbedBuilder()
     .setColor(parseColor(m.color, '#5865F2'))
-    .setTitle((m.title ? vars(m.title) : `🎫 Ticket — ${reason ? reason.label : cfg.name}`).slice(0, 256))
+    .setTitle((m.title ? vars(m.title) : `🎫 Ticket — ${[reason?.label, subChoice?.label].filter(Boolean).join(' › ') || cfg.name}`).slice(0, 256))
     .setDescription((rd ? rd.text : (
       `Bonjour <@${user.id}>, un membre du staff va te répondre bientôt.\n` +
       `Explique-nous ta demande avec un maximum de détails.`)).slice(0, 4096))
@@ -1363,6 +1440,7 @@ async function buildOpenMessage(guild, user, cfg, panel, reason, staffRoles) {
     embed.addFields(
       { name: 'Configuration', value: cfg.name, inline: true },
       { name: 'Catégorie', value: reason ? reason.label : 'Non précisée', inline: true },
+      ...(subChoice ? [{ name: 'Sous-panel', value: subChoice.label, inline: true }] : []),
     );
   }
   if (isUrl(m.image)) embed.setImage(m.image.trim());
@@ -1381,7 +1459,7 @@ async function buildOpenMessage(guild, user, cfg, panel, reason, staffRoles) {
 // Un membre peut ouvrir autant de tickets qu'il veut (chaque salon a son numéro).
 // Le choix (reasonId) est cherché dans le menu du panel ET dans le menu du MP.
 // Renvoie { channel } ou { error }.
-async function createTicket(guild, user, cfgName, reasonId, panel) {
+async function createTicket(guild, user, cfgName, reasonId, panel, subChoice = null) {
   const data = getG(guild.id);
   const cfg = data.tickets[cfgName];
   if (!cfg) return { error: "❌ Cette configuration n'existe plus." };
@@ -1389,16 +1467,17 @@ async function createTicket(guild, user, cfgName, reasonId, panel) {
   const reason = [...cfg.reasons, ...(cfg.dmChoices || [])].find((r) => r.id === reasonId);
 
   // Rôles staff : ceux du choix (s'il y en a un) sinon ceux de la configuration
-  const staffRoles = (reason?.staffRoleId ? [reason.staffRoleId] : cfg.staffRoles)
+  // Priorité : rôle du choix du sous-panel > rôle de la catégorie du menu > rôles de la configuration
+  const ownStaff = subChoice?.staffRoleId || reason?.staffRoleId;
+  const staffRoles = (ownStaff ? [ownStaff] : cfg.staffRoles)
     .filter((id) => guild.roles.cache.has(id));
   if (!staffRoles.length) {
     return { error: "❌ Aucun rôle staff valide n'est configuré pour ce ticket. Préviens un administrateur." };
   }
 
   // Catégorie du serveur liée au choix du menu (sinon celle de la configuration)
-  const parentId = reason?.categoryId && guild.channels.cache.has(reason.categoryId)
-    ? reason.categoryId
-    : cfg.categoryId;
+  // Priorité : catégorie du choix du sous-panel > catégorie du menu > catégorie de la configuration
+  const parentId = [subChoice?.categoryId, reason?.categoryId].find((id) => id && guild.channels.cache.has(id)) || cfg.categoryId;
 
   cfg.counter = (cfg.counter || 0) + 1;
   save();
@@ -1410,7 +1489,7 @@ async function createTicket(guild, user, cfgName, reasonId, panel) {
       name: `${cfg.name}-${String(cfg.counter).padStart(4, '0')}`.slice(0, 100),
       type: ChannelType.GuildText,
       parent: parentId,
-      topic: `Ticket de ${user.tag} | ${cfg.name}${reason ? ' | ' + reason.label : ''}`,
+      topic: `Ticket de ${user.tag} | ${cfg.name}${reason ? ' | ' + reason.label : ''}${subChoice ? ' | ' + subChoice.label : ''}`,
       permissionOverwrites: [
         { id: guild.id, deny: [P.ViewChannel] },
         { id: user.id, allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.AttachFiles, P.EmbedLinks] },
@@ -1427,11 +1506,11 @@ async function createTicket(guild, user, cfgName, reasonId, panel) {
   }
 
   data.open[channel.id] = {
-    userId: user.id, config: cfgName, reason: reason?.label || null, claimedBy: null, staffRoles,
+    userId: user.id, config: cfgName, reason: [reason?.label, subChoice?.label].filter(Boolean).join(' › ') || null, claimedBy: null, staffRoles,
   };
   save();
 
-  const payload = await buildOpenMessage(guild, user, cfg, panel, reason, staffRoles);
+  const payload = await buildOpenMessage(guild, user, cfg, panel, reason, staffRoles, subChoice);
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('tk_claim').setLabel('Prendre en charge').setEmoji('🙋').setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId('tk_close').setLabel('Fermer').setEmoji('🔒').setStyle(ButtonStyle.Danger),
@@ -1466,6 +1545,7 @@ const dmVars = (txt, { guild, user, cfg, channel, choice }) =>
     .replaceAll('{server}', guild.name)
     .replaceAll('{config}', cfg.name)
     .replaceAll('{choice}', choice?.label || '')
+    .replaceAll('{category}', choice?.label || '')
     .replaceAll('{channel}', channel ? `<#${channel.id}>` : '')
     .replaceAll('{link}', channel ? channel.url : '');
 
@@ -1556,6 +1636,99 @@ async function startDmFlow(i, cfg, panel) {
   await i.editReply(dmVars(dmText(cfg, 'sentReply'), ctx).slice(0, 2000));
 }
 
+/* ---------- Sous-panels ---------- */
+// Un sous-panel = un 2e menu proposé après le choix d'une catégorie du panel (ou du MP).
+// Réglage par catégorie (cfg.subLinks) > sous-panel par défaut de la configuration (cfg.defaultSubPanelId) > aucun.
+function resolveSub(cfg, entryId) {
+  const link = entryId ? cfg.subLinks?.[entryId] : null;
+  if (link === 'none') return null;
+  const byId = (id) => cfg.subPanels?.find((x) => x.id === id);
+  const sub = (link && byId(link)) || byId(cfg.defaultSubPanelId);
+  return sub && sub.choices.length ? sub : null; // un sous-panel vide est ignoré : le ticket s'ouvre directement
+}
+const findSub = (cfg, v) => {
+  const t = String(v ?? '').trim().toLowerCase();
+  return (cfg.subPanels || []).find((x) => x.id === v || x.name.toLowerCase() === t) || null;
+};
+const findChoice = (sub, v) => {
+  const t = String(v ?? '').trim().toLowerCase();
+  return sub.choices.find((c) => c.id === v || c.label.toLowerCase() === t) || null;
+};
+// Catégories auxquelles on peut relier un sous-panel : menu du panel + choix du menu MP qui n'y figurent pas
+function subTargets(cfg) {
+  const ids = new Set(cfg.reasons.map((r) => r.id));
+  return [
+    ...cfg.reasons.map((r) => ({ id: r.id, label: r.label, mp: false })),
+    ...(cfg.dmChoices || []).filter((r) => !ids.has(r.id)).map((r) => ({ id: r.id, label: r.label, mp: true })),
+  ];
+}
+const findTarget = (cfg, v) => {
+  const t = String(v ?? '').trim().toLowerCase();
+  return subTargets(cfg).find((x) => x.id === v || x.label.toLowerCase() === t) || null;
+};
+function subSummary(cfg) {
+  const name = (id) => cfg.subPanels.find((x) => x.id === id)?.name;
+  const def = name(cfg.defaultSubPanelId);
+  const lines = [`**🗂️ Sous-panels de ${cfg.name}**`, `🌐 Par défaut (toutes les catégories) : ${def ? `**${def}**` : 'aucun'}`];
+  const targets = subTargets(cfg);
+  if (targets.length) {
+    lines.push('', '**Catégories**', ...targets.map((t) => {
+      const l = cfg.subLinks[t.id];
+      const v = l === 'none' ? '❌ aucun' : l && name(l) ? `**${name(l)}**` : def ? `${def} *(par défaut)*` : 'aucun';
+      return `• ${t.mp ? '📩 ' : ''}${t.label} → ${v}`;
+    }));
+  }
+  if (cfg.subPanels.length) {
+    lines.push('', '**Sous-panels**', ...cfg.subPanels.map((x) =>
+      `• **${x.name}** — ${x.choices.length ? x.choices.map((c) => (c.emoji ? c.emoji + ' ' : '') + c.label).join(', ') : '*aucun choix*'}`));
+  } else lines.push('', 'Aucun sous-panel. Crée-en un avec `/sous-panel creer`.');
+  return lines.join('\n').slice(0, 1990);
+}
+
+// Message + menu du sous-panel (envoyé en réponse éphémère sur le serveur, ou dans le MP)
+function buildSubMessage(guild, user, cfg, sub, customId, reason) {
+  const ctx = { guild, user, cfg, choice: reason };
+  const embed = new EmbedBuilder()
+    .setColor(parseColor(sub.color, '#5865F2'))
+    .setTitle(dmVars(sub.title || reason?.label || sub.name, ctx).slice(0, 256))
+    .setDescription(dmVars(sub.description || 'Précise ta demande dans le menu ci-dessous.', ctx).slice(0, 4096))
+    .setTimestamp();
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(customId)
+    .setPlaceholder((sub.placeholder || 'Choisir une option...').slice(0, 150))
+    .addOptions(sub.choices.slice(0, 25).map((c) => {
+      const o = { label: c.label, value: c.id };
+      if (c.description) o.description = c.description;
+      const e = parseEmoji(c.emoji);
+      if (e) o.emoji = e;
+      return o;
+    }));
+  return { embeds: [embed], components: [new ActionRowBuilder().addComponents(menu)] };
+}
+
+// Mode normal : le membre a choisi une catégorie -> on lui montre le sous-panel (réponse éphémère)
+function showSub(i, cfg, sub, reasonId, panel) {
+  const reason = reasonId ? cfg.reasons.find((r) => r.id === reasonId) : null;
+  const cid = `tk_sub:${cfg.name}:${reasonId || '-'}:${sub.id}:${panel?.messageId || '-'}`;
+  return i.editReply(buildSubMessage(i.guild, i.user, cfg, sub, cid, reason));
+}
+
+// Mode normal : le membre choisit dans le sous-panel -> le ticket est créé
+async function subChoose(i) {
+  const [, cfgName, rid, subId, pid] = i.customId.split(':');
+  const cfg = getG(i.guildId).tickets[cfgName];
+  const choice = cfg?.subPanels.find((x) => x.id === subId)?.choices.find((c) => c.id === i.values[0]);
+  if (!cfg || !choice) {
+    return i.update({ content: "❌ Ce menu n'est plus valide. Reclique sur le panel du serveur pour en obtenir un nouveau.", embeds: [], components: [] });
+  }
+  // Le menu disparaît tout de suite : un seul ticket par menu
+  await i.update({ content: '⏳ Création de ton ticket...', embeds: [], components: [] });
+  const panel = cfg.panels.find((p) => p.messageId === pid);
+  const r = await createTicket(i.guild, i.user, cfgName, rid === '-' ? null : rid, panel, choice);
+  return i.editReply(r.error || `✅ Ton ticket a été créé : <#${r.channel.id}>`);
+}
+
+/* ---------- Menu MP ---------- */
 // Le membre choisit dans le menu du MP
 async function dmChoose(i) {
   const [, cfgName, guildId] = i.customId.split(':');
@@ -1565,12 +1738,44 @@ async function dmChoose(i) {
   const key = `${i.user.id}:${cfgName}`;
   const p = data?.pendingDm[key];
 
-  // Usage unique : l'enregistrement est supprimé AVANT toute opération asynchrone
-  // (double clic ou ancien menu = aucun ticket créé).
   if (!cfg || !p || p.messageId !== i.message.id) {
     const txt = cfg ? dmText(cfg, 'invalid') : DM_DEFAULT.invalid;
     return i.update({ content: txt, embeds: [], components: [], attachments: [] });
   }
+
+  // Un sous-panel est relié à ce choix : le MP devient le sous-panel (et reste valable pour UN seul choix)
+  const choice = cfg.dmChoices.find((r) => r.id === i.values[0]);
+  const sub = choice && resolveSub(cfg, choice.id);
+  if (sub) {
+    const m = buildSubMessage(guild, i.user, cfg, sub, `tk_dmsub:${cfgName}:${guildId}:${choice.id}:${sub.id}`, choice);
+    return i.update({ ...m, attachments: [] });
+  }
+  return dmFinish(i, guild, data, cfg, key, choice, null);
+}
+
+// Le membre choisit dans le sous-panel reçu en MP
+async function dmSubChoose(i) {
+  const [, cfgName, guildId, choiceId, subId] = i.customId.split(':');
+  const guild = client.guilds.cache.get(guildId);
+  const data = guild ? getG(guildId) : null;
+  const cfg = data?.tickets[cfgName];
+  const key = `${i.user.id}:${cfgName}`;
+  const p = data?.pendingDm[key];
+
+  if (!cfg || !p || p.messageId !== i.message.id) {
+    const txt = cfg ? dmText(cfg, 'invalid') : DM_DEFAULT.invalid;
+    return i.update({ content: txt, embeds: [], components: [], attachments: [] });
+  }
+  const choice = cfg.dmChoices.find((r) => r.id === choiceId);
+  const subChoice = cfg.subPanels.find((x) => x.id === subId)?.choices.find((c) => c.id === i.values[0]) || null;
+  return dmFinish(i, guild, data, cfg, key, subChoice ? choice : null, subChoice);
+}
+
+// Fin du parcours MP : création du ticket puis message de confirmation
+async function dmFinish(i, guild, data, cfg, key, choice, subChoice) {
+  const p = data.pendingDm[key];
+  // Usage unique : l'enregistrement est supprimé AVANT toute opération asynchrone
+  // (double clic ou ancien menu = aucun ticket créé).
   delete data.pendingDm[key];
   save();
   await i.deferUpdate();
@@ -1584,14 +1789,14 @@ async function dmChoose(i) {
   const member = await guild.members.fetch(i.user.id).catch(() => null);
   if (!member) return reply("❌ Impossible d'ouvrir le ticket : tu as quitté le serveur.");
   if (data.muted[i.user.id]) return reply('❌ Tu ne peux pas ouvrir de ticket pendant ton mute.');
-  const choice = cfg.dmChoices.find((r) => r.id === i.values[0]);
   if (!choice) return reply("❌ Ce choix n'existe plus. Reclique sur le panel du serveur.");
 
   const panel = cfg.panels.find((x) => x.messageId === p.panelId);
-  const r = await createTicket(guild, i.user, cfgName, choice.id, panel);
+  const r = await createTicket(guild, i.user, cfg.name, choice.id, panel, subChoice);
   if (r.error) return reply(r.error);
 
-  const ctx = { guild, user: i.user, cfg, channel: r.channel, choice };
+  const shown = subChoice ? { ...choice, label: `${choice.label} › ${subChoice.label}` } : choice;
+  const ctx = { guild, user: i.user, cfg, channel: r.channel, choice: shown };
   return reply({
     embeds: [new EmbedBuilder()
       .setColor(parseColor(cfg.dmTexts?.color, '#57F287'))
@@ -1616,7 +1821,11 @@ async function openTicket(i, cfgName, reasonId) {
   // Mode MP : on envoie le menu en message privé
   if (cfg.dm) return startDmFlow(i, cfg, panel);
 
-  // Mode normal : le ticket s'ouvre directement
+  // Sous-panel relié à cette catégorie (ou par défaut) : 2e menu avant de créer le ticket
+  const sub = resolveSub(cfg, reasonId);
+  if (sub) return showSub(i, cfg, sub, reasonId, panel);
+
+  // Sinon le ticket s'ouvre directement
   const r = await createTicket(i.guild, i.user, cfgName, reasonId, panel);
   if (r.error) return i.editReply(r.error);
   await i.editReply(`✅ Ton ticket a été créé : <#${r.channel.id}>`);
@@ -2145,6 +2354,12 @@ const HELP = [
     '`/ticket panel` — envoyer le panel (bannière, menu ou bouton coloré, sans texte possible) dans un salon',
     "`/ticket message` — modifier le message d'ouverture des tickets (par panel ou pour toute la config)",
     '`/ticket bouton` — changer la couleur / le texte du bouton d\'un panel déjà envoyé',
+  ] },
+  { title: '🗂️ Sous panel', level: 'full', lines: [
+    '`/sous-panel creer` · `modifier` · `supprimer` — un 2e menu proposé après le choix d\'une catégorie du panel',
+    '`/sous-panel choix-ajouter` · `choix-modifier` · `choix-retirer` — les choix du sous-panel (emoji, catégorie du serveur, staff)',
+    '`/sous-panel lier` — le même sous-panel pour toutes les catégories, ou un différent par catégorie',
+    '`/sous-panel delier` · `liste` — retirer un lien · voir qui utilise quoi',
   ] },
   { title: '⚙️ Serveur & accès', level: 'full', lines: [
     '`/salon-commandes` — salon privé des commandes (et ses rôles)',
@@ -3436,6 +3651,166 @@ const handlers = {
     }
   },
 
+  /* ---------- /sous-panel ---------- */
+  async 'sous-panel'(i) {
+    const sub = i.options.getSubcommand();
+    const d = getG(i.guildId);
+    const cfgName = i.options.getString('config', true);
+    const cfg = d.tickets[cfgName];
+    const say = (content) => i.reply({ content, flags: EPH, allowedMentions: { parse: [] } });
+    if (!cfg) return say('❌ Configuration introuvable.');
+    // texte facultatif : vide -> null, "aucun" -> null (effacer), sinon texte coupé à `max`
+    const clean = (v, max) => { const t = (v ?? '').trim(); return t.toLowerCase() === 'aucun' ? null : t.slice(0, max) || null; };
+
+    if (sub === 'liste') return say(subSummary(cfg));
+
+    if (sub === 'creer') {
+      if (cfg.subPanels.length >= 20) return say('❌ 20 sous-panels maximum par configuration.');
+      const nom = i.options.getString('nom', true).trim().slice(0, 60);
+      if (findSub(cfg, nom)) return say('❌ Un sous-panel porte déjà ce nom.');
+      const couleur = (i.options.getString('couleur') || '').trim();
+      cfg.subPanels.push({
+        id: crypto.randomUUID().slice(0, 8),
+        name: nom,
+        title: clean(i.options.getString('titre'), 256),
+        description: clean(i.options.getString('description'), 1000),
+        placeholder: clean(i.options.getString('placeholder'), 100),
+        color: couleur ? parseColor(couleur) : null,
+        choices: [],
+      });
+      save();
+      return say(
+        `✅ Sous-panel **${nom}** créé dans **${cfgName}**.\n` +
+        '• Ajoute-lui des choix : `/sous-panel choix-ajouter`\n' +
+        '• Puis relie-le : `/sous-panel lier` (à toutes les catégories du panel, ou à une seule)');
+    }
+
+    if (sub === 'delier') {
+      const pour = i.options.getString('pour', true);
+      if (pour === 'all') {
+        cfg.defaultSubPanelId = null;
+        save();
+        return say('✅ Plus de sous-panel par défaut : les catégories sans sous-panel propre ouvrent directement le ticket.');
+      }
+      const t = findTarget(cfg, pour);
+      if (!t) return say('❌ Catégorie introuvable. Choisis-la dans la liste proposée.');
+      delete cfg.subLinks[t.id];
+      save();
+      const def = cfg.subPanels.find((x) => x.id === cfg.defaultSubPanelId);
+      return say(`✅ **${t.label}** reprend le réglage par défaut (${def ? `sous-panel **${def.name}**` : 'aucun sous-panel'}).`);
+    }
+
+    // Toutes les autres sous-commandes travaillent sur un sous-panel existant ('none' accepté seulement pour /lier)
+    const rawSp = i.options.getString('sous-panel', true);
+    const none = sub === 'lier' && rawSp === 'none';
+    const sp = none ? null : findSub(cfg, rawSp);
+    if (!none && !sp) return say('❌ Sous-panel introuvable. Choisis-le dans la liste proposée.');
+
+    if (sub === 'supprimer') {
+      cfg.subPanels = cfg.subPanels.filter((x) => x !== sp);
+      for (const [k, v] of Object.entries(cfg.subLinks)) if (v === sp.id) delete cfg.subLinks[k];
+      if (cfg.defaultSubPanelId === sp.id) cfg.defaultSubPanelId = null;
+      save();
+      return say(`🗑️ Sous-panel **${sp.name}** supprimé (et retiré de toutes les catégories).`);
+    }
+
+    if (sub === 'modifier') {
+      const nom = i.options.getString('nouveau-nom');
+      if (nom) {
+        const n = nom.trim().slice(0, 60);
+        const other = findSub(cfg, n);
+        if (other && other !== sp) return say('❌ Un sous-panel porte déjà ce nom.');
+        sp.name = n;
+      }
+      for (const [opt, key, max] of [['titre', 'title', 256], ['description', 'description', 1000], ['placeholder', 'placeholder', 100]]) {
+        const v = i.options.getString(opt);
+        if (v !== null) sp[key] = clean(v, max);
+      }
+      const c = i.options.getString('couleur');
+      if (c !== null) sp.color = !c.trim() || c.trim().toLowerCase() === 'aucun' ? null : parseColor(c);
+      save();
+      return say(`✅ Sous-panel **${sp.name}** modifié.`);
+    }
+
+    if (sub === 'lier') {
+      const pour = i.options.getString('pour', true);
+      const warn = !none && !sp.choices.length ? '\n⚠️ Ce sous-panel n\'a encore aucun choix : il ne s\'affichera pas (`/sous-panel choix-ajouter`).' : '';
+      if (pour === 'all') {
+        cfg.defaultSubPanelId = none ? null : sp.id;
+        save();
+        return say(none
+          ? '✅ Plus de sous-panel par défaut.'
+          : `✅ **${sp.name}** s'applique maintenant à **toutes** les catégories de **${cfgName}** (sauf celles qui ont leur propre sous-panel).${warn}`);
+      }
+      const t = findTarget(cfg, pour);
+      if (!t) return say('❌ Catégorie introuvable. Choisis-la dans la liste proposée.');
+      cfg.subLinks[t.id] = none ? 'none' : sp.id;
+      save();
+      return say(none
+        ? `✅ **${t.label}** ouvre directement le ticket (aucun sous-panel).`
+        : `✅ **${t.label}** utilise maintenant le sous-panel **${sp.name}**.${warn}`);
+    }
+
+    if (sub === 'choix-ajouter') {
+      if (sp.choices.length >= 25) return say('❌ 25 choix maximum par sous-panel.');
+      const staff = i.options.getRole('role-staff');
+      if (staff && staff.id === i.guild.id) return say('❌ Tu ne peux pas choisir @everyone.');
+      const emojiRaw = (i.options.getString('emoji') || '').trim();
+      if (emojiRaw && !parseEmoji(emojiRaw)) {
+        return say("❌ Emoji invalide. Utilise un emoji normal ou un emoji du serveur (tape `:nom:` puis choisis-le dans la liste).");
+      }
+      const label = i.options.getString('label', true).trim().slice(0, 100);
+      if (findChoice(sp, label)) return say('❌ Ce sous-panel a déjà un choix de ce nom.');
+      const cat = i.options.getChannel('categorie');
+      sp.choices.push({
+        id: crypto.randomUUID().slice(0, 8),
+        label,
+        description: (i.options.getString('description') || '').trim().slice(0, 100),
+        emoji: emojiRaw || null,
+        staffRoleId: staff?.id || null,
+        categoryId: cat?.id || null,
+      });
+      save();
+      return say(
+        `✅ Choix **${label}** ajouté à **${sp.name}** (${sp.choices.length}/25)` +
+        `${cat ? ` — tickets créés dans <#${cat.id}>` : ' — tickets créés dans la catégorie du menu (ou celle de la configuration)'}` +
+        `${staff ? ` — staff : <@&${staff.id}>` : ''}.`);
+    }
+
+    if (sub === 'choix-modifier' || sub === 'choix-retirer') {
+      const ch = findChoice(sp, i.options.getString('sous-choix', true));
+      if (!ch) return say('❌ Choix introuvable. Choisis-le dans la liste proposée.');
+      if (sub === 'choix-retirer') {
+        sp.choices = sp.choices.filter((c) => c !== ch);
+        save();
+        return say(`🗑️ Choix **${ch.label}** retiré de **${sp.name}**.`);
+      }
+      const emojiRaw = (i.options.getString('emoji') || '').trim();
+      if (emojiRaw) {
+        if (emojiRaw.toLowerCase() === 'aucun') ch.emoji = null;
+        else if (!parseEmoji(emojiRaw)) return say('❌ Emoji invalide.');
+        else ch.emoji = emojiRaw;
+      }
+      const nom = (i.options.getString('nouveau-nom') || '').trim();
+      if (nom) {
+        const other = findChoice(sp, nom);
+        if (other && other !== ch) return say('❌ Ce sous-panel a déjà un choix de ce nom.');
+        ch.label = nom.slice(0, 100);
+      }
+      const desc = i.options.getString('description');
+      if (desc !== null) ch.description = desc.trim().toLowerCase() === 'aucun' ? '' : desc.trim().slice(0, 100);
+      const cat = i.options.getChannel('categorie');
+      if (cat) ch.categoryId = cat.id;
+      const staff = i.options.getRole('role-staff');
+      if (staff) {
+        if (staff.id === i.guild.id) return say('❌ Tu ne peux pas choisir @everyone.');
+        ch.staffRoleId = staff.id;
+      }
+      save();
+      return say(`✅ Choix **${ch.label}** modifié.`);
+    }
+  },
+
   /* ---------- /ticket ---------- */
   async ticket(i) {
     const sub = i.options.getSubcommand();
@@ -3620,7 +3995,7 @@ const handlers = {
           field('title', 'Titre', TextInputStyle.Short,
             { value: cur.title, max: 256, placeholder: '🎫 Ticket — {category}' }),
           field('description', 'Description (vide = texte par défaut)', TextInputStyle.Paragraph,
-            { value: cur.description, max: 4000, placeholder: '{user} {username} {server} {category} {staff} @Rôle #salon' }),
+            { value: cur.description, max: 4000, placeholder: '{user} {username} {server} {category} {sub} {staff} @Rôle #salon' }),
           field('image', "URL de l'image (optionnel)", TextInputStyle.Short, { value: cur.image, max: 500 }),
           field('color', 'Couleur hex (ex : #5865F2)', TextInputStyle.Short, { value: cur.color, max: 7 }),
         ));
@@ -3651,7 +4026,7 @@ const handlers = {
         content: empty
           ? `✅ Message par défaut remis pour ${scope}.`
           : `✅ Message d'ouverture enregistré pour ${scope}. Il s'applique aux **nouveaux** tickets.\n` +
-            'Variables : `{user}` `{username}` `{server}` `{category}` `{config}` `{staff}` — ' +
+            'Variables : `{user}` `{username}` `{server}` `{category}` `{sub}` `{config}` `{staff}` — ' +
             '`@Pseudo`, `@Rôle` et `#salon` deviennent cliquables.',
         flags: EPH,
       });
@@ -3792,6 +4167,26 @@ async function autocomplete(i) {
     return i.respond(
       (cfg?.dmChoices || []).filter((r) => r.label.toLowerCase().includes(q)).slice(0, 25)
         .map((r) => ({ name: r.label, value: r.label })));
+  }
+  if (f.name === 'sous-panel') {
+    const cfg = d.tickets[i.options.getString('config')];
+    const list = (cfg?.subPanels || []).map((x) => ({ name: `${x.name} (${x.choices.length} choix)`.slice(0, 100), value: x.id }));
+    if (i.options.getSubcommand(false) === 'lier') list.unshift({ name: '❌ Aucun sous-panel (ticket direct)', value: 'none' });
+    return i.respond(list.filter((o) => o.name.toLowerCase().includes(q)).slice(0, 25));
+  }
+  if (f.name === 'sous-choix') {
+    const cfg = d.tickets[i.options.getString('config')];
+    const sp = cfg && findSub(cfg, i.options.getString('sous-panel'));
+    return i.respond((sp?.choices || []).filter((c) => c.label.toLowerCase().includes(q)).slice(0, 25)
+      .map((c) => ({ name: c.label.slice(0, 100), value: c.id })));
+  }
+  if (f.name === 'pour') {
+    const cfg = d.tickets[i.options.getString('config')];
+    const list = cfg
+      ? [{ name: '🌐 Toutes les catégories (par défaut)', value: 'all' },
+        ...subTargets(cfg).map((t) => ({ name: `${t.mp ? '📩 MP · ' : ''}${t.label}`.slice(0, 100), value: t.id }))]
+      : [];
+    return i.respond(list.filter((o) => o.name.toLowerCase().includes(q)).slice(0, 25));
   }
   if (f.name === 'message') {
     // Liste des autoroles (pour /autorole supprimer)
@@ -3996,6 +4391,7 @@ client.on(Events.InteractionCreate, async (i) => {
   try {
     // Menu déroulant reçu en MP (pas de serveur dans l'interaction : l'ID du serveur est dans le customId)
     if (i.isStringSelectMenu() && i.customId.startsWith('tk_dm:')) return await dmChoose(i);
+    if (i.isStringSelectMenu() && i.customId.startsWith('tk_dmsub:')) return await dmSubChoose(i);
 
     if (i.isAutocomplete()) {
       if (!commandAllowed(i)) return await i.respond([]);
@@ -4017,6 +4413,7 @@ client.on(Events.InteractionCreate, async (i) => {
       }
       return await handlers[i.commandName]?.(i);
     }
+    if (i.isStringSelectMenu() && i.customId.startsWith('tk_sub:')) return await subChoose(i);
     if (i.isStringSelectMenu() && i.customId.startsWith('tk_open:')) {
       return await openTicket(i, i.customId.split(':')[1], i.values[0]);
     }

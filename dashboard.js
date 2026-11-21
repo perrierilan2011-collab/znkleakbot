@@ -108,7 +108,9 @@ module.exports = function startDashboard(ctx) {
         tickets: Object.values(getG(guild.id).tickets || {}).map((t) => ({
           name: t.name, categoryId: t.categoryId, staffRoles: t.staffRoles || [], logChannelId: t.logChannelId, counter: t.counter || 0, dm: !!t.dm,
           panels: (t.panels || []).map((p) => ({ channelId: p.channelId, messageId: p.messageId, button: !!p.button })),
-          reasons: (t.reasons || []).map((r) => ({ label: r.label, emoji: r.emoji, description: r.description, categoryId: r.categoryId, staffRoleId: r.staffRoleId })),
+          reasons: (t.reasons || []).map((r) => ({ id: r.id, label: r.label, emoji: r.emoji, description: r.description, categoryId: r.categoryId, staffRoleId: r.staffRoleId })),
+          dmChoices: (t.dmChoices || []).map((r) => ({ id: r.id, label: r.label, emoji: r.emoji })),
+          subPanels: t.subPanels || [], subLinks: t.subLinks || {}, defaultSub: t.defaultSubPanelId || null,
         })),
         channels: guild.channels.cache.map((c) => ({ id: c.id, name: c.name, type: c.type })),
         roles: guild.roles.cache.filter((r) => r.id !== guild.id).map((r) => ({ id: r.id, name: r.name, color: r.hexColor })),

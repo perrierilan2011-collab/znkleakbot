@@ -69,10 +69,10 @@ async function boot(){const me=await fetch('/api/me').then(r=>r.json());if(!me.a
  [S.schema,S.guilds]=await Promise.all([api('/api/schema'),api('/api/guilds')]);
  $('#guild').innerHTML=S.guilds.map(g=>`<option value="${g.id}">${esc(g.name)} (${g.members})</option>`).join('');
  if(S.guilds[0])await loadGuild(S.guilds[0].id)}
-async function loadGuild(id){S.gid=id;S.g=await api('/api/guild?id='+id);nav();if(S.view=='tk')tkRender();else if(S.view=='bk')bk();else if(S.cmd)render()}
+async function loadGuild(id){S.gid=id;S.g=await api('/api/guild?id='+id);nav();if(S.view=='tk')tkRender();else if(S.view=='sp')spRender();else if(S.view=='bk')bk();else if(S.cmd)render()}
 function nav(){const q=$('#q').value.toLowerCase(),d=S.g?.disabled||[];let h=`<div class="cat">Gestion</div><div class="ni ${S.view=='tk'?'on':''}" onclick="tk()">🎫 Gestion des tickets</div><div class="ni ${S.view=='bk'?'on':''}" onclick="bk()">💾 Sauvegarde</div>`;
  for(const [k,l] of Object.entries(S.schema.categories)){const cs=S.schema.commands.filter(c=>c.category==k&&c.name.includes(q));if(!cs.length)continue;
-  h+=`<div class="cat">${esc(l)}</div>`+cs.map(c=>`<div class="ni ${S.cmd?.name==c.name?'on':''}" onclick="pick('${c.name}')">/${c.name}${d.includes(c.name)?'<em>désactivée</em>':''}</div>`).join('')}
+  h+=`<div class="cat">${esc(l)}</div>`+(k=='souspanel'?`<div class="ni ${S.view=='sp'?'on':''}" onclick="sp()">🗂️ Gestion des sous-panels</div>`:'')+cs.map(c=>`<div class="ni ${S.cmd?.name==c.name?'on':''}" onclick="pick('${c.name}')">/${c.name}${d.includes(c.name)?'<em>désactivée</em>':''}</div>`).join('')}
  $('#nav').innerHTML=h}
 function pick(n){S.view=null;S.cmd=S.schema.commands.find(c=>c.name==n);S.sub=S.cmd.options?.find(o=>o.type==1)||null;S.res=null;nav();render()}
 const subs=()=>S.cmd.options.filter(o=>o.type==1),def=()=>S.sub||S.cmd,key=()=>S.cmd.name+(S.sub?'/'+S.sub.name:''),MODAL=()=>S.schema.modals[key()];
@@ -150,12 +150,12 @@ function preview(){const c=S.cmd,v=S.vals,m=S.modal,k=key(),ch=id=>'#'+(S.g.chan
  else if(k=='ticket/message'){const x={user:'<@0>',username:'Toi',server:S.g.name,category:'Exemple',config:'support',staff:'@Staff'};where='Dans le ticket à son ouverture';ms=[{content:vars(m.content,x),embeds:[{title:vars(m.title||'🎫 Ticket — {category}',x),description:vars(m.description||'Un membre du staff va te répondre.',x),color:col(m.color),image:url(m.image)}]}]}
  else if(k=='ticket/panel'){where=ch(v.salon);const bt={Primary:1,Secondary:2,Success:3,Danger:4},bs={'Bleu':1,'Gris':2,'Vert':3,'Rouge':4};const nt=v['sans-texte']=='true';
   ms=[{embeds:[nt?{image:url(v['image-url'])||v.image}:{title:v.titre||'🎫 Support',description:v.description||'Clique ci-dessous pour ouvrir un ticket.',color:col(v.couleur),footer:v.footer?{text:v.footer}:null,image:url(v['image-url'])||v.image,thumbnail:v.miniature}],components:[{components:[v.type=='menu'?{type:3,placeholder:v.placeholder||'Choisir une catégorie...'}:{type:2,style:bt[v['couleur-bouton']]||1,label:v['bouton-texte']||'Ouvrir un ticket',emoji:{name:'🎫'}}]}]}]}
- else if(k=='ticket/raison-ajouter'){where='Menu du panel (sous-panel / catégorie)';note='nouvelle entrée du menu';ms=[{components:[{components:[{type:3,placeholder:`${v.emoji||'📁'} ${v.label||'Nouvelle catégorie'}${v.description?' — '+v.description:''}`}]}]}]}
+ else if(k=='ticket/raison-ajouter'){where='Menu du panel (catégorie)';note='nouvelle entrée du menu';ms=[{components:[{components:[{type:3,placeholder:`${v.emoji||'📁'} ${v.label||'Nouvelle catégorie'}${v.description?' — '+v.description:''}`}]}]}]}
  else if(k=='giveaway/creer'){note='aperçu indicatif';where=ch(v.salon);ms=[{content:mentions(v),embeds:[{title:'🎉 '+(v.lot||'…'),description:(v.description||'')+`\n\n**Fin :** dans ${v.duree||'…'} ${v.unite||''}\n**Gagnants :** ${v.gagnants||1}\n**Participants :** 0`,color:'#F1C40F',image:v.image}],components:[{components:[{type:2,style:1,label:'🎉 Participer'}]}]}]}
  else if(k=='setup-paiement'){note='aperçu indicatif';where=ch(v.salon);const mo=(v.moyens||'PayPal, Wero').split(',').map(x=>x.trim()).filter(Boolean);ms=[{embeds:[{title:v.titre||'💳 Paiement',description:v.description||'Choisis ton moyen de paiement pour ouvrir un ticket.',color:'#5865F2'}],components:[{components:[{type:3,placeholder:'Moyen : '+mo.join(' · ')}]}]}]}
  $('#pv').innerHTML=`<div class="slash">${esc(slash)}</div>`+(ms.length?`<p class="where">📍 ${esc(where)}${note?` — ${note}`:''}</p>`+ms.map(x=>msg(x)).join(''):'<div class="empty card" style="padding:14px">Cette commande répond directement : exécute-la pour voir la réponse du bot ici.</div>');
  $('#res').innerHTML=S.res?`<h3>🤖 Réponse du bot</h3>${S.res.map(x=>msg(x)).join('')}${S.running?'<p class="where">⏳ L’opération continue en arrière-plan sur le bot.</p>':''}`:''}
-const DANGER=/^(ban|message-mp|giveaway\/(annuler|terminer)|ticket\/config-supprimer|commandes\/desactiver|invites-config\/reset)$/;
+const DANGER=/^(ban|message-mp|giveaway\/(annuler|terminer)|ticket\/config-supprimer|sous-panel\/supprimer|commandes\/desactiver|invites-config\/reset)$/;
 async function run(){const{vals,modal}=collect(),m=MODAL();
  for(const o of def().options||[])if(o.type!=1&&o.required&&!vals[o.name])return toast(`Champ requis : ${o.name}`,false);
  for(const f of m||[])if(f.req&&!modal[f.id]?.trim())return toast(`Champ requis : ${f.label}`,false);
@@ -163,7 +163,7 @@ async function run(){const{vals,modal}=collect(),m=MODAL();
  const b=$('#go');b.disabled=true;b.textContent='⏳ Exécution…';
  try{const r=await api('/api/run',{guildId:S.gid,command:S.cmd.name,sub:S.sub?.name,options:vals,modal:m?modal:null});S.res=r.replies;S.running=r.running;preview();toast(r.running?'Lancé : le bot continue en arrière-plan':'Commande exécutée ✅');api('/api/guild?id='+S.gid).then(g=>{S.g=g;nav()}).catch(()=>{})}
  catch(e){toast(e.message,false)}finally{b.disabled=false;b.textContent='▶ Exécuter la commande'}}
-/* ---------- Gestion des tickets : configs existantes + sous-panels ---------- */
+/* ---------- Gestion des tickets : configs existantes + catégories du menu ---------- */
 function tk(){S.view='tk';S.cmd=null;S.edit=null;if(!S.g.tickets.find(t=>t.name==S.tk))S.tk=S.g.tickets[0]?.name;nav();tkRender()}
 const TC=()=>S.g.tickets.find(t=>t.name==S.tk);
 const cn=id=>{const c=S.g.channels.find(x=>x.id==id);return c?(c.type==4?'📁 ':'# ')+esc(c.name):'—'},rn=id=>'@'+esc(S.g.roles.find(r=>r.id==id)?.name||'rôle');
@@ -174,15 +174,15 @@ function tkRender(){const ts=S.g.tickets,t=TC(),e=S.edit!=null?t?.reasons[S.edit
  else h+=`<div class="card"><label class="f"><span>Configuration</span><select onchange="S.tk=this.value;S.edit=null;tkRender()">${ts.map(x=>`<option ${x.name==S.tk?'selected':''}>${esc(x.name)}</option>`).join('')}</select></label>
   <p class="where">📁 Catégorie par défaut : ${cn(t.categoryId)}<br>👥 Staff : ${t.staffRoles.map(rn).join(', ')||'—'}<br>📝 Logs : ${cn(t.logChannelId)}<br>🎟️ Tickets créés : ${t.counter}${t.dm?'<br>📩 Ouverture par MP active':''}</p>
   <h3>📌 Panels envoyés (${t.panels.length})</h3>${t.panels.map((p,n)=>`<p class="where">Panel ${n+1} · ${cn(p.channelId)} · ${p.button?'bouton':'menu'}</p>`).join('')||'<p class="where">Aucun panel envoyé.</p>'}
-  <div class="tabs"><button class="tab on" onclick="tkGo('panel')">📨 Envoyer un panel</button><button class="tab" onclick="tkGo('message')">💬 Message d'ouverture</button><button class="tab" onclick="tkGo('staff-ajouter')">👥 Ajouter un staff</button><button class="tab" onclick="pick('ticket');S.sub=S.cmd.options.find(o=>o.name=='config-creer');render()">➕ Nouvelle config</button></div></div>
- <div class="card"><h3>🗂️ Sous-panels (choix du menu déroulant) — ${t.reasons.length}/25</h3>
-  ${t.reasons.map((r,n)=>`<div class="rr"><div>${emo(r.emoji||'📁')} <b>${esc(r.label)}</b><small>${esc(r.description||'')}${r.description?' · ':''}${cn(r.categoryId||t.categoryId)}${r.staffRoleId?' · '+rn(r.staffRoleId):''}</small></div><span><button class="mini" onclick="S.edit=${n};tkRender()">✏️</button><button class="mini" onclick="tkDel(${n})">🗑️</button></span></div>`).join('')||'<p class="where">Aucun sous-panel : le panel utilisera un simple bouton.</p>'}
-  <h3 style="margin-top:18px">${e?'✏️ Modifier « '+esc(e.label)+' »':'➕ Créer un sous-panel'}</h3>
+  <div class="tabs"><button class="tab on" onclick="tkGo('panel')">📨 Envoyer un panel</button><button class="tab" onclick="tkGo('message')">💬 Message d'ouverture</button><button class="tab" onclick="tkGo('staff-ajouter')">👥 Ajouter un staff</button><button class="tab" onclick="sp()">🗂️ Sous panel</button><button class="tab" onclick="pick('ticket');S.sub=S.cmd.options.find(o=>o.name=='config-creer');render()">➕ Nouvelle config</button></div></div>
+ <div class="card"><h3>📋 Catégories du menu du panel — ${t.reasons.length}/25</h3>
+  ${t.reasons.map((r,n)=>`<div class="rr"><div>${emo(r.emoji||'📁')} <b>${esc(r.label)}</b><small>${esc(r.description||'')}${r.description?' · ':''}${cn(r.categoryId||t.categoryId)}${r.staffRoleId?' · '+rn(r.staffRoleId):''}</small></div><span><button class="mini" onclick="S.edit=${n};tkRender()">✏️</button><button class="mini" onclick="tkDel(${n})">🗑️</button></span></div>`).join('')||'<p class="where">Aucune catégorie : le panel utilisera un simple bouton.</p>'}
+  <h3 style="margin-top:18px">${e?'✏️ Modifier « '+esc(e.label)+' »':'➕ Créer une catégorie'}</h3>
   <div class="two"><label class="f"><span>Nom<b class="req">*</b></span><input id="tk_label" maxlength="100" value="${esc(e?.label||'')}" oninput="tkPrev()"></label><label class="f"><span>Emoji</span><div class="ew"><input id="tk_emoji" placeholder="🎮 ou emoji du serveur" value="${esc(e?.emoji||'')}" oninput="tkPrev()"><button type="button" class="mini epb" onclick="emojiPick(this)" title="Choisir un emoji">😀</button></div></label></div>
   <label class="f"><span>Description courte</span><input id="tk_desc" maxlength="100" value="${esc(e?.description||'')}" oninput="tkPrev()"></label>
   <label class="f"><span>Catégorie du serveur</span><small>Où les tickets de ce choix seront créés</small><select id="tk_cat"><option value="">— catégorie par défaut de la config —</option>${S.g.channels.filter(c=>c.type==4).map(c=>`<option value="${c.id}" ${e?.categoryId==c.id?'selected':''}>📁 ${esc(c.name)}</option>`).join('')}</select></label>
   ${e?'':`<label class="f"><span>Rôle staff</span><small>Remplace les rôles staff de la config pour ce choix</small><select id="tk_role"><option value="">— rôles de la config —</option>${S.g.roles.map(r=>`<option value="${r.id}">@${esc(r.name)}</option>`).join('')}</select></label>`}
-  <button class="run" onclick="tkSave()">${e?'💾 Enregistrer les modifications':'➕ Ajouter le sous-panel'}</button>${e?'<button class="tab" style="margin-top:8px" onclick="S.edit=null;tkRender()">Annuler</button>':''}</div>
+  <button class="run" onclick="tkSave()">${e?'💾 Enregistrer les modifications':'➕ Ajouter la catégorie'}</button>${e?'<button class="tab" style="margin-top:8px" onclick="S.edit=null;tkRender()">Annuler</button>':''}</div>
  <div class="sticky"><h3>👁️ Aperçu du menu</h3><div id="tkpv"></div></div>`;
  $('#main').innerHTML=h;if(t)tkPrev()}
 function tkPrev(){const t=TC();if(!t)return;const v=id=>$('#'+id)?.value.trim()||'',ed=S.edit!=null;
@@ -196,7 +196,67 @@ async function tkSave(){const t=TC(),v=id=>$('#'+id)?.value.trim()||'';if(!v('tk
  const o={config:t.name},ed=S.edit!=null;if(ed){o.label=t.reasons[S.edit].label;o['nouveau-nom']=v('tk_label')}else o.label=v('tk_label');
  for(const [k,id] of [['emoji','tk_emoji'],['description','tk_desc'],['categorie','tk_cat'],['role-staff','tk_role']])if(v(id))o[k]=v(id);
  await tkRun(ed?'raison-modifier':'raison-ajouter',o);S.edit=null;nav();tkRender()}
-async function tkDel(n){const t=TC(),r=t.reasons[n];if(!confirm(`Supprimer le sous-panel « ${r.label} » ?`))return;await tkRun('raison-retirer',{config:t.name,label:r.label});nav();tkRender()}
+async function tkDel(n){const t=TC(),r=t.reasons[n];if(!confirm(`Supprimer la catégorie « ${r.label} » ?`))return;await tkRun('raison-retirer',{config:t.name,label:r.label});nav();tkRender()}
+/* ---------- Sous panel : un 2e menu proposé après le choix d'une catégorie du panel ---------- */
+function sp(){S.view='sp';S.cmd=null;S.sp=null;S.spEdit=false;S.ch=null;if(!S.g.tickets.find(t=>t.name==S.tk))S.tk=S.g.tickets[0]?.name;nav();spRender()}
+const spTargets=t=>{const ids=new Set(t.reasons.map(r=>r.id));return[...t.reasons.map(r=>({...r,mp:false})),...(t.dmChoices||[]).filter(r=>!ids.has(r.id)).map(r=>({...r,mp:true}))]};
+const spCur=()=>(TC()?.subPanels||[]).find(s=>s.id==S.sp);
+function spRender(){const t=TC();
+ let h=`<div class="head card"><h1>🗂️ Sous panel</h1><p>Un sous-panel est un 2ᵉ menu proposé après le choix d'une catégorie du panel. Mets-en un <b>différent par catégorie</b>, ou le <b>même pour toutes</b>.</p></div>`;
+ if(!t){$('#main').innerHTML=h+`<div class="card empty" style="grid-column:1/-1">Aucune configuration de ticket.<br><br><button class="tab on" onclick="tk()">🎫 Aller à la gestion des tickets</button></div>`;return}
+ const sps=t.subPanels||[],cur=spCur(),ce=cur&&S.ch!=null?cur.choices[S.ch]:null,es=cur&&S.spEdit?cur:null,def=sps.find(s=>s.id==t.defaultSub)?.name,tg=spTargets(t);
+ const opts=(sel,none)=>`<option value="">${none}</option>`+(none.startsWith('↩️')?'<option value="none" '+(sel=='none'?'selected':'')+'>❌ Aucun sous-panel</option>':'')+sps.map(s=>`<option value="${s.id}" ${sel==s.id?'selected':''}>${esc(s.name)}</option>`).join('');
+ h+=`<div class="card"><label class="f"><span>Configuration</span><select onchange="S.tk=this.value;S.sp=null;S.ch=null;S.spEdit=false;spRender()">${S.g.tickets.map(x=>`<option ${x.name==S.tk?'selected':''}>${esc(x.name)}</option>`).join('')}</select></label>
+  <h3>🌐 Le même sous-panel pour toutes les catégories</h3><p class="where">S'applique à chaque catégorie qui n'a pas son propre sous-panel (et aux panels à simple bouton).</p>
+  <select onchange="spLink('all',this.value)">${opts(t.defaultSub,'— aucun —')}</select>
+  <h3 style="margin-top:18px">🔗 Un sous-panel différent par catégorie</h3>
+  ${tg.map(r=>`<div class="rr"><div>${emo(r.emoji||'📁')} <b>${esc(r.label)}</b>${r.mp?'<small>📩 menu MP</small>':''}</div><select style="max-width:55%" onchange="spLink('${r.id}',this.value)">${opts(t.subLinks?.[r.id],'↩️ Par défaut'+(def?' ('+esc(def)+')':''))}</select></div>`).join('')||'<p class="where">Aucune catégorie dans le menu du panel. Ajoutes-en dans « Gestion des tickets » : chacune pourra avoir son sous-panel.</p>'}</div>`;
+ h+=`<div class="card"><h3>🗂️ Mes sous-panels — ${sps.length}/20</h3>
+  ${sps.map(s=>`<div class="rr" ${s.id==S.sp?'style="background:#6c63ff1a"':''}><div><b>${esc(s.name)}</b><small>${s.choices.length} choix${s.choices.length?' : '+s.choices.map(c=>esc(c.label)).join(', '):''}</small></div><span><button class="mini" title="Gérer les choix" onclick="S.sp='${s.id}';S.ch=null;S.spEdit=false;spRender()">📋</button><button class="mini" title="Modifier les textes" onclick="S.sp='${s.id}';S.ch=null;S.spEdit=true;spRender()">✏️</button><button class="mini" title="Supprimer" onclick="spDel('${s.id}')">🗑️</button></span></div>`).join('')||'<p class="where">Aucun sous-panel. Crée le premier ci-dessous.</p>'}
+  <h3 style="margin-top:18px">${es?'✏️ Modifier « '+esc(es.name)+' »':'➕ Créer un sous-panel'}</h3>
+  <label class="f"><span>Nom<b class="req">*</b></span><input id="sp_name" maxlength="60" value="${esc(es?.name||'')}" oninput="spPrev()"></label>
+  <label class="f"><span>Titre du message</span><input id="sp_title" maxlength="256" value="${esc(es?.title||'')}" oninput="spPrev()"></label>
+  <label class="f"><span>Texte du message</span><textarea id="sp_text" maxlength="1000" oninput="spPrev()">${esc(es?.description||'')}</textarea></label>
+  <div class="two"><label class="f"><span>Texte du menu</span><input id="sp_ph" maxlength="100" placeholder="Choisir une option..." value="${esc(es?.placeholder||'')}" oninput="spPrev()"></label><label class="f"><span>Couleur hex</span><input id="sp_col" maxlength="7" placeholder="#5865F2" value="${esc(es?.color||'')}" oninput="spPrev()"></label></div>
+  <button class="run" onclick="spSave()">${es?'💾 Enregistrer':'➕ Créer le sous-panel'}</button>${es?'<button class="tab" style="margin-top:8px" onclick="S.spEdit=false;spRender()">Annuler</button>':''}</div>`;
+ if(cur)h+=`<div class="card"><h3>📋 Choix de « ${esc(cur.name)} » — ${cur.choices.length}/25</h3>
+  ${cur.choices.map((c,n)=>`<div class="rr"><div>${emo(c.emoji||'📁')} <b>${esc(c.label)}</b><small>${esc(c.description||'')}${c.description?' · ':''}${cn(c.categoryId||t.categoryId)}${c.staffRoleId?' · '+rn(c.staffRoleId):''}</small></div><span><button class="mini" onclick="S.ch=${n};spRender()">✏️</button><button class="mini" onclick="spChDel(${n})">🗑️</button></span></div>`).join('')||'<p class="where">Aucun choix : ce sous-panel ne s\'affichera pas tant qu\'il est vide.</p>'}
+  <h3 style="margin-top:18px">${ce?'✏️ Modifier « '+esc(ce.label)+' »':'➕ Ajouter un choix'}</h3>
+  <div class="two"><label class="f"><span>Nom<b class="req">*</b></span><input id="sp_c_label" maxlength="100" value="${esc(ce?.label||'')}" oninput="spPrev()"></label><label class="f"><span>Emoji</span><div class="ew"><input id="sp_c_emoji" placeholder="🎮 ou emoji du serveur" value="${esc(ce?.emoji||'')}" oninput="spPrev()"><button type="button" class="mini epb" onclick="emojiPick(this)" title="Choisir un emoji">😀</button></div></label></div>
+  <label class="f"><span>Description courte</span><input id="sp_c_desc" maxlength="100" value="${esc(ce?.description||'')}" oninput="spPrev()"></label>
+  <label class="f"><span>Catégorie du serveur</span><small>Où les tickets de ce choix seront créés</small><select id="sp_c_cat"><option value="">— celle du menu / de la config —</option>${S.g.channels.filter(c=>c.type==4).map(c=>`<option value="${c.id}" ${ce?.categoryId==c.id?'selected':''}>📁 ${esc(c.name)}</option>`).join('')}</select></label>
+  <label class="f"><span>Rôle staff</span><small>Remplace les rôles staff pour ce choix</small><select id="sp_c_role"><option value="">— rôles de la config —</option>${S.g.roles.map(r=>`<option value="${r.id}" ${ce?.staffRoleId==r.id?'selected':''}>@${esc(r.name)}</option>`).join('')}</select></label>
+  <button class="run" onclick="spChSave()">${ce?'💾 Enregistrer le choix':'➕ Ajouter le choix'}</button>${ce?'<button class="tab" style="margin-top:8px" onclick="S.ch=null;spRender()">Annuler</button>':''}</div>`;
+ h+=`<div class="sticky"><h3>👁️ Aperçu du sous-panel</h3><div id="sppv"></div></div>`;
+ $('#main').innerHTML=h;spPrev()}
+function spPrev(){const t=TC(),cur=spCur(),v=id=>$('#'+id)?.value.trim()||'';if(!t)return;
+ if(!cur)return $('#sppv').innerHTML='<p class="where">Clique sur 📋 à côté d\'un sous-panel pour voir son aperçu et gérer ses choix.</p>';
+ const ed=S.spEdit,col=/^#?[0-9a-f]{6}$/i.test(v('sp_col'))?'#'+v('sp_col').replace('#',''):(!ed&&cur.color)||'#5865F2';
+ const ttl=ed?(v('sp_title')||cur.name):(cur.title||cur.name),txt=ed?v('sp_text'):cur.description,ph=ed?v('sp_ph'):cur.placeholder;
+ const o=cur.choices.map((c,n)=>({...c,cur:S.ch==n}));
+ if(S.ch!=null&&o[S.ch])Object.assign(o[S.ch],{emoji:v('sp_c_emoji')||o[S.ch].emoji,label:v('sp_c_label')||o[S.ch].label,description:v('sp_c_desc')});
+ else if(v('sp_c_label'))o.push({emoji:v('sp_c_emoji'),label:v('sp_c_label'),description:v('sp_c_desc'),cur:true});
+ $('#sppv').innerHTML=`<div class="dc"><div class="m"><div class="av">Z</div><div class="mc"><span class="nm">ZNK Bot</span><span class="tg">BOT</span>
+  <div class="emb" style="border-left-color:${esc(col)}"><div class="eb"><div class="et">${esc(ttl)}</div><div class="ed">${esc(txt||'Précise ta demande dans le menu ci-dessous.')}</div></div></div>
+  <div class="sel" style="margin-top:8px">${esc(ph||'Choisir une option...')} <span>⌄</span></div>
+  <div class="menu">${o.map(r=>`<div class="opt ${r.cur?'new':''}"><span>${emo(r.emoji||'')}</span><div><b>${esc(r.label)}</b>${r.description?`<small>${esc(r.description)}</small>`:''}</div></div>`).join('')||'<div class="opt">Aucun choix</div>'}</div></div></div></div>`}
+async function spRun(sub,o){try{const r=await api('/api/run',{guildId:S.gid,command:'sous-panel',sub,options:{config:S.tk,...o}}),c=r.replies[0]?.content||'OK',ok=!c.startsWith('❌');toast(c.replace(/[*`]/g,'').slice(0,200),ok);S.g=await api('/api/guild?id='+S.gid);return ok}catch(e){toast(e.message,false);return false}}
+async function spLink(pour,v){await spRun(v?'lier':'delier',v?{'sous-panel':v,pour}:{pour});spRender()}
+async function spSave(){const cur=spCur(),v=id=>$('#'+id)?.value.trim()||'';if(!v('sp_name'))return toast('Le nom est obligatoire',false);
+ const f=[['titre','sp_title','title'],['description','sp_text','description'],['placeholder','sp_ph','placeholder'],['couleur','sp_col','color']];
+ if(cur&&S.spEdit){const o={'sous-panel':cur.id};if(v('sp_name')!=cur.name)o['nouveau-nom']=v('sp_name');for(const[k,id,p]of f){const n=v(id);if(n!=(cur[p]||''))o[k]=n||'aucun'}
+  if(await spRun('modifier',o))S.spEdit=false}
+ else{const o={nom:v('sp_name')};for(const[k,id]of f)if(v(id))o[k]=v(id);
+  if(await spRun('creer',o)){S.sp=(TC().subPanels||[]).find(s=>s.name==o.nom)?.id||null;S.ch=null}}
+ nav();spRender()}
+async function spDel(id){const s=(TC().subPanels||[]).find(x=>x.id==id);if(!s||!confirm(`Supprimer le sous-panel « ${s.name} » ? Il sera retiré de toutes les catégories.`))return;
+ if(await spRun('supprimer',{'sous-panel':id})&&S.sp==id){S.sp=null;S.ch=null;S.spEdit=false}spRender()}
+async function spChSave(){const cur=spCur(),ed=S.ch!=null?cur.choices[S.ch]:null,v=id=>$('#'+id)?.value.trim()||'';if(!v('sp_c_label'))return toast('Le nom du choix est obligatoire',false);
+ const o={'sous-panel':cur.id};if(ed){o['sous-choix']=ed.id;if(v('sp_c_label')!=ed.label)o['nouveau-nom']=v('sp_c_label')}else o.label=v('sp_c_label');
+ for(const[k,id]of[['emoji','sp_c_emoji'],['description','sp_c_desc'],['categorie','sp_c_cat'],['role-staff','sp_c_role']])if(v(id))o[k]=v(id);
+ if(ed){if(!v('sp_c_emoji')&&ed.emoji)o.emoji='aucun';if(!v('sp_c_desc')&&ed.description)o.description='aucun'}
+ if(await spRun(ed?'choix-modifier':'choix-ajouter',o))S.ch=null;nav();spRender()}
+async function spChDel(n){const cur=spCur(),c=cur.choices[n];if(!confirm(`Retirer le choix « ${c.label} » ?`))return;await spRun('choix-retirer',{'sous-panel':cur.id,'sous-choix':c.id});S.ch=null;spRender()}
 /* ---------- sélecteur d'emojis (Unicode + emojis personnalisés des serveurs du bot) ---------- */
 async function emojiPick(btn){const old=$('#ep');if(old){old.remove();if(old._b===btn)return}
  if(!S.emo)S.emo=await api('/api/emojis?id='+S.gid).catch(()=>[]);
