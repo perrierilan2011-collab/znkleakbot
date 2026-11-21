@@ -187,6 +187,7 @@ module.exports = function startDashboard(ctx) {
       if ('image' in f) sp.image = urlOk(f.image) || null;
       if ('thumbnail' in f) sp.thumbnail = urlOk(f.thumbnail) || null;
       if ('footer' in f) sp.footer = txt(f.footer, 2048) || null;
+      if ('payment' in f) sp.payment = !!f.payment; // sous-panel « mode de paiement » (variable {paiement})
       save();
       return { ok: true };
     },

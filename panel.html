@@ -212,7 +212,7 @@ function spRender(){const t=TC();
   <h3 style="margin-top:18px">🔗 Un sous-panel différent par catégorie</h3>
   ${tg.map(r=>`<div class="rr"><div>${emo(r.emoji||'📁')} <b>${esc(r.label)}</b>${r.mp?'<small>📩 menu MP</small>':''}</div><select style="max-width:55%" onchange="spLink('${r.id}',this.value)">${opts(t.subLinks?.[r.id],'↩️ Par défaut'+(def?' ('+esc(def)+')':''))}</select></div>`).join('')||'<p class="where">Aucune catégorie dans le menu du panel. Ajoutes-en dans « Gestion des tickets » : chacune pourra avoir son sous-panel.</p>'}</div>`;
  h+=`<div class="card"><h3>🗂️ Mes sous-panels — ${sps.length}/100</h3>
-  ${sps.map(s=>`<div class="rr" ${s.id==S.sp?'style="background:#6c63ff1a"':''}><div><b>${esc(s.name)}</b><small>${s.choices.length} choix${s.choices.length?' : '+s.choices.map(c=>esc(c.label)).join(', '):''}</small></div><span><button class="mini" title="Gérer les choix" onclick="S.sp='${s.id}';S.ch=null;S.spEdit=false;spRender()">📋</button><button class="mini" title="Modifier les textes" onclick="S.sp='${s.id}';S.ch=null;S.spEdit=true;spRender()">✏️</button><button class="mini" title="Supprimer" onclick="spDel('${s.id}')">🗑️</button></span></div>`).join('')||'<p class="where">Aucun sous-panel. Crée le premier ci-dessous.</p>'}
+  ${sps.map(s=>`<div class="rr" ${s.id==S.sp?'style="background:#6c63ff1a"':''}><div><b>${esc(s.name)}</b>${s.payment?' 💳':''}<small>${s.choices.length} choix${s.choices.length?' : '+s.choices.map(c=>esc(c.label)).join(', '):''}</small></div><span><button class="mini" title="Gérer les choix" onclick="S.sp='${s.id}';S.ch=null;S.spEdit=false;spRender()">📋</button><button class="mini" title="Modifier les textes" onclick="S.sp='${s.id}';S.ch=null;S.spEdit=true;spRender()">✏️</button><button class="mini" title="Supprimer" onclick="spDel('${s.id}')">🗑️</button></span></div>`).join('')||'<p class="where">Aucun sous-panel. Crée le premier ci-dessous.</p>'}
   <h3 style="margin-top:18px">${es?'✏️ Modifier « '+esc(es.name)+' »':'➕ Créer un sous-panel'}</h3>
   <label class="f"><span>Nom<b class="req">*</b></span><input id="sp_name" maxlength="60" value="${esc(es?.name||'')}" oninput="spPrev()"></label>
   <label class="f"><span>Titre du message</span><input id="sp_title" maxlength="256" value="${esc(es?.title||'')}" oninput="spPrev()"></label>
@@ -220,6 +220,7 @@ function spRender(){const t=TC();
   <div class="two"><label class="f"><span>Texte du menu</span><input id="sp_ph" maxlength="100" placeholder="Choisir une option..." value="${esc(es?.placeholder||'')}" oninput="spPrev()"></label><label class="f"><span>Couleur hex</span><input id="sp_col" maxlength="7" placeholder="#5865F2" value="${esc(es?.color||'')}" oninput="spPrev()"></label></div>
   <div class="two"><label class="f"><span>Image (URL)</span><input id="sp_img" maxlength="500" placeholder="https://…" value="${esc(es?.image||'')}" oninput="spPrev()"></label><label class="f"><span>Miniature (URL)</span><input id="sp_thumb" maxlength="500" placeholder="https://…" value="${esc(es?.thumbnail||'')}" oninput="spPrev()"></label></div>
   <label class="f"><span>Pied de page</span><small>Variables : {user} {username} {server} {config} {category}</small><input id="sp_foot" maxlength="2048" value="${esc(es?.footer||'')}" oninput="spPrev()"></label>
+  <label style="display:flex;gap:8px;align-items:center;margin-bottom:14px"><input type="checkbox" id="sp_pay" style="width:auto" ${es?.payment?'checked':''}> <span>💳 Ce sous-panel est un <b>mode de paiement</b><br><small style="color:var(--mu)">Le choix du membre s'affiche où tu veux avec la variable <code>{paiement}</code></small></span></label>
   <button class="run" onclick="spSave()">${es?'💾 Enregistrer':'➕ Créer le sous-panel'}</button>${es?'<button class="tab" style="margin-top:8px" onclick="S.spEdit=false;spRender()">Annuler</button>':''}</div>`;
  if(cur)h+=`<div class="card"><h3>📋 Choix de « ${esc(cur.name)} » — ${cur.choices.length}/25</h3>
   ${cur.choices.map((c,n)=>`<div class="rr"><div>${emo(c.emoji||'📁')} <b>${esc(c.label)}</b><small>${esc(c.description||'')}${c.description?' · ':''}${cn(c.categoryId||t.categoryId)}${c.staffRoleId?' · '+rn(c.staffRoleId):''}${c.nextSubId&&sps.find(s=>s.id==c.nextSubId)?' · ➜ <b>'+esc(sps.find(s=>s.id==c.nextSubId).name)+'</b>':''}</small></div><span><button class="mini" onclick="S.ch=${n};spRender()">✏️</button><button class="mini" onclick="spChDel(${n})">🗑️</button></span></div>`).join('')||'<p class="where">Aucun choix : ce sous-panel ne s\'affichera pas tant qu\'il est vide.</p>'}
@@ -246,7 +247,7 @@ function spPrev(){const t=TC(),cur=spCur(),v=id=>$('#'+id)?.value.trim()||'';if(
 async function spRun(sub,o){try{const r=await api('/api/run',{guildId:S.gid,command:'sous-panel',sub,options:{config:S.tk,...o}}),c=r.replies[0]?.content||'OK',ok=!c.startsWith('❌');toast(c.replace(/[*`]/g,'').slice(0,200),ok);S.g=await api('/api/guild?id='+S.gid);return ok}catch(e){toast(e.message,false);return false}}
 async function spLink(pour,v){await spRun(v?'lier':'delier',v?{'sous-panel':v,pour}:{pour});spRender()}
 async function spSave(){const cur=spCur(),v=id=>$('#'+id)?.value.trim()||'';if(!v('sp_name'))return toast('Le nom est obligatoire',false);
- const F={name:v('sp_name').slice(0,60),title:v('sp_title'),description:v('sp_text'),placeholder:v('sp_ph'),color:v('sp_col'),image:v('sp_img'),thumbnail:v('sp_thumb'),footer:v('sp_foot')};
+ const F={name:v('sp_name').slice(0,60),title:v('sp_title'),description:v('sp_text'),placeholder:v('sp_ph'),color:v('sp_col'),image:v('sp_img'),thumbnail:v('sp_thumb'),footer:v('sp_foot'),payment:!!$('#sp_pay')?.checked};
  try{
   if(cur&&S.spEdit){await api('/api/subpanel-update',{guildId:S.gid,config:S.tk,subId:cur.id,fields:F});S.spEdit=false;toast('Sous-panel enregistré ✅')}
   else{if(!await spRun('creer',{nom:F.name}))return;S.g=await api('/api/guild?id='+S.gid);
@@ -263,7 +264,7 @@ async function spChSave(){const cur=spCur(),ed=S.ch!=null?cur.choices[S.ch]:null
  if(await spRun(ed?'choix-modifier':'choix-ajouter',o))S.ch=null;nav();spRender()}
 async function spChDel(n){const cur=spCur(),c=cur.choices[n];if(!confirm(`Retirer le choix « ${c.label} » ?`))return;await spRun('choix-retirer',{'sous-panel':cur.id,'sous-choix':c.id});S.ch=null;spRender()}
 /* ---------- Message d'ouverture du ticket : le panel affiché dans le salon à l'ouverture, modifiable à 100 % ---------- */
-const OM_VARS=['{user}','{username}','{server}','{category}','{sub}','{sub1}','{sub2}','{sub3}','{config}','{staff}','{number}'];
+const OM_VARS=['{user}','{username}','{server}','{category}','{sub}','{sub1}','{sub2}','{sub3}','{config}','{staff}','{number}','{paiement}'];
 const chn=id=>S.g.channels.find(c=>c.id==id)?.name||'salon',omHas=m=>!!m&&Object.keys(m).length>0;
 function om(){S.view='om';S.cmd=null;if(!S.g.tickets.find(t=>t.name==S.tk))S.tk=S.g.tickets[0]?.name;S.omS='config:';nav();omRender()}
 function omScopes(t){const L=[{type:'config',id:'',label:'🌐 Toute la configuration « '+t.name+' »',own:t.openMsg}];
@@ -288,7 +289,7 @@ function omRender(keep){const t=TC();
   <h3>Variables (clique pour insérer)</h3><div class="tabs">${OM_VARS.map(x=>`<button type="button" class="tab" style="padding:3px 9px" onmousedown="event.preventDefault()" onclick="omIns('${x}')">${x}</button>`).join('')}</div>
   <label class="f"><span>Texte au-dessus de l'embed</span><small>Vide = ping du membre + du staff. <code>@Rôle</code>, <code>@Pseudo</code>, <code>#salon</code> deviennent cliquables.</small><textarea id="om_content" class="omf" style="min-height:70px" maxlength="1000" oninput="omPrev()">${V('content')}</textarea></label>
   <label class="f"><span>Titre</span><input ${P('om_title','title')} maxlength="256" placeholder="🎫 Ticket — {category}"></label>
-  <label class="f"><span>Description</span><small>Vide = texte par défaut. Tu peux y écrire le sous-panel choisi avec <code>{sub}</code> (ou <code>{sub1}</code>, <code>{sub2}</code>…).</small><textarea id="om_desc" class="omf" style="min-height:170px" maxlength="4000" placeholder="Bonjour {user}, un membre du staff va te répondre bientôt." oninput="omPrev()">${V('description')}</textarea></label>
+  <label class="f"><span>Description</span><small>Vide = texte par défaut. Tu peux y écrire le sous-panel choisi avec <code>{sub}</code> (ou <code>{sub1}</code>, <code>{sub2}</code>…) et le mode de paiement avec <code>{paiement}</code>.</small><textarea id="om_desc" class="omf" style="min-height:170px" maxlength="4000" placeholder="Bonjour {user}, un membre du staff va te répondre bientôt." oninput="omPrev()">${V('description')}</textarea></label>
   <div class="two"><label class="f"><span>Image (URL)</span><input ${P('om_image','image')} maxlength="500" placeholder="https://…"></label><label class="f"><span>Miniature (URL)</span><input ${P('om_thumb','thumbnail')} maxlength="500" placeholder="https://…"></label></div>
   <label class="f"><span>Pied de page</span><input ${P('om_footer','footer')} maxlength="2048"></label>
   <div class="two"><label class="f"><span>Couleur</span><div class="ew"><input ${P('om_color','color')} maxlength="7" placeholder="#5865F2"><input type="color" style="width:48px;padding:2px" value="${/^#[0-9a-f]{6}$/i.test(d.color||'')?d.color:'#5865f2'}" oninput="$('#om_color').value=this.value;omPrev()"></div></label>
@@ -311,8 +312,11 @@ function omRead(){const v=id=>$('#'+id)?.value??'';
 function omPrev(){const t=TC();if(!t||S.view!='om'||!$('#ompv'))return;const sc=omScopes(t).find(x=>x.key==S.omS)||{},d=omRead();
  const cat=sc.cat||t.reasons[0]?.label||'Exemple',subs=sc.sub?[sc.sub]:[],staff=t.staffRoles.map(r=>'<@&'+r+'>').join(' ')||'@Staff';
  const x={user:'<@0>',username:'Toi',server:S.g.name,category:cat,sub:subs.join(' › '),sub1:subs[0]||'',sub2:subs[1]||'',sub3:subs[2]||'',config:t.name,staff,number:String((t.counter||0)+1).padStart(4,'0')};
+ const paySp=(t.subPanels||[]).find(s=>s.payment);let pay='Non précisé',hasPay=false;
+ if(sc.type=='sub'){const sp0=(t.subPanels||[]).find(s=>s.id==sc.id.split('/')[0]);if(sp0?.payment){pay=sc.sub;hasPay=true}}else if(paySp?.choices[0]){pay=paySp.choices[0].label;hasPay=true}
+ x.paiement=x.payement=x.payment=pay;
  const own=d.description.trim(),showInfo=d.showInfo??!own,fields=[];
- if(showInfo){fields.push({name:'Configuration',value:t.name,inline:true},{name:'Catégorie',value:cat,inline:true});if(subs.length)fields.push({name:'Sous-panel',value:subs.join(' › '),inline:true})}
+ if(showInfo){fields.push({name:'Configuration',value:t.name,inline:true},{name:'Catégorie',value:cat,inline:true});if(subs.length)fields.push({name:'Sous-panel',value:subs.join(' › '),inline:true});if(hasPay)fields.push({name:'Paiement',value:pay,inline:true})}
  d.fields.filter(f=>f.name.trim()&&f.value.trim()).forEach(f=>fields.push({name:vars(f.name,x),value:vars(f.value,x),inline:f.inline}));
  const m={content:d.content.trim()?vars(d.content,x):'<@0> '+staff,
   embeds:[{title:d.title.trim()?vars(d.title,x):'🎫 Ticket — '+[cat,...subs].join(' › '),description:own?vars(d.description,x):'Bonjour <@0>, un membre du staff va te répondre bientôt.\nExplique-nous ta demande avec un maximum de détails.',color:col(d.color),fields,image:url(d.image),thumbnail:url(d.thumbnail),footer:d.footer.trim()?{text:vars(d.footer,x)}:null,timestamp:d.timestamp===false?0:1}],

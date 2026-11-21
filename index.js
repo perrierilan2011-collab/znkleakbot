@@ -1424,7 +1424,7 @@ async function refreshPanels(guild, cfgName) {
 // Message envoyé dans le salon du ticket à son ouverture.
 // Priorité (le plus précis gagne) : dernier choix de sous-panel > catégorie du menu > panel > configuration > message par défaut.
 // Tout se règle depuis le panel web (« Message d'ouverture du ticket ») ou avec /ticket message.
-// Variables : {user} {username} {server} {category} {sub} {sub1} {sub2} {sub3} {config} {staff} {number}
+// Variables : {user} {username} {server} {category} {sub} {sub1} {sub2} {sub3} {config} {staff} {number} {paiement}
 function pickOpenMsg(cfg, panel, reason, subs = []) {
   const chain = [...[...subs].reverse().map((c) => c?.openMsg), reason?.openMsg, panel?.openMsg, cfg.openMsg];
   return chain.find((m) => m && Object.keys(m).length) || {};
@@ -1432,6 +1432,9 @@ function pickOpenMsg(cfg, panel, reason, subs = []) {
 async function buildOpenMessage(guild, user, cfg, panel, reason, staffRoles, subs = []) {
   const m = pickOpenMsg(cfg, panel, reason, subs);
   const staffMention = staffRoles.map((r) => `<@&${r}>`).join(' ');
+  // Mode de paiement = le choix fait dans un sous-panel marqué « paiement » (variable {paiement})
+  const payChoice = subs.find((c) => cfg.subPanels?.some((sp) => sp.payment && sp.choices.some((x) => x === c || x.id === c.id)));
+  const pay = payChoice?.label || 'Non précisé';
   const vars = (txt) => {
     let t = String(txt ?? '')
       .replaceAll('{user}', `<@${user.id}>`)
@@ -1441,6 +1444,7 @@ async function buildOpenMessage(guild, user, cfg, panel, reason, staffRoles, sub
       .replaceAll('{sub}', subs.map((c) => c.label).join(' › '))
       .replaceAll('{config}', cfg.name)
       .replaceAll('{number}', String(cfg.counter || 0).padStart(4, '0'))
+      .replaceAll('{paiement}', pay).replaceAll('{payement}', pay).replaceAll('{payment}', pay)
       .replaceAll('{staff}', staffMention);
     for (let n = 0; n < 3; n++) t = t.replaceAll(`{sub${n + 1}}`, subs[n]?.label || '');
     return t;
@@ -1463,6 +1467,7 @@ async function buildOpenMessage(guild, user, cfg, panel, reason, staffRoles, sub
       { name: 'Configuration', value: cfg.name, inline: true },
       { name: 'Catégorie', value: reason ? reason.label : 'Non précisée', inline: true },
       ...(subs.length ? [{ name: 'Sous-panel', value: subs.map((c) => c.label).join(' › ').slice(0, 1024), inline: true }] : []),
+      ...(payChoice ? [{ name: 'Paiement', value: pay.slice(0, 1024), inline: true }] : []),
     );
   }
   for (const f of (Array.isArray(m.fields) ? m.fields : []).slice(0, 10)) { // champs personnalisés
