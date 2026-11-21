@@ -73,7 +73,102 @@ const save = () => {
   } catch (e) {
     console.error('[db] sauvegarde impossible :', e);
   }
+  cloudSchedule(); // copie dans Supabase (survit aux redeploy / changement de compte Railway)
 };
+
+/* ===== CLOUD START : sauvegarde Supabase (tables bot_guild_state + bot_images, voir bot_supabase.sql) ===== */
+// Variables Railway à définir : SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY (clé "service_role").
+let sb = null;
+try {
+  if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    sb = require('@supabase/supabase-js').createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+  }
+} catch (e) {
+  console.error('[cloud] module manquant : lance  npm i @supabase/supabase-js  —', e.message);
+}
+let cloudReady = false; // true seulement quand le chargement a réussi : on n'écrase JAMAIS le cloud avant
+const cloudSent = new Map(); // guildId -> dernier JSON envoyé (on n'envoie que ce qui a changé)
+let cloudTimer = null, cloudBusy = false, cloudAgain = false;
+
+async function cloudLoad() {
+  if (!sb) {
+    console.warn('[cloud] SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY absents : sauvegarde LOCALE seulement (perdue au redeploy).');
+    return;
+  }
+  try {
+    const cloud = {};
+    for (let from = 0; ; from += 500) {
+      const { data, error } = await sb.from('bot_guild_state').select('guild_id,data').range(from, from + 499);
+      if (error) throw error;
+      for (const r of data || []) cloud[r.guild_id] = r.data;
+      if (!data || data.length < 500) break;
+    }
+    const localOnly = Object.keys(db).filter((id) => !cloud[id]).length; // ancien data.json pas encore dans la base
+    db = { ...db, ...cloud }; // le cloud fait foi
+    await cloudLoadImages();
+    cloudReady = true;
+    console.log(`[cloud] ${Object.keys(cloud).length} serveur(s) chargé(s) depuis Supabase` + (localOnly ? ` · ${localOnly} serveur(s) local(aux) envoyé(s)` : ''));
+    save(); // remet le fichier local à jour et envoie ce qui manque dans Supabase
+  } catch (e) {
+    console.error('[cloud] chargement impossible — envoi vers Supabase DÉSACTIVÉ pour ne pas écraser tes données :', e?.message || e);
+  }
+}
+function cloudSchedule(ms = 4000) {
+  if (!sb || !cloudReady) return;
+  clearTimeout(cloudTimer);
+  cloudTimer = setTimeout(() => { cloudFlush().catch(() => {}); }, ms);
+}
+async function cloudFlush() {
+  if (!sb || !cloudReady) return;
+  if (cloudBusy) { cloudAgain = true; return; }
+  cloudBusy = true;
+  try {
+    const rows = [];
+    for (const [id, g] of Object.entries(db)) {
+      const json = JSON.stringify(g);
+      if (cloudSent.get(id) !== json) rows.push({ guild_id: id, data: g, updated_at: new Date().toISOString(), json });
+    }
+    for (let i = 0; i < rows.length; i += 20) {
+      const chunk = rows.slice(i, i + 20);
+      const { error } = await sb.from('bot_guild_state').upsert(chunk.map(({ json, ...r }) => r), { onConflict: 'guild_id' });
+      if (error) { console.error('[cloud] envoi échoué :', error.message); cloudSchedule(15000); break; }
+      for (const r of chunk) cloudSent.set(r.guild_id, r.json);
+    }
+  } catch (e) {
+    console.error('[cloud] envoi :', e?.message || e);
+    cloudSchedule(15000);
+  } finally {
+    cloudBusy = false;
+    if (cloudAgain) { cloudAgain = false; cloudSchedule(1000); }
+  }
+}
+async function cloudFlushNow() { // utilisé à l'arrêt du bot (redeploy)
+  clearTimeout(cloudTimer);
+  for (let i = 0; i < 40 && cloudBusy; i++) await new Promise((r) => setTimeout(r, 200));
+  await cloudFlush();
+}
+async function cloudLoadImages() {
+  const { data, error } = await sb.from('bot_images').select('name,data');
+  if (error) throw error;
+  fs.mkdirSync(IMG_DIR, { recursive: true });
+  for (const r of data || []) {
+    const f = path.join(IMG_DIR, path.basename(r.name));
+    if (!fs.existsSync(f)) fs.writeFileSync(f, Buffer.from(r.data, 'base64'));
+  }
+}
+async function cloudPutImage(name, buf, mime) {
+  if (!sb) return;
+  const { error } = await sb.from('bot_images').upsert({ name, mime: mime || 'image/png', data: buf.toString('base64'), updated_at: new Date().toISOString() }, { onConflict: 'name' });
+  if (error) console.error('[cloud] image :', error.message);
+}
+function cloudDelImage(name) {
+  if (!sb || !name) return;
+  sb.from('bot_images').delete().eq('name', name).then(({ error }) => { if (error) console.error('[cloud] image suppr :', error.message); });
+}
+for (const sig of ['SIGTERM', 'SIGINT']) {
+  process.on(sig, () => { cloudFlushNow().catch(() => {}).finally(() => process.exit(0)); });
+}
+/* ===== CLOUD END ===== */
 
 function getG(id) {
   db[id] ??= {
@@ -1513,9 +1608,10 @@ const dmVars = (txt, { guild, user, cfg, channel, choice }) =>
 // ----- Image du MP (enregistrée sur le disque : les liens Discord expirent) -----
 const dmImagePath = (cfg) => (cfg.dmImage ? path.join(IMG_DIR, cfg.dmImage) : null);
 
-function removeDmImage(cfg) {
+function removeDmImage(cfg, keepCloud = false) {
   const p = dmImagePath(cfg);
   if (p) { try { fs.rmSync(p, { force: true }); } catch { /* rien */ } }
+  if (!keepCloud) cloudDelImage(cfg.dmImage);
   cfg.dmImage = null;
 }
 
@@ -1525,10 +1621,14 @@ async function saveDmImage(guildId, cfg, att) {
   if (!res.ok) throw new Error(`téléchargement impossible (${res.status})`);
   const ext = (att.name || '').match(/\.(png|jpe?g|gif|webp)$/i)?.[0]?.toLowerCase() || '.png';
   const file = `${guildId}-${cfg.name}-mp${ext}`;
-  removeDmImage(cfg);
+  const old = cfg.dmImage;
+  removeDmImage(cfg, true);
   fs.mkdirSync(IMG_DIR, { recursive: true });
-  fs.writeFileSync(path.join(IMG_DIR, file), Buffer.from(await res.arrayBuffer()));
+  const buf = Buffer.from(await res.arrayBuffer());
+  fs.writeFileSync(path.join(IMG_DIR, file), buf);
   cfg.dmImage = file;
+  await cloudPutImage(file, buf, att.contentType); // copie dans Supabase
+  if (old && old !== file) cloudDelImage(old);
 }
 
 // Message + menu envoyés en MP
@@ -4261,4 +4361,5 @@ client.on(Events.InteractionCreate, async (i) => {
   }
 });
 
-client.login(process.env.TOKEN);
+// On charge d'abord la sauvegarde Supabase, puis on connecte le bot.
+cloudLoad().finally(() => client.login(process.env.TOKEN));
