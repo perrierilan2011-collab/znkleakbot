@@ -45,6 +45,10 @@ h3{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mu);
 .empty{color:var(--mu);text-align:center;padding:18px}
 #toasts{position:fixed;right:18px;bottom:18px;display:flex;flex-direction:column;gap:8px;z-index:99}.toast{padding:11px 16px;border-radius:10px;color:#fff;box-shadow:0 8px 24px #0008;animation:u .25s}.toast.ok{background:var(--ok)}.toast.ko{background:var(--ko)}@keyframes u{from{transform:translateY(12px);opacity:0}}
 #login{position:fixed;inset:0;background:var(--bg);display:grid;place-items:center;z-index:100}#login .card{width:340px;text-align:center}#login h1{margin-bottom:14px}#login input{margin-bottom:12px}
+.rr{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--bd)}.rr small{display:block;color:var(--mu)}
+.mini{background:var(--p2);border:1px solid var(--bd);border-radius:8px;padding:4px 8px;cursor:pointer;color:var(--tx);margin-left:4px}.mini:hover{border-color:var(--ac)}
+.opt{display:flex;gap:8px;padding:8px 10px;border-radius:4px}.opt small{display:block;color:#949ba4}.opt.new{background:#5865f233}.menu{background:#2b2d31;border-radius:6px;padding:6px;margin-top:6px;max-width:420px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 @media(max-width:900px){aside{display:none}main{grid-template-columns:1fr;padding:14px}.sticky{position:static}}
 </style></head><body>
 <div id="login" hidden><form class="card" onsubmit="login(event)"><h1 class="logo" style="padding:0">ZNK Bot Panel</h1><input id="pw" type="password" placeholder="Mot de passe" autofocus><button class="run">Se connecter</button></form></div>
@@ -62,12 +66,12 @@ async function boot(){const me=await fetch('/api/me').then(r=>r.json());if(!me.a
  [S.schema,S.guilds]=await Promise.all([api('/api/schema'),api('/api/guilds')]);
  $('#guild').innerHTML=S.guilds.map(g=>`<option value="${g.id}">${esc(g.name)} (${g.members})</option>`).join('');
  if(S.guilds[0])await loadGuild(S.guilds[0].id)}
-async function loadGuild(id){S.gid=id;S.g=await api('/api/guild?id='+id);nav();if(S.cmd)render()}
-function nav(){const q=$('#q').value.toLowerCase(),d=S.g?.disabled||[];let h='';
+async function loadGuild(id){S.gid=id;S.g=await api('/api/guild?id='+id);nav();if(S.view=='tk')tkRender();else if(S.cmd)render()}
+function nav(){const q=$('#q').value.toLowerCase(),d=S.g?.disabled||[];let h=`<div class="cat">Gestion</div><div class="ni ${S.view=='tk'?'on':''}" onclick="tk()">🎫 Gestion des tickets</div>`;
  for(const [k,l] of Object.entries(S.schema.categories)){const cs=S.schema.commands.filter(c=>c.category==k&&c.name.includes(q));if(!cs.length)continue;
   h+=`<div class="cat">${esc(l)}</div>`+cs.map(c=>`<div class="ni ${S.cmd?.name==c.name?'on':''}" onclick="pick('${c.name}')">/${c.name}${d.includes(c.name)?'<em>désactivée</em>':''}</div>`).join('')}
  $('#nav').innerHTML=h}
-function pick(n){S.cmd=S.schema.commands.find(c=>c.name==n);S.sub=S.cmd.options?.find(o=>o.type==1)||null;S.res=null;nav();render()}
+function pick(n){S.view=null;S.cmd=S.schema.commands.find(c=>c.name==n);S.sub=S.cmd.options?.find(o=>o.type==1)||null;S.res=null;nav();render()}
 const subs=()=>S.cmd.options.filter(o=>o.type==1),def=()=>S.sub||S.cmd,key=()=>S.cmd.name+(S.sub?'/'+S.sub.name:''),MODAL=()=>S.schema.modals[key()];
 function field(o){const r=o.required?'<b class="req">*</b>':'',t=o.type;let i;
  const sel=(l)=>`<select data-o="${o.name}">${l}</select>`;
@@ -92,6 +96,8 @@ function render(){const c=S.cmd,fl=c.flags,off=S.g.disabled.includes(c.name),m=M
   <button class="run" id="go" onclick="run()">▶ Exécuter la commande</button></div>
   <div class="sticky"><h3>👁️ Aperçu</h3><div id="pv"></div><div id="res"></div></div>`;
  if(key()=='bienvenue/configurer'){const w=S.g.welcome||{};for(const k of['content','title','description','image','color'])if($(`[data-m=${k}]`))$(`[data-m=${k}]`).value=w[k]||''}
+
+ if(S.pre){for(const [k,v] of Object.entries(S.pre)){const e=$(`[data-o=${k}]`);if(e){e.value=v;e.dataset.v=v}}S.pre=null}
  sync()}
 function collect(){const vals={},modal={};$$('[data-o]').forEach(e=>{const v=e.dataset.v!==undefined?e.dataset.v:e.value;if(v!=='')vals[e.dataset.o]=v});$$('[data-m]').forEach(e=>modal[e.dataset.m]=e.value);return{vals,modal}}
 function sync(){Object.assign(S,collect());preview()}
@@ -152,5 +158,39 @@ async function run(){const{vals,modal}=collect(),m=MODAL();
  const b=$('#go');b.disabled=true;b.textContent='⏳ Exécution…';
  try{const r=await api('/api/run',{guildId:S.gid,command:S.cmd.name,sub:S.sub?.name,options:vals,modal:m?modal:null});S.res=r.replies;S.running=r.running;preview();toast(r.running?'Lancé : le bot continue en arrière-plan':'Commande exécutée ✅');api('/api/guild?id='+S.gid).then(g=>{S.g=g;nav()}).catch(()=>{})}
  catch(e){toast(e.message,false)}finally{b.disabled=false;b.textContent='▶ Exécuter la commande'}}
+/* ---------- Gestion des tickets : configs existantes + sous-panels ---------- */
+function tk(){S.view='tk';S.cmd=null;S.edit=null;if(!S.g.tickets.find(t=>t.name==S.tk))S.tk=S.g.tickets[0]?.name;nav();tkRender()}
+const TC=()=>S.g.tickets.find(t=>t.name==S.tk);
+const cn=id=>{const c=S.g.channels.find(x=>x.id==id);return c?(c.type==4?'📁 ':'# ')+esc(c.name):'—'},rn=id=>'@'+esc(S.g.roles.find(r=>r.id==id)?.name||'rôle');
+function tkGo(sn){pick('ticket');S.sub=S.cmd.options.find(o=>o.name==sn);S.pre={config:S.tk};render()}
+function tkRender(){const ts=S.g.tickets,t=TC(),e=S.edit!=null?t?.reasons[S.edit]:null;
+ let h=`<div class="head card"><h1>🎫 Gestion des tickets</h1><p>Toutes tes configurations existantes sont synchronisées avec le bot.</p></div>`;
+ if(!t)h+=`<div class="card empty" style="grid-column:1/-1">Aucune configuration de ticket.<br><br><button class="tab on" onclick="pick('ticket');S.sub=S.cmd.options.find(o=>o.name=='config-creer');render()">➕ Créer une configuration</button></div>`;
+ else h+=`<div class="card"><label class="f"><span>Configuration</span><select onchange="S.tk=this.value;S.edit=null;tkRender()">${ts.map(x=>`<option ${x.name==S.tk?'selected':''}>${esc(x.name)}</option>`).join('')}</select></label>
+  <p class="where">📁 Catégorie par défaut : ${cn(t.categoryId)}<br>👥 Staff : ${t.staffRoles.map(rn).join(', ')||'—'}<br>📝 Logs : ${cn(t.logChannelId)}<br>🎟️ Tickets créés : ${t.counter}${t.dm?'<br>📩 Ouverture par MP active':''}</p>
+  <h3>📌 Panels envoyés (${t.panels.length})</h3>${t.panels.map((p,n)=>`<p class="where">Panel ${n+1} · ${cn(p.channelId)} · ${p.button?'bouton':'menu'}</p>`).join('')||'<p class="where">Aucun panel envoyé.</p>'}
+  <div class="tabs"><button class="tab on" onclick="tkGo('panel')">📨 Envoyer un panel</button><button class="tab" onclick="tkGo('message')">💬 Message d'ouverture</button><button class="tab" onclick="tkGo('staff-ajouter')">👥 Ajouter un staff</button><button class="tab" onclick="pick('ticket');S.sub=S.cmd.options.find(o=>o.name=='config-creer');render()">➕ Nouvelle config</button></div></div>
+ <div class="card"><h3>🗂️ Sous-panels (choix du menu déroulant) — ${t.reasons.length}/25</h3>
+  ${t.reasons.map((r,n)=>`<div class="rr"><div>${esc(r.emoji||'📁')} <b>${esc(r.label)}</b><small>${esc(r.description||'')}${r.description?' · ':''}${cn(r.categoryId||t.categoryId)}${r.staffRoleId?' · '+rn(r.staffRoleId):''}</small></div><span><button class="mini" onclick="S.edit=${n};tkRender()">✏️</button><button class="mini" onclick="tkDel(${n})">🗑️</button></span></div>`).join('')||'<p class="where">Aucun sous-panel : le panel utilisera un simple bouton.</p>'}
+  <h3 style="margin-top:18px">${e?'✏️ Modifier « '+esc(e.label)+' »':'➕ Créer un sous-panel'}</h3>
+  <div class="two"><label class="f"><span>Nom<b class="req">*</b></span><input id="tk_label" maxlength="100" value="${esc(e?.label||'')}" oninput="tkPrev()"></label><label class="f"><span>Emoji</span><input id="tk_emoji" placeholder="🎮 ou :emoji:" value="${esc(e?.emoji||'')}" oninput="tkPrev()"></label></div>
+  <label class="f"><span>Description courte</span><input id="tk_desc" maxlength="100" value="${esc(e?.description||'')}" oninput="tkPrev()"></label>
+  <label class="f"><span>Catégorie du serveur</span><small>Où les tickets de ce choix seront créés</small><select id="tk_cat"><option value="">— catégorie par défaut de la config —</option>${S.g.channels.filter(c=>c.type==4).map(c=>`<option value="${c.id}" ${e?.categoryId==c.id?'selected':''}>📁 ${esc(c.name)}</option>`).join('')}</select></label>
+  ${e?'':`<label class="f"><span>Rôle staff</span><small>Remplace les rôles staff de la config pour ce choix</small><select id="tk_role"><option value="">— rôles de la config —</option>${S.g.roles.map(r=>`<option value="${r.id}">@${esc(r.name)}</option>`).join('')}</select></label>`}
+  <button class="run" onclick="tkSave()">${e?'💾 Enregistrer les modifications':'➕ Ajouter le sous-panel'}</button>${e?'<button class="tab" style="margin-top:8px" onclick="S.edit=null;tkRender()">Annuler</button>':''}</div>
+ <div class="sticky"><h3>👁️ Aperçu du menu</h3><div id="tkpv"></div></div>`;
+ $('#main').innerHTML=h;if(t)tkPrev()}
+function tkPrev(){const t=TC();if(!t)return;const v=id=>$('#'+id)?.value.trim()||'',ed=S.edit!=null;
+ const o=t.reasons.map((r,n)=>({...r,cur:ed&&n==S.edit}));
+ const d={emoji:v('tk_emoji'),label:v('tk_label'),description:v('tk_desc')};
+ if(ed)Object.assign(o[S.edit],{emoji:d.emoji||o[S.edit].emoji,label:d.label||o[S.edit].label,description:d.description});else if(d.label)o.push({...d,cur:true});
+ $('#tkpv').innerHTML=`<div class="dc"><div class="m"><div class="av">Z</div><div class="mc"><span class="nm">ZNK Bot</span><span class="tg">BOT</span>${t.panels.length?'':'<div class="fileimg">(aucun panel envoyé pour l’instant)</div>'}<div class="sel" style="margin-top:8px">Choisir une catégorie... <span>⌄</span></div>
+ <div class="menu">${o.map(r=>`<div class="opt ${r.cur?'new':''}"><span>${esc(r.emoji||'')}</span><div><b>${esc(r.label)}</b>${r.description?`<small>${esc(r.description)}</small>`:''}</div></div>`).join('')||'<div class="opt">Aucun choix</div>'}</div></div></div></div>`}
+async function tkRun(sub,options){try{const r=await api('/api/run',{guildId:S.gid,command:'ticket',sub,options}),c=r.replies[0]?.content||'OK';toast(c.replace(/[*`]/g,'').slice(0,180),!c.startsWith('❌'));S.g=await api('/api/guild?id='+S.gid)}catch(e){toast(e.message,false)}}
+async function tkSave(){const t=TC(),v=id=>$('#'+id)?.value.trim()||'';if(!v('tk_label'))return toast('Le nom est obligatoire',false);
+ const o={config:t.name},ed=S.edit!=null;if(ed){o.label=t.reasons[S.edit].label;o['nouveau-nom']=v('tk_label')}else o.label=v('tk_label');
+ for(const [k,id] of [['emoji','tk_emoji'],['description','tk_desc'],['categorie','tk_cat'],['role-staff','tk_role']])if(v(id))o[k]=v(id);
+ await tkRun(ed?'raison-modifier':'raison-ajouter',o);S.edit=null;nav();tkRender()}
+async function tkDel(n){const t=TC(),r=t.reasons[n];if(!confirm(`Supprimer le sous-panel « ${r.label} » ?`))return;await tkRun('raison-retirer',{config:t.name,label:r.label});nav();tkRender()}
 boot();
 </script></body></html>
