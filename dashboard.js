@@ -19,7 +19,7 @@ const MODALS = {
 };
 
 module.exports = function startDashboard(ctx) {
-  const { client, commands, handlers, autocomplete, getG, CMD_CATEGORIES, ALWAYS_ON, PUBLIC_COMMANDS, OWNER_ONLY } = ctx;
+  const { client, commands, handlers, autocomplete, getG, CMD_CATEGORIES, ALWAYS_ON, PUBLIC_COMMANDS, OWNER_ONLY, db, save, DB_FILE } = ctx;
   const PASS = process.env.PANEL_PASSWORD;
   if (!PASS) return console.warn('[panel] PANEL_PASSWORD absent : panel désactivé.');
   const KEY = crypto.createHash('sha256').update('panel:' + PASS).digest();
@@ -39,7 +39,7 @@ module.exports = function startDashboard(ctx) {
   };
   const body = (req) => new Promise((ok) => {
     let b = '';
-    req.on('data', (c) => { b += c; if (b.length > 2e6) req.destroy(); });
+    req.on('data', (c) => { b += c; if (b.length > 3e7) req.destroy(); });
     req.on('end', () => { try { ok(JSON.parse(b || '{}')); } catch { ok({}); } });
   });
   const ser = (m) => {
@@ -120,6 +120,20 @@ module.exports = function startDashboard(ctx) {
         .map((g) => ({ name: g.name, emojis: g.emojis.cache.map((e) => ({ id: e.id, name: e.name, animated: !!e.animated })) }))
         .filter((g) => g.emojis.length);
     },
+    'GET /api/storage': async () => {
+      const mount = process.env.RAILWAY_VOLUME_MOUNT_PATH, st = fs.existsSync(DB_FILE) ? fs.statSync(DB_FILE) : null;
+      return { path: DB_FILE, size: st?.size || 0, mtime: st?.mtimeMs || Date.now(), guilds: Object.keys(db).length,
+        persistent: !!mount && path.resolve(DB_FILE).startsWith(path.resolve(mount)) };
+    },
+    'POST /api/restore': async (_r, _q, b) => {
+      const d = b.data;
+      if (!d || typeof d !== 'object' || Array.isArray(d) || Object.values(d).some((v) => !v || typeof v !== 'object')) throw new Error('Fichier de sauvegarde invalide');
+      if (fs.existsSync(DB_FILE)) fs.copyFileSync(DB_FILE, DB_FILE + '.avant-restauration');
+      for (const k of Object.keys(db)) delete db[k];
+      Object.assign(db, d);
+      save();
+      return { ok: true, guilds: Object.keys(db).length };
+    },
     'GET /api/members': async (_r, q) => {
       const { guild } = await ctxFor(q.get('id'));
       const s = (q.get('q') || '').toLowerCase();
@@ -167,6 +181,11 @@ module.exports = function startDashboard(ctx) {
         const exp = String(Date.now() + 7 * 864e5);
         res.setHeader('Set-Cookie', `panel=${exp}.${sign(exp)}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=604800`);
         return send(res, 200, { ok: true });
+      }
+      if (req.method === 'GET' && url.pathname === '/api/backup') {
+        if (!authed(req)) return send(res, 401, { error: 'Connexion requise' });
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Disposition': `attachment; filename="sauvegarde-bot-${new Date().toISOString().slice(0, 10)}.json"` });
+        return res.end(JSON.stringify(db, null, 2));
       }
       if (url.pathname === '/api/me') return send(res, 200, { authed: authed(req) });
       const fn = routes[`${req.method} ${url.pathname}`];

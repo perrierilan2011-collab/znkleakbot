@@ -30,7 +30,8 @@ const client = new Client({
 // Exemple : DB_FILE=/data/data.json
 // Et ne remplace jamais data.json quand tu envoies la nouvelle version du code.
 // Le dossier "images/" (image du MP des tickets) est créé à côté de ce fichier.
-const DB_FILE = process.env.DB_FILE || path.join(__dirname, 'data.json');
+const DB_FILE = process.env.DB_FILE ||
+  (process.env.RAILWAY_VOLUME_MOUNT_PATH ? path.join(process.env.RAILWAY_VOLUME_MOUNT_PATH, 'data.json') : path.join(__dirname, 'data.json'));
 const BACKUP_FILE = DB_FILE + '.bak';
 fs.mkdirSync(path.dirname(DB_FILE), { recursive: true });
 
@@ -4038,4 +4039,4 @@ client.login(process.env.TOKEN);
 
 // Panel web (dashboard.js + panel.html) — nécessite la variable PANEL_PASSWORD
 require("./dashboard")({ client, commands, handlers, autocomplete, getG,
-  CMD_CATEGORIES, ALWAYS_ON, PUBLIC_COMMANDS, OWNER_ONLY });
+  CMD_CATEGORIES, ALWAYS_ON, PUBLIC_COMMANDS, OWNER_ONLY, db, save, DB_FILE });
