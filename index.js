@@ -1422,38 +1422,55 @@ async function refreshPanels(guild, cfgName) {
 }
 
 // Message envoyé dans le salon du ticket à son ouverture.
-// Priorité : message du panel (/ticket message panel:...) > message de la configuration > message par défaut.
-// Variables : {user} {username} {server} {category} {config} {staff}
+// Priorité (le plus précis gagne) : dernier choix de sous-panel > catégorie du menu > panel > configuration > message par défaut.
+// Tout se règle depuis le panel web (« Message d'ouverture du ticket ») ou avec /ticket message.
+// Variables : {user} {username} {server} {category} {sub} {sub1} {sub2} {sub3} {config} {staff} {number}
+function pickOpenMsg(cfg, panel, reason, subs = []) {
+  const chain = [...[...subs].reverse().map((c) => c?.openMsg), reason?.openMsg, panel?.openMsg, cfg.openMsg];
+  return chain.find((m) => m && Object.keys(m).length) || {};
+}
 async function buildOpenMessage(guild, user, cfg, panel, reason, staffRoles, subs = []) {
-  const m = panel?.openMsg || cfg.openMsg || {};
+  const m = pickOpenMsg(cfg, panel, reason, subs);
   const staffMention = staffRoles.map((r) => `<@&${r}>`).join(' ');
-  const vars = (txt) => String(txt ?? '')
-    .replaceAll('{user}', `<@${user.id}>`)
-    .replaceAll('{username}', user.username)
-    .replaceAll('{server}', guild.name)
-    .replaceAll('{category}', reason ? reason.label : 'Non précisée')
-    .replaceAll('{sub}', subs.map((c) => c.label).join(' › '))
-    .replaceAll('{config}', cfg.name)
-    .replaceAll('{staff}', staffMention);
+  const vars = (txt) => {
+    let t = String(txt ?? '')
+      .replaceAll('{user}', `<@${user.id}>`)
+      .replaceAll('{username}', user.username)
+      .replaceAll('{server}', guild.name)
+      .replaceAll('{category}', reason ? reason.label : 'Non précisée')
+      .replaceAll('{sub}', subs.map((c) => c.label).join(' › '))
+      .replaceAll('{config}', cfg.name)
+      .replaceAll('{number}', String(cfg.counter || 0).padStart(4, '0'))
+      .replaceAll('{staff}', staffMention);
+    for (let n = 0; n < 3; n++) t = t.replaceAll(`{sub${n + 1}}`, subs[n]?.label || '');
+    return t;
+  };
 
   const rc = m.content ? await rich(guild, vars(m.content)) : null;
   const rd = m.description ? await rich(guild, vars(m.description)) : null;
+  const showInfo = typeof m.showInfo === 'boolean' ? m.showInfo : !rd; // champs Configuration / Catégorie / Sous-panel
 
   const embed = new EmbedBuilder()
     .setColor(parseColor(m.color, '#5865F2'))
     .setTitle((m.title ? vars(m.title) : `🎫 Ticket — ${[reason?.label, ...subs.map((c) => c.label)].filter(Boolean).join(' › ') || cfg.name}`).slice(0, 256))
     .setDescription((rd ? rd.text : (
       `Bonjour <@${user.id}>, un membre du staff va te répondre bientôt.\n` +
-      `Explique-nous ta demande avec un maximum de détails.`)).slice(0, 4096))
-    .setTimestamp();
-  if (!rd) {
+      `Explique-nous ta demande avec un maximum de détails.`)).slice(0, 4096));
+  if (m.timestamp !== false) embed.setTimestamp();
+  if (m.footer) embed.setFooter({ text: vars(m.footer).slice(0, 2048) });
+  if (showInfo) {
     embed.addFields(
       { name: 'Configuration', value: cfg.name, inline: true },
       { name: 'Catégorie', value: reason ? reason.label : 'Non précisée', inline: true },
       ...(subs.length ? [{ name: 'Sous-panel', value: subs.map((c) => c.label).join(' › ').slice(0, 1024), inline: true }] : []),
     );
   }
+  for (const f of (Array.isArray(m.fields) ? m.fields : []).slice(0, 10)) { // champs personnalisés
+    const name = vars(f?.name).slice(0, 256), value = vars(f?.value).slice(0, 1024);
+    if (name && value) embed.addFields({ name, value, inline: !!f.inline });
+  }
   if (isUrl(m.image)) embed.setImage(m.image.trim());
+  if (isUrl(m.thumbnail)) embed.setThumbnail(m.thumbnail.trim());
 
   return {
     content: (rc ? rc.text : `<@${user.id}> ${staffMention}`).slice(0, 2000) || undefined,
@@ -1524,10 +1541,10 @@ async function createTicket(guild, user, cfgName, reasonId, panel, subPath = nul
   save();
 
   const payload = await buildOpenMessage(guild, user, cfg, panel, reason, staffRoles, subs);
-  const om = panel?.openMsg || cfg.openMsg || {};
+  const om = pickOpenMsg(cfg, panel, reason, subs);
   const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('tk_claim').setLabel((om.claimLabel || 'Prendre en charge').slice(0, 80)).setEmoji('🙋').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId('tk_close').setLabel((om.closeLabel || 'Fermer').slice(0, 80)).setEmoji('🔒').setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId('tk_claim').setLabel((om.claimLabel || 'Prendre en charge').slice(0, 80)).setEmoji(parseEmoji(om.claimEmoji) || '🙋').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('tk_close').setLabel((om.closeLabel || 'Fermer').slice(0, 80)).setEmoji(parseEmoji(om.closeEmoji) || '🔒').setStyle(ButtonStyle.Danger),
   );
   await channel.send({ ...payload, components: [row] }).catch(console.error);
   return { channel };
@@ -1738,6 +1755,9 @@ function buildSubMessage(guild, user, cfg, sub, customId, reason) {
     .setTitle(dmVars(sub.title || reason?.label || sub.name, ctx).slice(0, 256))
     .setDescription(dmVars(sub.description || 'Précise ta demande dans le menu ci-dessous.', ctx).slice(0, 4096))
     .setTimestamp();
+  if (isUrl(sub.image)) embed.setImage(sub.image.trim());
+  if (isUrl(sub.thumbnail)) embed.setThumbnail(sub.thumbnail.trim());
+  if (sub.footer) embed.setFooter({ text: dmVars(sub.footer, ctx).slice(0, 2048) });
   const menu = new StringSelectMenuBuilder()
     .setCustomId(customId)
     .setPlaceholder((sub.placeholder || 'Choisir une option...').slice(0, 150))
@@ -4099,9 +4119,9 @@ const handlers = {
         image: image && isUrl(image) ? image : null,
         color: color ? parseColor(color) : null,
       };
-      const empty = Object.values(data).every((v) => !v) && !cur.claimLabel && !cur.closeLabel;
-      if (cur.claimLabel) data.claimLabel = cur.claimLabel; // on garde le texte des boutons
-      if (cur.closeLabel) data.closeLabel = cur.closeLabel;
+      const EXTRA = ['claimLabel', 'closeLabel', 'claimEmoji', 'closeEmoji', 'footer', 'thumbnail', 'fields', 'showInfo', 'timestamp'];
+      const empty = Object.values(data).every((v) => !v) && !EXTRA.some((k) => cur[k] !== undefined && cur[k] !== null && cur[k] !== '');
+      for (const k of EXTRA) if (cur[k] !== undefined && cur[k] !== null) data[k] = cur[k]; // on garde boutons, pied de page, champs... réglés depuis le panel web
       if (panel) panel.openMsg = empty ? undefined : data;
       else cfg.openMsg = empty ? null : data;
       if (panel && empty) delete panel.openMsg;
@@ -4542,6 +4562,9 @@ client.on(Events.InteractionCreate, async (i) => {
 
 // Supabase fait foi au démarrage : on recharge les données (panels, configs...) AVANT de connecter le bot
 supabase.init(db).catch((e) => console.error('[supabase]', e.message)).finally(() => client.login(process.env.TOKEN));
+
+// Filet de sécurité : toutes les 2 minutes, tout est réécrit (fichier + Supabase) même si une modification a oublié d'appeler save()
+setInterval(save, 2 * 60_000).unref?.();
 
 // Panel web (dashboard.js + panel.html) — nécessite la variable PANEL_PASSWORD
 require("./dashboard")({ client, commands, handlers, autocomplete, getG,

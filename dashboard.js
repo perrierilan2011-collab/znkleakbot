@@ -93,6 +93,44 @@ module.exports = function startDashboard(ctx) {
     return { guild, owner };
   }
 
+
+  // ---------- Édition directe : message d'ouverture des tickets et sous-panels ----------
+  const txt = (v, max) => { const t = String(v ?? '').replace(/\r/g, '').trim(); return t ? t.slice(0, max) : undefined; };
+  const urlOk = (v) => { const t = String(v ?? '').trim(); return /^https?:\/\/\S+$/i.test(t) ? t.slice(0, 500) : undefined; };
+  const colorOk = (v) => { const t = String(v ?? '').trim(); return /^#?[0-9a-f]{6}$/i.test(t) ? '#' + t.replace('#', '') : undefined; };
+  const cleanOpenMsg = (m) => {
+    const out = {
+      content: txt(m.content, 1000), title: txt(m.title, 256), description: txt(m.description, 4000),
+      image: urlOk(m.image), thumbnail: urlOk(m.thumbnail), color: colorOk(m.color), footer: txt(m.footer, 2048),
+      claimLabel: txt(m.claimLabel, 80), closeLabel: txt(m.closeLabel, 80), claimEmoji: txt(m.claimEmoji, 64), closeEmoji: txt(m.closeEmoji, 64),
+      showInfo: typeof m.showInfo === 'boolean' ? m.showInfo : undefined,
+      timestamp: m.timestamp === false ? false : undefined,
+      fields: (Array.isArray(m.fields) ? m.fields : []).slice(0, 10)
+        .map((f) => ({ name: txt(f?.name, 256), value: txt(f?.value, 1024), inline: !!f?.inline })).filter((f) => f.name && f.value),
+    };
+    if (!out.fields.length) delete out.fields;
+    for (const k of Object.keys(out)) if (out[k] === undefined) delete out[k];
+    return out;
+  };
+  // Éléments qui peuvent porter leur propre message d'ouverture (le plus précis gagne à l'ouverture du ticket)
+  const openTargets = (cfg, s) => {
+    if (s.type === 'config') return [cfg];
+    if (s.type === 'panel') return (cfg.panels || []).filter((p) => p.messageId === s.id);
+    if (s.type === 'reason') return [...(cfg.reasons || []), ...(cfg.dmChoices || [])].filter((r) => r.id === s.id);
+    if (s.type === 'sub') {
+      const [spId, chId] = String(s.id || '').split('/');
+      const c = cfg.subPanels?.find((x) => x.id === spId)?.choices?.find((x) => x.id === chId);
+      return c ? [c] : [];
+    }
+    return [];
+  };
+  const guildCfg = (guildId, name) => {
+    if (!client.guilds.cache.has(guildId)) throw new Error('Serveur introuvable');
+    const cfg = getG(guildId).tickets?.[name];
+    if (!cfg) throw new Error('Configuration introuvable');
+    return cfg;
+  };
+
   const routes = {
     'GET /api/schema': async () => ({
       commands: commands.map((c) => ({ ...c.toJSON(), category: catOf[c.name] || 'autres',
@@ -107,15 +145,50 @@ module.exports = function startDashboard(ctx) {
         id: guild.id, name: guild.name, count: guild.memberCount, disabled: getG(guild.id).disabledCommands || [],
         welcome: getG(guild.id).welcome,
         tickets: Object.values(getG(guild.id).tickets || {}).map((t) => ({
-          name: t.name, categoryId: t.categoryId, staffRoles: t.staffRoles || [], logChannelId: t.logChannelId, counter: t.counter || 0, dm: !!t.dm,
-          panels: (t.panels || []).map((p) => ({ channelId: p.channelId, messageId: p.messageId, button: !!p.button })),
-          reasons: (t.reasons || []).map((r) => ({ id: r.id, label: r.label, emoji: r.emoji, description: r.description, categoryId: r.categoryId, staffRoleId: r.staffRoleId })),
-          dmChoices: (t.dmChoices || []).map((r) => ({ id: r.id, label: r.label, emoji: r.emoji })),
+          name: t.name, categoryId: t.categoryId, staffRoles: t.staffRoles || [], logChannelId: t.logChannelId, counter: t.counter || 0, dm: !!t.dm, openMsg: t.openMsg || null,
+          panels: (t.panels || []).map((p) => ({ channelId: p.channelId, messageId: p.messageId, button: !!p.button, openMsg: p.openMsg || null })),
+          reasons: (t.reasons || []).map((r) => ({ id: r.id, label: r.label, emoji: r.emoji, description: r.description, categoryId: r.categoryId, staffRoleId: r.staffRoleId, openMsg: r.openMsg || null })),
+          dmChoices: (t.dmChoices || []).map((r) => ({ id: r.id, label: r.label, emoji: r.emoji, openMsg: r.openMsg || null })),
           subPanels: t.subPanels || [], subLinks: t.subLinks || {}, defaultSub: t.defaultSubPanelId || null,
         })),
         channels: guild.channels.cache.map((c) => ({ id: c.id, name: c.name, type: c.type })),
         roles: guild.roles.cache.filter((r) => r.id !== guild.id).map((r) => ({ id: r.id, name: r.name, color: r.hexColor })),
       };
+    },
+    'POST /api/ticket-open-msg': async (_r, _q, b) => {
+      const cfg = guildCfg(b.guildId, b.config);
+      const targets = openTargets(cfg, b.scope || {});
+      if (!targets.length) throw new Error('Élément introuvable (il a peut-être été supprimé).');
+      const msg = b.reset ? {} : cleanOpenMsg(b.msg || {});
+      const empty = !Object.keys(msg).length;
+      for (const t of targets) {
+        if (t === cfg) cfg.openMsg = empty ? null : msg;
+        else if (empty) delete t.openMsg;
+        else t.openMsg = JSON.parse(JSON.stringify(msg));
+      }
+      save();
+      return { ok: true, empty };
+    },
+    'POST /api/subpanel-update': async (_r, _q, b) => {
+      const cfg = guildCfg(b.guildId, b.config);
+      const sp = cfg.subPanels?.find((x) => x.id === b.subId);
+      if (!sp) throw new Error('Sous-panel introuvable');
+      const f = b.fields || {};
+      if ('name' in f) {
+        const n = txt(f.name, 60);
+        if (!n) throw new Error('Le nom est obligatoire');
+        if (cfg.subPanels.some((x) => x !== sp && x.name.toLowerCase() === n.toLowerCase())) throw new Error('Un sous-panel porte déjà ce nom.');
+        sp.name = n;
+      }
+      if ('title' in f) sp.title = txt(f.title, 256) || null;
+      if ('description' in f) sp.description = txt(f.description, 4000) || null;
+      if ('placeholder' in f) sp.placeholder = txt(f.placeholder, 100) || null;
+      if ('color' in f) sp.color = colorOk(f.color) || null;
+      if ('image' in f) sp.image = urlOk(f.image) || null;
+      if ('thumbnail' in f) sp.thumbnail = urlOk(f.thumbnail) || null;
+      if ('footer' in f) sp.footer = txt(f.footer, 2048) || null;
+      save();
+      return { ok: true };
     },
     'GET /api/emojis': async (_r, q) => {
       const first = q.get('id');
