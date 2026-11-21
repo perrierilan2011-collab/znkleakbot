@@ -16,10 +16,6 @@ const MODALS = {
     F('description', 'Description', 1, 4000), F('image', "URL de l'image", 0, 500), F('color', 'Couleur hex', 0, 7)],
   'ticket/message': [F('content', 'Texte au-dessus', 1, 1000), F('title', 'Titre', 0, 256), F('description', 'Description', 1, 4000),
     F('image', "URL de l'image", 0, 500), F('color', 'Couleur hex', 0, 7)],
-  'ticket/mp-menu': [F('title', 'Titre', 0, 256), F('description', 'Texte au-dessus du menu', 1, 4000),
-    F('placeholder', 'Texte du menu déroulant', 0, 100), F('color', 'Couleur hex', 0, 7)],
-  'ticket/mp-textes': [F('sentReply', 'Réponse après le clic', 1, 500), F('doneTitle', 'Titre du message final', 0, 256),
-    F('doneText', 'Texte du message final', 1, 2000), F('invalid', 'Texte ancien menu', 1, 500)],
 };
 
 module.exports = function startDashboard(ctx) {
