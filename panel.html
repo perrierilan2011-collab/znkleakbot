@@ -293,7 +293,7 @@ function omRender(keep){const t=TC();
  const d=S.omD||{},V=(k)=>esc(d[k]||''),P=(id,k)=>`id="${id}" class="omf" value="${V(k)}" oninput="omPrev()"`;
  h+=`<div class="card"><div class="two"><label class="f"><span>Configuration</span><select onchange="omGo(()=>{S.tk=this.value;S.omS='config:'})">${S.g.tickets.map(x=>`<option ${x.name==S.tk?'selected':''}>${esc(x.name)}</option>`).join('')}</select></label>
   <label class="f"><span>Message à modifier</span><select onchange="omGo(()=>{S.omS=this.value})">${sc.map(x=>`<option value="${esc(x.key)}" ${x.key==S.omS?'selected':''}>${omHas(x.own)?'● ':'○ '}${esc(x.label)}</option>`).join('')}</select></label></div>
-  <p class="where">${omHas(cur.own)?'✅ Cet élément a son <b>propre message</b>.':inh?`ℹ️ Pas de message propre : il utilise celui de <b>${inh.from}</b> (repris ci-dessous). Modifie puis enregistre pour le personnaliser.`:'ℹ️ Aucun message personnalisé : le message par défaut du bot est utilisé.'}<br>● = message personnalisé · le plus précis gagne : <b>choix de sous-panel › catégorie › panel › configuration</b>. Appliqué aux <b>nouveaux</b> tickets.</p>
+  <p class="where">${omHas(cur.own)?'✅ Cet élément a son <b>propre message</b>.':inh?`ℹ️ Pas de message propre : il utilise celui de <b>${inh.from}</b> (repris ci-dessous). Modifie puis enregistre pour le personnaliser.`:'ℹ️ Aucun message personnalisé : le message par défaut du bot est utilisé.'}<br>● = message personnalisé · le plus précis gagne : <b>choix de sous-panel › catégorie › panel › configuration</b>. Appliqué aux <b>nouveaux</b> tickets.</p>${omOver(sc,cur)}
   <h3>Variables (clique pour insérer)</h3><div class="tabs">${OM_VARS.map(x=>`<button type="button" class="tab" style="padding:3px 9px" onmousedown="event.preventDefault()" onclick="omIns('${x}')">${x}</button>`).join('')}</div>
   <label class="f"><span>Texte au-dessus de l'embed</span><small>Vide = ping du membre + du staff. <code>@Rôle</code>, <code>@Pseudo</code>, <code>#salon</code> deviennent cliquables.</small><textarea id="om_content" class="omf" style="min-height:70px" maxlength="1000" oninput="omPrev()">${V('content')}</textarea></label>
   <label class="f"><span>Titre</span><input ${P('om_title','title')} maxlength="256" placeholder="🎫 Ticket — {category}"></label>
@@ -335,6 +335,15 @@ function omIns(v){const e=S.omFocus&&document.body.contains(S.omFocus)?S.omFocus
 function omFAdd(){S.omD=omRead();S.omD.fields.push({name:'',value:'',inline:false});omRender(true)}
 function omFDel(n){S.omD=omRead();S.omD.fields.splice(n,1);omRender(true)}
 /* sauvegarde automatique : rien n'est perdu en changeant de message, de configuration ou de page */
+/* un message « plus précis » (sous-panel > catégorie > panel > configuration) passe avant : on le signale et on peut tout remplacer d'un clic */
+const OM_RANK={config:0,panel:1,reason:2,sub:3};
+function omOver(sc,cur){const ov=sc.filter(x=>OM_RANK[x.type]>OM_RANK[cur.type]&&omHas(x.own));if(!ov.length)return'';
+ return `<div style="margin:10px 0;padding:10px 12px;border:1px solid #a8742f;border-radius:6px"><b>${ov.length} élément(s) ont leur propre message et passent avant celui-ci</b><p class="where" style="margin:6px 0">Dans ces tickets, tes changements ne s'affichent pas : ${ov.slice(0,4).map(x=>esc(x.label.replace(/^[^\p{L}\p{N}]+/u,''))).join(' · ')}${ov.length>4?' …':''}</p><button type="button" class="run" onclick="omAll()">Appliquer ce message à tous (efface ces ${ov.length} messages propres)</button></div>`}
+async function omAll(){const t=TC(),sc=omScopes(t),cur=sc.find(x=>x.key==S.omS),ov=sc.filter(x=>OM_RANK[x.type]>OM_RANK[cur.type]&&omHas(x.own));
+ if(!confirm(`Enregistrer ce message et supprimer les ${ov.length} messages propres qui passent avant lui ?`))return;
+ try{const call=(s,b)=>api('/api/ticket-open-msg',{guildId:S.gid,config:t.name,scope:{type:s.type,id:s.id},...b});
+  await call(cur,{msg:omRead()});for(const x of ov)await call(x,{reset:true});
+  S.g=await api('/api/guild?id='+S.gid);toast(`Message appliqué à tous (${ov.length} messages propres supprimés)`);omRender()}catch(e){toast(e.message,false)}}
 async function omAuto(){if(S.view!='om'||!S.omBase||!$('#om_title'))return;const m=omRead();if(JSON.stringify(m)==S.omBase)return;
  const t=TC(),sc=t&&omScopes(t).find(x=>x.key==S.omS);if(!sc)return;S.omBase=JSON.stringify(m);
  try{await api('/api/ticket-open-msg',{guildId:S.gid,config:t.name,scope:{type:sc.type,id:sc.id},msg:m});S.g=await api('/api/guild?id='+S.gid);toast('Modifications enregistrées automatiquement')}catch(e){toast(e.message,false)}}
