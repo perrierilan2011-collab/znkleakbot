@@ -20,7 +20,7 @@ const MODALS = {
 };
 
 module.exports = function startDashboard(ctx) {
-  const { client, commands, handlers, autocomplete, getG, CMD_CATEGORIES, ALWAYS_ON, PUBLIC_COMMANDS, OWNER_ONLY, db, save, DB_FILE } = ctx;
+  const { client, commands, handlers, autocomplete, getG, refreshPanels, CMD_CATEGORIES, ALWAYS_ON, PUBLIC_COMMANDS, OWNER_ONLY, db, save, DB_FILE } = ctx;
   const PASS = process.env.PANEL_PASSWORD;
   if (!PASS) return console.warn('[panel] PANEL_PASSWORD absent : panel désactivé.');
   const KEY = crypto.createHash('sha256').update('panel:' + PASS).digest();
@@ -168,6 +168,37 @@ module.exports = function startDashboard(ctx) {
       }
       save();
       return { ok: true, empty };
+    },
+    // Import d'une liste d'articles : chaque article devient un choix du menu (nom) avec son prix en description
+    'POST /api/bulk-choices': async (_r, _q, b) => {
+      const cfg = guildCfg(b.guildId, b.config);
+      const guild = client.guilds.cache.get(b.guildId);
+      const isReasons = b.target === 'reasons';
+      const sp = isReasons ? null : cfg.subPanels?.find((x) => x.id === b.target);
+      if (!isReasons && !sp) throw new Error('Sous-panel introuvable');
+      cfg.reasons ??= [];
+      const list = isReasons ? cfg.reasons : sp.choices;
+      const items = (Array.isArray(b.items) ? b.items : []).slice(0, 200)
+        .map((i) => ({ label: txt(i?.label, 100), description: txt(i?.description, 100) || '' })).filter((i) => i.label);
+      if (!items.length) throw new Error('Aucun article reconnu dans ta liste.');
+      const emoji = txt(b.emoji, 64) || null;
+      const categoryId = b.categoryId && guild.channels.cache.has(b.categoryId) ? b.categoryId : null;
+      const staffRoleId = b.staffRoleId && b.staffRoleId !== guild.id && guild.roles.cache.has(b.staffRoleId) ? b.staffRoleId : null;
+      let added = 0, updated = 0, skipped = 0;
+      if (b.mode === 'replace') {
+        const removed = list.splice(0, list.length);
+        if (isReasons) for (const r of removed) if (cfg.subLinks) delete cfg.subLinks[r.id];
+      }
+      for (const it of items) {
+        const ex = list.find((x) => x.label.toLowerCase() === it.label.toLowerCase());
+        if (ex) { if (it.description) ex.description = it.description; updated++; continue; } // même nom : on met à jour le prix
+        if (list.length >= 25) { skipped++; continue; } // limite Discord : 25 choix par menu
+        list.push({ id: crypto.randomUUID().slice(0, 8), label: it.label, description: it.description, emoji, staffRoleId, categoryId, ...(isReasons ? {} : { nextSubId: null }) });
+        added++;
+      }
+      save();
+      if (isReasons && guild) await refreshPanels(guild, b.config).catch(console.error); // les panels déjà envoyés se mettent à jour
+      return { ok: true, added, updated, skipped, total: list.length };
     },
     'POST /api/subpanel-update': async (_r, _q, b) => {
       const cfg = guildCfg(b.guildId, b.config);

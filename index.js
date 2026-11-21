@@ -4572,5 +4572,5 @@ supabase.init(db).catch((e) => console.error('[supabase]', e.message)).finally((
 setInterval(save, 2 * 60_000).unref?.();
 
 // Panel web (dashboard.js + panel.html) — nécessite la variable PANEL_PASSWORD
-require("./dashboard")({ client, commands, handlers, autocomplete, getG,
+require("./dashboard")({ client, commands, handlers, autocomplete, getG, refreshPanels,
   CMD_CATEGORIES, ALWAYS_ON, PUBLIC_COMMANDS, OWNER_ONLY, db, save, DB_FILE });

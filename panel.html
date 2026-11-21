@@ -183,6 +183,7 @@ function tkRender(){const ts=S.g.tickets,t=TC(),e=S.edit!=null?t?.reasons[S.edit
   <label class="f"><span>Catégorie du serveur</span><small>Où les tickets de ce choix seront créés</small><select id="tk_cat"><option value="">— catégorie par défaut de la config —</option>${S.g.channels.filter(c=>c.type==4).map(c=>`<option value="${c.id}" ${e?.categoryId==c.id?'selected':''}>📁 ${esc(c.name)}</option>`).join('')}</select></label>
   ${e?'':`<label class="f"><span>Rôle staff</span><small>Remplace les rôles staff de la config pour ce choix</small><select id="tk_role"><option value="">— rôles de la config —</option>${S.g.roles.map(r=>`<option value="${r.id}">@${esc(r.name)}</option>`).join('')}</select></label>`}
   <button class="run" onclick="tkSave()">${e?'💾 Enregistrer les modifications':'➕ Ajouter la catégorie'}</button>${e?'<button class="tab" style="margin-top:8px" onclick="S.edit=null;tkRender()">Annuler</button>':''}</div>
+ ${bulkCard('reasons')}
  <div class="sticky"><h3>👁️ Aperçu du menu</h3><div id="tkpv"></div></div>`;
  $('#main').innerHTML=h;if(t)tkPrev()}
 function tkPrev(){const t=TC();if(!t)return;const v=id=>$('#'+id)?.value.trim()||'',ed=S.edit!=null;
@@ -231,7 +232,7 @@ function spRender(){const t=TC();
   <label class="f"><span>Rôle staff</span><small>Remplace les rôles staff pour ce choix</small><select id="sp_c_role"><option value="">— rôles de la config —</option>${S.g.roles.map(r=>`<option value="${r.id}" ${ce?.staffRoleId==r.id?'selected':''}>@${esc(r.name)}</option>`).join('')}</select></label>
   <label class="f"><span>➡️ Sous-panel suivant</span><small>Proposé après ce choix (et ainsi de suite, autant de niveaux que tu veux). Vide = le ticket s'ouvre.</small><select id="sp_c_next"><option value="">— aucun (ticket direct) —</option>${sps.filter(s=>s.id!=cur.id).map(s=>`<option value="${s.id}" ${ce?.nextSubId==s.id?'selected':''}>${esc(s.name)}</option>`).join('')}</select></label>
   <button class="run" onclick="spChSave()">${ce?'💾 Enregistrer le choix':'➕ Ajouter le choix'}</button>${ce?'<button class="tab" style="margin-top:8px" onclick="S.ch=null;spRender()">Annuler</button>':''}</div>`;
- h+=`<div class="sticky"><h3>👁️ Aperçu du sous-panel</h3><div id="sppv"></div></div>`;
+ h+=(cur?bulkCard(cur.id):'')+`<div class="sticky"><h3>👁️ Aperçu du sous-panel</h3><div id="sppv"></div></div>`;
  $('#main').innerHTML=h;spPrev()}
 function spPrev(){const t=TC(),cur=spCur(),v=id=>$('#'+id)?.value.trim()||'';if(!t)return;
  if(!cur)return $('#sppv').innerHTML='<p class="where">Clique sur 📋 à côté d\'un sous-panel pour voir son aperçu et gérer ses choix.</p>';
@@ -330,6 +331,28 @@ async function omCall(body,okMsg){const t=TC(),sc=omScopes(t).find(x=>x.key==S.o
  try{const r=await api('/api/ticket-open-msg',{guildId:S.gid,config:t.name,scope:{type:sc.type,id:sc.id},...body});S.g=await api('/api/guild?id='+S.gid);toast(r.empty?'Message par défaut / hérité rétabli ✅':okMsg);omRender()}catch(e){toast(e.message,false)}}
 const omSave=()=>omCall({msg:omRead()},'Message enregistré ✅ (appliqué aux nouveaux tickets)');
 const omReset=()=>confirm('Supprimer le message personnalisé de cet élément ?')&&omCall({reset:true},'Message supprimé ✅');
+/* ---------- Import d'une liste d'articles : « Nom : prix » -> un choix du menu par article, le prix en description ---------- */
+function bulkParse(text){const out=[],nz=p=>{const m=/^(\d+(?:[.,]\d+)?)\s*(.*)$/.exec(p.trim());if(!m)return p.trim();let c=m[2].toLowerCase();c=/^(€|eur|euros?)$/.test(c)?'€':/^(\$|usd|dollars?)$/.test(c)?'$':m[2];return m[1]+c};
+ for(const line of String(text||'').split(/\r?\n/)){if(!line.trim())continue;
+  const re=/(?:^|\s)(?:\d+\s*[.)]\s+)?([^:：\n]+?)\s*[:：]\s*(\d+(?:[.,]\d+)?\s*(?:€|\$|£|euros?|eur|usd)?)/gi;let m,n=0;
+  while((m=re.exec(line))){const l=m[1].trim().replace(/^[-•*]\s*/,'').slice(0,100);if(l){out.push({label:l,description:nz(m[2]).slice(0,100)});n++}}
+  if(!n){const l=line.trim().replace(/^(?:\d+\s*[.)]\s+|[-•*]\s*)/,'').slice(0,100);if(l)out.push({label:l,description:''})}}
+ const seen=new Map();out.forEach(i=>seen.set(i.label.toLowerCase(),i));return [...seen.values()]}
+function bulkCard(target){return `<div class="card"><h3>📥 Importer une liste d'articles</h3>
+ <p class="where">Colle ta liste : un article par ligne, au format <b>Nom : prix</b>. Chaque article devient un choix du menu déroulant, et le <b>prix s'affiche en dessous, dans la description</b>.</p>
+ <textarea id="bk_text" style="min-height:210px" placeholder="Disney+ Premium : 2€&#10;Netflix Premium FA Lifetime : 5€&#10;Spotify Lifetime Account : 6€" oninput="bulkPrev()"></textarea>
+ <div id="bk_pv" class="where" style="margin:8px 0"></div>
+ <div class="two"><label class="f"><span>Emoji (optionnel)</span><div class="ew"><input id="bk_emoji" placeholder="🛒 ou emoji du serveur"><button type="button" class="mini epb" onclick="emojiPick(this)">😀</button></div></label>
+ <label class="f"><span>Que faire des choix actuels ?</span><select id="bk_mode"><option value="append">➕ Ajouter (et mettre à jour les prix existants)</option><option value="replace">♻️ Tout remplacer par cette liste</option></select></label></div>
+ <div class="two"><label class="f"><span>Catégorie du serveur</span><select id="bk_cat"><option value="">— celle par défaut —</option>${S.g.channels.filter(c=>c.type==4).map(c=>`<option value="${c.id}">📁 ${esc(c.name)}</option>`).join('')}</select></label>
+ <label class="f"><span>Rôle staff</span><select id="bk_role"><option value="">— rôles de la config —</option>${S.g.roles.map(r=>`<option value="${r.id}">@${esc(r.name)}</option>`).join('')}</select></label></div>
+ <button class="run" onclick="bulkRun('${target}')">📥 Créer les choix</button></div>`}
+function bulkPrev(){const it=bulkParse($('#bk_text')?.value),el=$('#bk_pv');if(!el)return;
+ el.innerHTML=it.length?`<b>${it.length} article(s) reconnu(s)${it.length>25?' — ⚠️ Discord limite à 25 choix par menu, les suivants seront ignorés':''} :</b><br>`+it.slice(0,25).map(i=>`• ${esc(i.label)}${i.description?' — <b>'+esc(i.description)+'</b>':''}`).join('<br>'):'Aucun article reconnu pour l’instant.'}
+async function bulkRun(target){const items=bulkParse($('#bk_text').value);if(!items.length)return toast('Colle ta liste d’articles d’abord',false);
+ const mode=$('#bk_mode').value;if(mode=='replace'&&!confirm('Remplacer TOUS les choix actuels de ce menu par cette liste ?'))return;
+ try{const r=await api('/api/bulk-choices',{guildId:S.gid,config:S.tk,target,items,mode,emoji:$('#bk_emoji').value.trim(),categoryId:$('#bk_cat').value,staffRoleId:$('#bk_role').value});
+  S.g=await api('/api/guild?id='+S.gid);toast(`✅ ${r.added} créé(s), ${r.updated} mis à jour${r.skipped?`, ${r.skipped} ignoré(s) (25 max)`:''} — ${r.total}/25`);nav();S.view=='sp'?spRender():tkRender()}catch(e){toast(e.message,false)}}
 /* ---------- sélecteur d'emojis (Unicode + emojis personnalisés des serveurs du bot) ---------- */
 async function emojiPick(btn){const old=$('#ep');if(old){old.remove();if(old._b===btn)return}
  S.emo=await api('/api/emojis?id='+S.gid).catch(()=>S.emo||[]);
