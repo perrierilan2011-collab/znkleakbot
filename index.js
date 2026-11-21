@@ -8,6 +8,16 @@ const {
   ModalBuilder, TextInputBuilder, TextInputStyle, AttachmentBuilder, MessageFlags,
 } = require('discord.js');
 
+// Bande de couleur de TOUS les embeds : violet néon, quoi qu'il arrive
+// (les couleurs choisies dans les commandes sont ignorées, et les anciens messages modifiés passent en violet aussi)
+const NEON_PURPLE = 0xBC13FE;
+const _embedToJSON = EmbedBuilder.prototype.toJSON;
+EmbedBuilder.prototype.toJSON = function toJSON() {
+  const json = _embedToJSON.call(this);
+  json.color = NEON_PURPLE;
+  return json;
+};
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -73,7 +83,102 @@ const save = () => {
   } catch (e) {
     console.error('[db] sauvegarde impossible :', e);
   }
+  cloudSchedule(); // copie dans Supabase (survit aux redeploy / changement de compte Railway)
 };
+
+/* ===== CLOUD START : sauvegarde Supabase (tables bot_guild_state + bot_images, voir bot_supabase.sql) ===== */
+// Variables Railway à définir : SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY (clé "service_role").
+let sb = null;
+try {
+  if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    sb = require('@supabase/supabase-js').createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+  }
+} catch (e) {
+  console.error('[cloud] module manquant : lance  npm i @supabase/supabase-js  —', e.message);
+}
+let cloudReady = false; // true seulement quand le chargement a réussi : on n'écrase JAMAIS le cloud avant
+const cloudSent = new Map(); // guildId -> dernier JSON envoyé (on n'envoie que ce qui a changé)
+let cloudTimer = null, cloudBusy = false, cloudAgain = false;
+
+async function cloudLoad() {
+  if (!sb) {
+    console.warn('[cloud] SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY absents : sauvegarde LOCALE seulement (perdue au redeploy).');
+    return;
+  }
+  try {
+    const cloud = {};
+    for (let from = 0; ; from += 500) {
+      const { data, error } = await sb.from('bot_guild_state').select('guild_id,data').range(from, from + 499);
+      if (error) throw error;
+      for (const r of data || []) cloud[r.guild_id] = r.data;
+      if (!data || data.length < 500) break;
+    }
+    const localOnly = Object.keys(db).filter((id) => !cloud[id]).length; // ancien data.json pas encore dans la base
+    db = { ...db, ...cloud }; // le cloud fait foi
+    await cloudLoadImages();
+    cloudReady = true;
+    console.log(`[cloud] ${Object.keys(cloud).length} serveur(s) chargé(s) depuis Supabase` + (localOnly ? ` · ${localOnly} serveur(s) local(aux) envoyé(s)` : ''));
+    save(); // remet le fichier local à jour et envoie ce qui manque dans Supabase
+  } catch (e) {
+    console.error('[cloud] chargement impossible — envoi vers Supabase DÉSACTIVÉ pour ne pas écraser tes données :', e?.message || e);
+  }
+}
+function cloudSchedule(ms = 4000) {
+  if (!sb || !cloudReady) return;
+  clearTimeout(cloudTimer);
+  cloudTimer = setTimeout(() => { cloudFlush().catch(() => {}); }, ms);
+}
+async function cloudFlush() {
+  if (!sb || !cloudReady) return;
+  if (cloudBusy) { cloudAgain = true; return; }
+  cloudBusy = true;
+  try {
+    const rows = [];
+    for (const [id, g] of Object.entries(db)) {
+      const json = JSON.stringify(g);
+      if (cloudSent.get(id) !== json) rows.push({ guild_id: id, data: g, updated_at: new Date().toISOString(), json });
+    }
+    for (let i = 0; i < rows.length; i += 20) {
+      const chunk = rows.slice(i, i + 20);
+      const { error } = await sb.from('bot_guild_state').upsert(chunk.map(({ json, ...r }) => r), { onConflict: 'guild_id' });
+      if (error) { console.error('[cloud] envoi échoué :', error.message); cloudSchedule(15000); break; }
+      for (const r of chunk) cloudSent.set(r.guild_id, r.json);
+    }
+  } catch (e) {
+    console.error('[cloud] envoi :', e?.message || e);
+    cloudSchedule(15000);
+  } finally {
+    cloudBusy = false;
+    if (cloudAgain) { cloudAgain = false; cloudSchedule(1000); }
+  }
+}
+async function cloudFlushNow() { // utilisé à l'arrêt du bot (redeploy)
+  clearTimeout(cloudTimer);
+  for (let i = 0; i < 40 && cloudBusy; i++) await new Promise((r) => setTimeout(r, 200));
+  await cloudFlush();
+}
+async function cloudLoadImages() {
+  const { data, error } = await sb.from('bot_images').select('name,data');
+  if (error) throw error;
+  fs.mkdirSync(IMG_DIR, { recursive: true });
+  for (const r of data || []) {
+    const f = path.join(IMG_DIR, path.basename(r.name));
+    if (!fs.existsSync(f)) fs.writeFileSync(f, Buffer.from(r.data, 'base64'));
+  }
+}
+async function cloudPutImage(name, buf, mime) {
+  if (!sb) return;
+  const { error } = await sb.from('bot_images').upsert({ name, mime: mime || 'image/png', data: buf.toString('base64'), updated_at: new Date().toISOString() }, { onConflict: 'name' });
+  if (error) console.error('[cloud] image :', error.message);
+}
+function cloudDelImage(name) {
+  if (!sb || !name) return;
+  sb.from('bot_images').delete().eq('name', name).then(({ error }) => { if (error) console.error('[cloud] image suppr :', error.message); });
+}
+for (const sig of ['SIGTERM', 'SIGINT']) {
+  process.on(sig, () => { cloudFlushNow().catch(() => {}).finally(() => process.exit(0)); });
+}
+/* ===== CLOUD END ===== */
 
 function getG(id) {
   db[id] ??= {
@@ -117,6 +222,7 @@ function getG(id) {
   g.disabledCommands ??= [];   // commandes retirées de Discord
   g.catPerms ??= {};            // clé de catégorie de commandes -> [roleIds]
   g.catAccess ??= {};           // id catégorie Discord -> { content: [roleIds], preview: [roleIds] }
+  g.vipLocks ??= {};           // idSalonVIP -> { roleId, lockChannelId, messageId, title, text, url, btn, sig }  (/salon-vip)
   g.pendingDm ??= {};          // "userId:config" -> { messageId, channelId, panelId }  (menu de MP en attente)
   // Migration : un seul rôle staff -> plusieurs rôles staff
   for (const c of Object.values(g.tickets)) {
@@ -344,7 +450,7 @@ const CMD_CATEGORIES = {
   annonces:    { label: '📢 Annonces & rôles', commands: ['annonce', 'autorole', 'role-arrivee', 'bienvenue'] },
   invitations: { label: '📈 Invitations (admin)', commands: ['invites-config', 'lien-invite', 'qui-a-invite', 'classement-invites', 'classement-invites-maj'] },
   tickets:     { label: '🎫 Tickets', commands: ['ticket', 'setup-paiement'] },
-  serveur:     { label: '⚙️ Serveur', commands: ['salon-commandes', 'salon-sanctions', 'membercount', 'acces-categorie'] },
+  serveur:     { label: '⚙️ Serveur', commands: ['salon-commandes', 'salon-sanctions', 'membercount', 'acces-categorie', 'salon-vip'] },
 };
 const CMD_CATEGORY = {};
 for (const [key, c] of Object.entries(CMD_CATEGORIES)) {
@@ -386,7 +492,7 @@ const GATE_EXEMPT = new Set([...PUBLIC_COMMANDS, 'salon-commandes']);
 // Renvoie l'ID du salon des commandes si la commande est utilisée au mauvais endroit, sinon null
 function wrongChannel(i) {
   const id = getG(i.guildId).commandChannelId;
-  if (!id || GATE_EXEMPT.has(i.commandName) || i.channelId === id) return null;
+  if (!id || isOwner(i) || GATE_EXEMPT.has(i.commandName) || i.channelId === id) return null; // le propriétaire (👑) n'est pas limité au salon des commandes
   if (!i.guild.channels.cache.has(id)) return null; // salon supprimé : plus de restriction
   return id;
 }
@@ -621,6 +727,29 @@ const commands = [
     .addRoleOption((o) => o.setName('role3').setDescription('Autre rôle qui aura accès au salon'))
     .addBooleanOption((o) =>
       o.setName('vider-roles').setDescription("Retirer d'abord tous les rôles ajoutés à la main"))
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .setDMPermission(false),
+
+  // ---------- Salons VIP ----------
+  new SlashCommandBuilder()
+    .setName('salon-vip')
+    .setDescription('Salon réservé aux VIP : les autres voient seulement un message pour acheter le VIP')
+    .addSubcommand((s) =>
+      s.setName('ajouter').setDescription('Réserver un salon à un rôle VIP (ou modifier le message affiché aux autres)')
+        .addChannelOption((o) =>
+          o.setName('salon').setDescription('Salon réservé aux VIP')
+            .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(true))
+        .addRoleOption((o) => o.setName('role').setDescription('Rôle VIP qui voit le vrai salon').setRequired(true))
+        .addStringOption((o) => o.setName('titre').setDescription('Titre du message affiché aux autres').setMaxLength(200))
+        .addStringOption((o) => o.setName('message').setDescription('Texte affiché aux autres (\\n pour un retour à la ligne)').setMaxLength(1500))
+        .addStringOption((o) => o.setName('lien').setDescription('Lien du bouton « Acheter le VIP » (https://...)'))
+        .addStringOption((o) => o.setName('bouton-texte').setDescription('Texte du bouton (défaut : Acheter le VIP)').setMaxLength(80)))
+    .addSubcommand((s) =>
+      s.setName('retirer').setDescription('Remettre un salon normal (supprime le salon verrou)')
+        .addChannelOption((o) =>
+          o.setName('salon').setDescription('Le salon réservé aux VIP')
+            .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(true)))
+    .addSubcommand((s) => s.setName('liste').setDescription('Voir les salons VIP'))
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setDMPermission(false),
 
@@ -1099,6 +1228,38 @@ const commands = [
       s.setName('raison-retirer').setDescription('Retirer une raison')
         .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true))
         .addStringOption((o) => o.setName('label').setDescription('Raison à retirer').setAutocomplete(true).setRequired(true)))
+    // ----- Sous-panels : un choix du menu qui ouvre un autre menu (moyen de paiement, etc.) -----
+    .addSubcommand((s) =>
+      s.setName('sous-panel-ajouter').setDescription('Ajouter une option dans le sous-panel d\'un choix (le crée si besoin)')
+        .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true))
+        .addStringOption((o) => o.setName('parent').setDescription('Choix du menu qui ouvrira le sous-panel').setAutocomplete(true).setRequired(true))
+        .addStringOption((o) => o.setName('label').setDescription('Nom de l\'option (ex : PayPal)').setMaxLength(100).setRequired(true))
+        .addStringOption((o) => o.setName('emoji').setDescription('Emoji : 🎮 ou emoji du serveur'))
+        .addStringOption((o) => o.setName('description').setDescription('Description courte').setMaxLength(100))
+        .addChannelOption((o) =>
+          o.setName('categorie').setDescription('Catégorie du serveur où les tickets de cette option s\'ouvrent (sinon celle du parent)')
+            .addChannelTypes(ChannelType.GuildCategory))
+        .addRoleOption((o) => o.setName('role-staff').setDescription('Rôle staff propre à cette option (sinon celui du parent)')))
+    .addSubcommand((s) =>
+      s.setName('sous-panel-modifier').setDescription('Modifier une option, ou le titre / texte / menu de son sous-panel')
+        .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true))
+        .addStringOption((o) => o.setName('option').setDescription('Choix à modifier').setAutocomplete(true).setRequired(true))
+        .addStringOption((o) => o.setName('nouveau-nom').setDescription('Nouveau nom').setMaxLength(100))
+        .addStringOption((o) => o.setName('emoji').setDescription('Nouvel emoji (écris "aucun" pour le retirer)'))
+        .addStringOption((o) => o.setName('description').setDescription('Nouvelle description').setMaxLength(100))
+        .addChannelOption((o) =>
+          o.setName('categorie').setDescription('Nouvelle catégorie du serveur').addChannelTypes(ChannelType.GuildCategory))
+        .addRoleOption((o) => o.setName('role-staff').setDescription('Nouveau rôle staff propre à ce choix'))
+        .addStringOption((o) => o.setName('titre').setDescription('Titre du sous-panel ouvert par ce choix').setMaxLength(200))
+        .addStringOption((o) => o.setName('texte').setDescription('Texte du sous-panel (\\n pour un retour à la ligne)').setMaxLength(1500))
+        .addStringOption((o) => o.setName('placeholder').setDescription('Texte du menu du sous-panel').setMaxLength(100)))
+    .addSubcommand((s) =>
+      s.setName('sous-panel-retirer').setDescription('Retirer un choix (et tout ce qu\'il contient)')
+        .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true))
+        .addStringOption((o) => o.setName('option').setDescription('Choix à retirer').setAutocomplete(true).setRequired(true)))
+    .addSubcommand((s) =>
+      s.setName('sous-panel-liste').setDescription('Voir tous les menus et sous-panels d\'une configuration')
+        .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true)))
     // ----- Ouverture par message privé (menu dans le MP) -----
     .addSubcommand((s) =>
       s.setName('mp-activer').setDescription("Activer / désactiver l'ouverture des tickets par message privé")
@@ -1344,6 +1505,55 @@ function panelRow(cfg, { button = false, label = null, style = 'Primary' } = {})
     new ButtonBuilder().setCustomId(`tk_open:${cfg.name}`).setLabel(label || 'Ouvrir un ticket').setEmoji('🎫').setStyle(btnStyle(style)));
 }
 
+/* ---------- Sous-panels : un choix du menu qui ouvre un autre menu ---------- */
+// Chaque choix (du menu du panel OU du menu du MP) peut avoir des "children" = un sous-menu.
+// Un sous-menu peut lui-même contenir des choix qui ouvrent un autre sous-menu : aucune limite de panels.
+// Un choix SANS children ouvre le ticket. Un sous-choix hérite du rôle staff et de la catégorie de son parent.
+const BACK = '__back';
+
+function* walkChoices(list, trail = []) {
+  for (const n of list || []) {
+    const t = [...trail, n];
+    yield { node: n, trail: t };
+    yield* walkChoices(n.children, t);
+  }
+}
+function findChoice(cfg, id) {
+  for (const list of [cfg.reasons, cfg.dmChoices]) {
+    for (const x of walkChoices(list)) if (x.node.id === id) return { ...x, list };
+  }
+  return null;
+}
+const trailLabel = (trail) => trail.map((n) => n.label).join(' › ');
+
+function choiceOptions(list, withBack) {
+  const opts = list.slice(0, withBack ? 24 : 25).map((r) => {
+    const o = { label: r.label.slice(0, 100), value: r.id };
+    if (r.description) o.description = r.description.slice(0, 100);
+    const e = parseEmoji(r.emoji);
+    if (e) o.emoji = e;
+    return o;
+  });
+  if (withBack) opts.push({ label: 'Retour', value: BACK, emoji: { name: '↩️' } });
+  return opts;
+}
+
+// Message (visible uniquement par celui qui a cliqué) avec le sous-menu d'un choix. node = null : menu principal.
+function buildSubMessage(cfg, node, panelId) {
+  const list = node ? node.children : cfg.reasons;
+  const embed = new EmbedBuilder()
+    .setTitle((node ? (node.subTitle || node.label) : '🎫 Ouvrir un ticket').slice(0, 256))
+    .setDescription((node
+      ? (node.subDesc || 'Choisis une option dans le menu ci-dessous pour ouvrir ton ticket.')
+      : panelDesc(cfg)).slice(0, 4096));
+  const row = new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId(`tk_sub:${cfg.name}:${node ? node.id : 'root'}:${panelId || '0'}`)
+      .setPlaceholder(((node ? node.subPlaceholder : cfg.placeholder) || 'Choisir une option...').slice(0, 150))
+      .addOptions(choiceOptions(list, !!node)));
+  return { content: '', embeds: [embed], components: [row] };
+}
+
 // Met à jour tous les panels déjà envoyés (catégories ajoutées / modifiées / retirées, nouveau code du bot...)
 async function refreshPanels(guild, cfgName) {
   const d = getG(guild.id);
@@ -1359,11 +1569,14 @@ async function refreshPanels(guild, cfgName) {
       const row = panelRow(cfg, { button: p.button, label: p.btnLabel, style: p.btnStyle });
       const desc = p.customDesc ? null : panelDesc(cfg, p.button);
       const s = sig({ row: row.toJSON(), desc });
-      if (p.sig === s) continue;
+      const emb = msg.embeds[0];
+      const wrongColor = !!emb && emb.color !== NEON_PURPLE;
+      if (p.sig === s && !wrongColor) continue;
 
       const payload = { components: [row] };
-      if (desc && msg.embeds[0] && msg.embeds[0].description !== desc) {
-        payload.embeds = [EmbedBuilder.from(msg.embeds[0]).setDescription(desc)];
+      if (emb && ((desc && emb.description !== desc) || wrongColor)) {
+        const e = EmbedBuilder.from(emb);
+        payload.embeds = [desc ? e.setDescription(desc) : e];
       }
       try {
         await msg.edit(payload);
@@ -1427,19 +1640,25 @@ async function createTicket(guild, user, cfgName, reasonId, panel) {
   const cfg = data.tickets[cfgName];
   if (!cfg) return { error: "❌ Cette configuration n'existe plus." };
 
-  const reason = [...cfg.reasons, ...(cfg.dmChoices || [])].find((r) => r.id === reasonId);
+  // Le choix peut être dans un sous-panel : il hérite du staff et de la catégorie de son parent s'il n'a pas les siens
+  const found = reasonId ? findChoice(cfg, reasonId) : null;
+  const trail = found?.trail || [];
+  const inherit = (key, ok) => {
+    for (let n = trail.length - 1; n >= 0; n--) if (trail[n][key] && ok(trail[n][key])) return trail[n][key];
+    return null;
+  };
+  const reason = found ? { ...found.node, label: trailLabel(trail) } : null;
 
-  // Rôles staff : ceux du choix (s'il y en a un) sinon ceux de la configuration
-  const staffRoles = (reason?.staffRoleId ? [reason.staffRoleId] : cfg.staffRoles)
+  // Rôles staff : ceux du choix (ou de son parent) sinon ceux de la configuration
+  const staffRole = inherit('staffRoleId', (id) => guild.roles.cache.has(id));
+  const staffRoles = (staffRole ? [staffRole] : cfg.staffRoles)
     .filter((id) => guild.roles.cache.has(id));
   if (!staffRoles.length) {
     return { error: "❌ Aucun rôle staff valide n'est configuré pour ce ticket. Préviens un administrateur." };
   }
 
   // Catégorie du serveur liée au choix du menu (sinon celle de la configuration)
-  const parentId = reason?.categoryId && guild.channels.cache.has(reason.categoryId)
-    ? reason.categoryId
-    : cfg.categoryId;
+  const parentId = inherit('categoryId', (id) => guild.channels.cache.has(id)) || cfg.categoryId;
 
   cfg.counter = (cfg.counter || 0) + 1;
   save();
@@ -1513,9 +1732,10 @@ const dmVars = (txt, { guild, user, cfg, channel, choice }) =>
 // ----- Image du MP (enregistrée sur le disque : les liens Discord expirent) -----
 const dmImagePath = (cfg) => (cfg.dmImage ? path.join(IMG_DIR, cfg.dmImage) : null);
 
-function removeDmImage(cfg) {
+function removeDmImage(cfg, keepCloud = false) {
   const p = dmImagePath(cfg);
   if (p) { try { fs.rmSync(p, { force: true }); } catch { /* rien */ } }
+  if (!keepCloud) cloudDelImage(cfg.dmImage);
   cfg.dmImage = null;
 }
 
@@ -1525,42 +1745,41 @@ async function saveDmImage(guildId, cfg, att) {
   if (!res.ok) throw new Error(`téléchargement impossible (${res.status})`);
   const ext = (att.name || '').match(/\.(png|jpe?g|gif|webp)$/i)?.[0]?.toLowerCase() || '.png';
   const file = `${guildId}-${cfg.name}-mp${ext}`;
-  removeDmImage(cfg);
+  const old = cfg.dmImage;
+  removeDmImage(cfg, true);
   fs.mkdirSync(IMG_DIR, { recursive: true });
-  fs.writeFileSync(path.join(IMG_DIR, file), Buffer.from(await res.arrayBuffer()));
+  const buf = Buffer.from(await res.arrayBuffer());
+  fs.writeFileSync(path.join(IMG_DIR, file), buf);
   cfg.dmImage = file;
+  await cloudPutImage(file, buf, att.contentType); // copie dans Supabase
+  if (old && old !== file) cloudDelImage(old);
 }
 
-// Message + menu envoyés en MP
-function buildDmMessage(guild, user, cfg) {
+// Message + menu envoyés en MP (node = un choix qui ouvre un sous-panel ; withFiles = false quand on modifie un MP déjà envoyé)
+function buildDmMessage(guild, user, cfg, node = null, withFiles = true) {
   const ctx = { guild, user, cfg };
   const embed = new EmbedBuilder()
     .setColor(parseColor(cfg.dmTexts?.color, '#5865F2'))
-    .setTitle(dmVars(dmText(cfg, 'title'), ctx).slice(0, 256))
-    .setDescription(dmVars(dmText(cfg, 'description'), ctx).slice(0, 4096))
+    .setTitle(dmVars(node ? (node.subTitle || node.label) : dmText(cfg, 'title'), ctx).slice(0, 256))
+    .setDescription(dmVars(node ? (node.subDesc || 'Choisis une option dans le menu ci-dessous.') : dmText(cfg, 'description'), ctx).slice(0, 4096))
     .setTimestamp();
 
   const files = [];
   const p = dmImagePath(cfg);
   if (p && fs.existsSync(p)) {
     const name = 'image' + path.extname(p);
-    files.push(new AttachmentBuilder(p, { name }));
+    if (withFiles) files.push(new AttachmentBuilder(p, { name }));
     embed.setImage(`attachment://${name}`);
   }
 
+  const list = node ? node.children || [] : cfg.dmChoices;
   const components = [];
-  if (cfg.dmChoices.length) {
+  if (list.length) {
     components.push(new ActionRowBuilder().addComponents(
       new StringSelectMenuBuilder()
-        .setCustomId(`tk_dm:${cfg.name}:${guild.id}`)
-        .setPlaceholder((cfg.dmTexts?.placeholder || 'Choisir une catégorie...').slice(0, 150))
-        .addOptions(cfg.dmChoices.slice(0, 25).map((r) => {
-          const o = { label: r.label, value: r.id };
-          if (r.description) o.description = r.description;
-          const e = parseEmoji(r.emoji);
-          if (e) o.emoji = e;
-          return o;
-        }))));
+        .setCustomId(`tk_dm:${cfg.name}:${guild.id}${node ? ':' + node.id : ''}`)
+        .setPlaceholder(((node ? node.subPlaceholder : cfg.dmTexts?.placeholder) || 'Choisir une catégorie...').slice(0, 150))
+        .addOptions(choiceOptions(list, !!node))));
   }
   return { embeds: [embed], files, components };
 }
@@ -1599,7 +1818,7 @@ async function startDmFlow(i, cfg, panel) {
 
 // Le membre choisit dans le menu du MP
 async function dmChoose(i) {
-  const [, cfgName, guildId] = i.customId.split(':');
+  const [, cfgName, guildId, nodeId] = i.customId.split(':');
   const guild = client.guilds.cache.get(guildId);
   const data = guild ? getG(guildId) : null;
   const cfg = data?.tickets[cfgName];
@@ -1608,10 +1827,20 @@ async function dmChoose(i) {
 
   // Usage unique : l'enregistrement est supprimé AVANT toute opération asynchrone
   // (double clic ou ancien menu = aucun ticket créé).
-  if (!cfg || !p || p.messageId !== i.message.id) {
+  if (!cfg || !p || p.messageId !== i.message.id || (nodeId && !findChoice(cfg, nodeId))) {
     const txt = cfg ? dmText(cfg, 'invalid') : DM_DEFAULT.invalid;
     return i.update({ content: txt, embeds: [], components: [], attachments: [] });
   }
+  // Navigation dans les sous-panels : le MP reste actif, seul le menu change
+  const cur = nodeId ? findChoice(cfg, nodeId) : null;
+  const list = cur ? cur.node.children || [] : cfg.dmChoices;
+  const v = i.values[0];
+  if (v === BACK && cur) {
+    return i.update(buildDmMessage(guild, i.user, cfg, cur.trail[cur.trail.length - 2] || null, false));
+  }
+  const next = list.find((r) => r.id === v);
+  if (next?.children?.length) return i.update(buildDmMessage(guild, i.user, cfg, next, false));
+
   delete data.pendingDm[key];
   save();
   await i.deferUpdate();
@@ -1625,7 +1854,7 @@ async function dmChoose(i) {
   const member = await guild.members.fetch(i.user.id).catch(() => null);
   if (!member) return reply("❌ Impossible d'ouvrir le ticket : tu as quitté le serveur.");
   if (data.muted[i.user.id]) return reply('❌ Tu ne peux pas ouvrir de ticket pendant ton mute.');
-  const choice = cfg.dmChoices.find((r) => r.id === i.values[0]);
+  const choice = next;
   if (!choice) return reply("❌ Ce choix n'existe plus. Reclique sur le panel du serveur.");
 
   const panel = cfg.panels.find((x) => x.messageId === p.panelId);
@@ -1657,10 +1886,43 @@ async function openTicket(i, cfgName, reasonId) {
   // Mode MP : on envoie le menu en message privé
   if (cfg.dm) return startDmFlow(i, cfg, panel);
 
+  // Un choix qui contient un sous-panel : on affiche un second menu (visible uniquement par celui qui a cliqué)
+  const picked = reasonId ? cfg.reasons.find((x) => x.id === reasonId) : null;
+  if (picked?.children?.length) return i.editReply(buildSubMessage(cfg, picked, panel?.messageId));
+
   // Mode normal : le ticket s'ouvre directement
   const r = await createTicket(i.guild, i.user, cfgName, reasonId, panel);
   if (r.error) return i.editReply(r.error);
   await i.editReply(`✅ Ton ticket a été créé : <#${r.channel.id}>`);
+}
+
+// Le membre choisit dans un sous-menu (mode normal : message visible par lui seul)
+async function subChoose(i) {
+  const [, cfgName, nodeId, panelId] = i.customId.split(':');
+  const data = getG(i.guildId);
+  const cfg = data.tickets[cfgName];
+  const dead = (content) => i.update({ content, embeds: [], components: [] });
+  if (!cfg) return dead("❌ Cette configuration n'existe plus.");
+
+  const cur = nodeId === 'root' ? null : findChoice(cfg, nodeId);
+  if (nodeId !== 'root' && !cur) return dead("❌ Ce menu n'est plus valide. Reclique sur le panel du serveur.");
+  const list = cur ? cur.node.children || [] : cfg.reasons;
+  const v = i.values[0];
+
+  if (v === BACK && cur) {
+    return i.update(buildSubMessage(cfg, cur.trail[cur.trail.length - 2] || null, panelId));
+  }
+  const choice = list.find((x) => x.id === v);
+  if (!choice) return dead("❌ Ce choix n'existe plus. Reclique sur le panel du serveur.");
+  if (choice.children?.length) return i.update(buildSubMessage(cfg, choice, panelId));
+
+  // Choix final : on crée le ticket
+  await i.deferUpdate();
+  const done = (content) => i.editReply({ content, embeds: [], components: [] });
+  if (data.muted[i.user.id]) return done('❌ Tu ne peux pas ouvrir de ticket pendant ton mute.');
+  const panel = cfg.panels.find((p) => p.messageId === panelId);
+  const r = await createTicket(i.guild, i.user, cfgName, choice.id, panel);
+  return done(r.error || `✅ Ton ticket a été créé : <#${r.channel.id}>`);
 }
 
 // Le staff d'un ticket = les rôles enregistrés à son ouverture (ou ceux de la config pour les anciens tickets)
@@ -2081,6 +2343,119 @@ async function syncCategoryAccess(guild) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Salons VIP                                                         */
+/* ------------------------------------------------------------------ */
+// Discord ne peut pas montrer un message différent à chaque membre dans un même salon.
+// Solution : le VRAI salon n'est visible que par le rôle VIP, et le bot crée à côté un salon "verrou"
+// (🔒-nom) visible par tous les AUTRES, qui ne contient qu'un seul message : « achète le VIP ».
+// Chaque membre ne voit donc qu'un seul des deux salons, au même endroit de la liste.
+const VIP_TEXT = 'Ce salon est réservé aux membres **VIP**.\nAchète le VIP pour y avoir accès !';
+
+function vipMessage(v) {
+  const embed = new EmbedBuilder()
+    .setTitle((v.title || '🔒 Salon réservé aux VIP').slice(0, 256))
+    .setDescription((v.text || VIP_TEXT).slice(0, 4096));
+  const payload = { embeds: [embed], components: [] };
+  if (isUrl(v.url)) {
+    payload.components = [new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(v.url.trim())
+        .setLabel((v.btn || 'Acheter le VIP').slice(0, 80)).setEmoji('💎'))];
+  }
+  return payload;
+}
+
+async function applyVipLock(guild, realId) {
+  const d = getG(guild.id);
+  const v = d.vipLocks[realId];
+  if (!v) return false;
+  const P = PermissionFlagsBits;
+  const real = await guild.channels.fetch(realId).catch(() => null);
+  const role = guild.roles.cache.get(v.roleId);
+  if (!real || !role) { // salon ou rôle supprimé : on nettoie
+    const gone = v.lockChannelId && guild.channels.cache.get(v.lockChannelId);
+    delete d.vipLocks[realId];
+    save();
+    if (gone) await gone.delete('Salon VIP supprimé').catch(() => {});
+    return false;
+  }
+
+  // Vrai salon : invisible pour tout le monde sauf le rôle VIP (et le bot)
+  await real.permissionOverwrites.edit(guild.id, { ViewChannel: false }, { reason: 'Salon VIP' });
+  await real.permissionOverwrites.edit(role.id, { ViewChannel: true, ReadMessageHistory: true }, { reason: 'Salon VIP' });
+  await real.permissionOverwrites.edit(client.user.id, {
+    ViewChannel: true, SendMessages: true, ReadMessageHistory: true, EmbedLinks: true,
+  }, { reason: 'Salon VIP' });
+
+  // Salon "verrou" : visible par tous sauf le rôle VIP, personne ne peut y écrire
+  const overwrites = [
+    {
+      id: guild.id,
+      allow: [P.ViewChannel, P.ReadMessageHistory],
+      deny: [P.SendMessages, P.AddReactions, P.CreatePublicThreads, P.CreatePrivateThreads, P.SendMessagesInThreads],
+    },
+    { id: role.id, deny: [P.ViewChannel] },
+    { id: client.user.id, allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.EmbedLinks, P.ManageChannels, P.ManageMessages] },
+  ];
+  const lockName = `🔒-${real.name}`.slice(0, 100);
+  let lock = v.lockChannelId ? await guild.channels.fetch(v.lockChannelId).catch(() => null) : null;
+  if (!lock) {
+    lock = await guild.channels.create({
+      name: lockName,
+      type: ChannelType.GuildText,
+      parent: real.parentId,
+      topic: 'Salon réservé aux VIP.',
+      permissionOverwrites: overwrites,
+      reason: 'Salon VIP',
+    });
+    await lock.setPosition(real.position).catch(() => {});
+    v.lockChannelId = lock.id;
+    v.messageId = null;
+    v.sig = null;
+    save();
+  } else {
+    await lock.permissionOverwrites.set(overwrites, 'Salon VIP').catch(console.error);
+    if (lock.name !== lockName) await lock.setName(lockName).catch(() => {});
+  }
+
+  // Le message unique du salon verrou (renvoyé s'il a été supprimé, modifié si les textes ont changé)
+  const s = sig({ t: v.title, x: v.text, u: v.url, b: v.btn });
+  const { msg } = v.messageId ? await fetchMsg(guild, lock.id, v.messageId) : { msg: null };
+  if (!msg) {
+    const sent = await lock.send(vipMessage(v));
+    v.messageId = sent.id;
+    v.sig = s;
+    save();
+  } else if (v.sig !== s) {
+    await msg.edit(vipMessage(v));
+    v.sig = s;
+    save();
+  }
+  return true;
+}
+
+async function removeVipLock(guild, realId) {
+  const d = getG(guild.id);
+  const v = d.vipLocks[realId];
+  if (!v) return false;
+  delete d.vipLocks[realId];
+  save();
+  const real = await guild.channels.fetch(realId).catch(() => null);
+  if (real) {
+    await real.permissionOverwrites.edit(guild.id, { ViewChannel: null }).catch(() => {});
+    await real.permissionOverwrites.edit(v.roleId, { ViewChannel: null, ReadMessageHistory: null }).catch(() => {});
+  }
+  const lock = v.lockChannelId && await guild.channels.fetch(v.lockChannelId).catch(() => null);
+  if (lock) await lock.delete('Salon VIP retiré').catch(() => {});
+  return true;
+}
+
+async function syncVipLocks(guild) {
+  for (const id of Object.keys(getG(guild.id).vipLocks)) {
+    await applyVipLock(guild, id).catch((e) => console.error('[salon vip]', e.message));
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /*  Mise à jour automatique de TOUS les systèmes                       */
 /* ------------------------------------------------------------------ */
 // Lancée à chaque démarrage du bot : plus rien à renvoyer à la main après une mise à jour du code
@@ -2088,6 +2463,7 @@ async function refreshGuild(guild) {
   const steps = [
     ['salon commandes', () => syncCommandChannel(guild)],
     ['accès catégories', () => syncCategoryAccess(guild)],
+    ['salons VIP', () => syncVipLocks(guild)],
     ['panels tickets', () => refreshPanels(guild)],
     ['autoroles', () => syncAutoroles(guild)],
     ['giveaways', () => refreshGiveaways(guild)],
@@ -2183,6 +2559,7 @@ const HELP = [
     '`/ticket config-creer` · `config-liste` · `config-supprimer`',
     '`/ticket staff-ajouter` · `staff-retirer`',
     '`/ticket raison-ajouter` · `raison-modifier` · `raison-retirer` — catégories du menu du panel (emoji perso + catégorie du serveur liée)',
+    '`/ticket sous-panel-ajouter` · `sous-panel-modifier` · `sous-panel-retirer` · `sous-panel-liste` — un choix du menu qui ouvre un autre menu (moyen de paiement...), sans limite',
     '`/ticket panel` — envoyer le panel (bannière, menu ou bouton coloré, sans texte possible) dans un salon',
     "`/ticket message` — modifier le message d'ouverture des tickets (par panel ou pour toute la config)",
     '`/ticket bouton` — changer la couleur / le texte du bouton d\'un panel déjà envoyé',
@@ -2196,6 +2573,7 @@ const HELP = [
   ] },
   { title: '⚙️ Serveur & accès', level: 'full', lines: [
     '`/salon-commandes` — salon privé des commandes (et ses rôles)',
+    '`/salon-vip ajouter` · `retirer` · `liste` — salon réservé à un rôle VIP : les autres voient un seul message « achète le VIP »',
     '`/salon-sanctions` — salon par défaut des annonces ban / mute',
     '`/membercount` — salon vocal avec le nombre de membres',
     '`/acces-categorie` — qui voit le contenu / seulement les salons d’une catégorie',
@@ -2248,6 +2626,70 @@ const handlers = {
       embed.setDescription(`Les commandes s'utilisent dans <#${cc}>.`);
     }
     return i.reply({ embeds: [embed], flags: EPH });
+  },
+
+  /* ---------- /salon-vip ---------- */
+  async 'salon-vip'(i) {
+    const d = getG(i.guildId);
+    const sub = i.options.getSubcommand();
+
+    if (sub === 'liste') {
+      const lines = Object.entries(d.vipLocks).map(([id, v]) =>
+        `🔒 <#${id}> — VIP : <@&${v.roleId}> — verrou : ${v.lockChannelId ? `<#${v.lockChannelId}>` : 'à recréer'}`);
+      return i.reply({
+        content: lines.length ? lines.join('\n').slice(0, 1990) : 'Aucun salon VIP. Utilise `/salon-vip ajouter`.',
+        flags: EPH, allowedMentions: { parse: [] },
+      });
+    }
+
+    const ch = i.options.getChannel('salon', true);
+
+    if (sub === 'retirer') {
+      if (!d.vipLocks[ch.id]) return i.reply({ content: "❌ Ce salon n'est pas un salon VIP.", flags: EPH });
+      await i.deferReply({ flags: EPH });
+      await removeVipLock(i.guild, ch.id);
+      return i.editReply(`🗑️ <#${ch.id}> n'est plus réservé aux VIP (salon verrou supprimé, permissions de visibilité retirées).`);
+    }
+
+    // ajouter (ou modifier)
+    const role = i.options.getRole('role', true);
+    if (role.id === i.guild.id) return i.reply({ content: '❌ Choisis un vrai rôle VIP (pas @everyone).', flags: EPH });
+    if (Object.values(d.vipLocks).some((v) => v.lockChannelId === ch.id)) {
+      return i.reply({ content: "❌ Ce salon est un salon verrou : choisis le vrai salon VIP.", flags: EPH });
+    }
+    const url = (i.options.getString('lien') || '').trim();
+    if (url && !isUrl(url)) return i.reply({ content: '❌ Lien invalide : il doit commencer par https://', flags: EPH });
+
+    await i.deferReply({ flags: EPH });
+    const old = d.vipLocks[ch.id];
+    const raw = i.options.getString('message');
+    d.vipLocks[ch.id] = {
+      roleId: role.id,
+      lockChannelId: old?.lockChannelId || null,
+      messageId: old?.messageId || null,
+      title: i.options.getString('titre') ?? old?.title ?? null,
+      text: raw !== null ? raw.replace(/\\n/g, '\n') : (old?.text ?? null),
+      url: url || old?.url || null,
+      btn: i.options.getString('bouton-texte') ?? old?.btn ?? null,
+      sig: old?.sig || null,
+    };
+    save();
+    try {
+      await applyVipLock(i.guild, ch.id);
+    } catch (e) {
+      console.error(e);
+      if (!old) delete d.vipLocks[ch.id];
+      save();
+      return i.editReply('❌ Impossible de configurer le salon. Il me faut **Gérer les salons** et **Gérer les rôles**, avec mon rôle au-dessus des autres.');
+    }
+    const v = d.vipLocks[ch.id];
+    return i.editReply({
+      content:
+        `✅ <#${ch.id}> est réservé à <@&${role.id}>.\n` +
+        `• Les autres membres ne voient pas ce salon : ils voient <#${v.lockChannelId}> avec un seul message pour acheter le VIP${v.url ? ' (bouton avec ton lien)' : ''}.\n` +
+        '• Pour changer le message, refais `/salon-vip ajouter` avec le même salon.',
+      allowedMentions: { parse: [] },
+    });
   },
 
   /* ---------- /salon-commandes ---------- */
@@ -3581,6 +4023,98 @@ const handlers = {
       });
     }
 
+    /* ----- Sous-panels ----- */
+    if (sub === 'sous-panel-ajouter') {
+      const found = findChoice(cfg, i.options.getString('parent', true));
+      if (!found) return i.reply({ content: '❌ Choix parent introuvable. Choisis-le dans la liste proposée.', flags: EPH });
+      const parent = found.node;
+      parent.children ??= [];
+      if (parent.children.length >= 24) {
+        return i.reply({ content: '❌ 24 options maximum par sous-panel (une place est gardée pour « Retour »).', flags: EPH });
+      }
+      const staff = i.options.getRole('role-staff');
+      if (staff && staff.id === i.guild.id) return i.reply({ content: '❌ Tu ne peux pas choisir @everyone.', flags: EPH });
+      const emojiRaw = (i.options.getString('emoji') || '').trim();
+      if (emojiRaw && !parseEmoji(emojiRaw)) {
+        return i.reply({ content: '❌ Emoji invalide. Utilise un emoji normal ou un emoji du serveur.', flags: EPH });
+      }
+      const cat = i.options.getChannel('categorie');
+      parent.children.push({
+        id: crypto.randomUUID().slice(0, 8),
+        label: i.options.getString('label', true).slice(0, 100),
+        description: (i.options.getString('description') || '').slice(0, 100),
+        emoji: emojiRaw || null,
+        staffRoleId: staff?.id || null,
+        categoryId: cat?.id || null,
+        children: [],
+      });
+      save();
+      return i.reply({
+        content: `✅ Option ajoutée dans le sous-panel de **${trailLabel(found.trail)}** (${parent.children.length} au total). ` +
+          `Choisir « ${parent.label} » ouvre maintenant ce sous-menu au lieu de créer un ticket.` +
+          `${cat ? ` Tickets créés dans <#${cat.id}>.` : ''}${staff ? ` Staff : <@&${staff.id}>.` : ''}\n` +
+          'Pour mettre une option dans un autre sous-panel, refais la commande en choisissant cette option comme parent.',
+        flags: EPH, allowedMentions: { parse: [] },
+      });
+    }
+
+    if (sub === 'sous-panel-modifier') {
+      const found = findChoice(cfg, i.options.getString('option', true));
+      if (!found) return i.reply({ content: '❌ Choix introuvable. Choisis-le dans la liste proposée.', flags: EPH });
+      const r = found.node;
+      const emojiRaw = (i.options.getString('emoji') || '').trim();
+      if (emojiRaw) {
+        if (emojiRaw.toLowerCase() === 'aucun') r.emoji = null;
+        else if (!parseEmoji(emojiRaw)) return i.reply({ content: '❌ Emoji invalide.', flags: EPH });
+        else r.emoji = emojiRaw;
+      }
+      const nom = i.options.getString('nouveau-nom');
+      if (nom) r.label = nom.slice(0, 100);
+      const desc = i.options.getString('description');
+      if (desc !== null) r.description = desc.slice(0, 100);
+      const cat = i.options.getChannel('categorie');
+      if (cat) r.categoryId = cat.id;
+      const staff = i.options.getRole('role-staff');
+      if (staff && staff.id !== i.guild.id) r.staffRoleId = staff.id;
+      const titre = i.options.getString('titre');
+      if (titre !== null) r.subTitle = titre;
+      const texte = i.options.getString('texte');
+      if (texte !== null) r.subDesc = texte.replace(/\\n/g, '\n');
+      const ph = i.options.getString('placeholder');
+      if (ph !== null) r.subPlaceholder = ph;
+      save();
+      await i.reply({ content: '✅ Choix modifié.', flags: EPH });
+      if (found.list === cfg.reasons) return refreshPanels(i.guild, cfgName).catch(console.error);
+      return;
+    }
+
+    if (sub === 'sous-panel-retirer') {
+      const found = findChoice(cfg, i.options.getString('option', true));
+      if (!found) return i.reply({ content: '❌ Choix introuvable. Choisis-le dans la liste proposée.', flags: EPH });
+      const parent = found.trail[found.trail.length - 2];
+      const arr = parent ? parent.children : found.list;
+      arr.splice(arr.indexOf(found.node), 1);
+      save();
+      await i.reply({ content: `🗑️ **${trailLabel(found.trail)}** retiré.`, flags: EPH });
+      if (!parent && found.list === cfg.reasons) return refreshPanels(i.guild, cfgName).catch(console.error);
+      return;
+    }
+
+    if (sub === 'sous-panel-liste') {
+      const lines = [];
+      const draw = (list, depth) => {
+        for (const n of list || []) {
+          lines.push(`${'\u2003'.repeat(depth)}${depth ? '↳' : '•'} ${n.label}${n.children?.length ? ` — sous-panel (${n.children.length})` : ''}`);
+          draw(n.children, depth + 1);
+        }
+      };
+      lines.push(`**📋 Menu du panel de ${cfgName}**`);
+      if (cfg.reasons.length) draw(cfg.reasons, 0); else lines.push('_vide_');
+      lines.push('', '**📩 Menu du MP**');
+      if (cfg.dmChoices.length) draw(cfg.dmChoices, 0); else lines.push('_vide_');
+      return i.reply({ content: lines.join('\n').slice(0, 1990), flags: EPH });
+    }
+
     if (sub === 'raison-ajouter') {
       if (cfg.reasons.length >= 25) return i.reply({ content: '❌ 25 catégories maximum par configuration.', flags: EPH });
       const staff = i.options.getRole('role-staff');
@@ -4006,6 +4540,15 @@ async function autocomplete(i) {
         .filter((o) => o.name.toLowerCase().includes(q))
         .slice(0, 25));
   }
+  if (f.name === 'parent' || f.name === 'option') {
+    // Tous les choix d'une configuration, sous-panels compris (menu du panel + menu du MP)
+    const cfg = d.tickets[i.options.getString('config')];
+    const out = [];
+    for (const [prefix, list] of [['', cfg?.reasons], ['MP · ', cfg?.dmChoices]]) {
+      for (const x of walkChoices(list)) out.push({ name: (prefix + trailLabel(x.trail)).slice(0, 100), value: x.node.id });
+    }
+    return i.respond(out.filter((o) => o.name.toLowerCase().includes(q)).slice(0, 25));
+  }
   if (f.name === 'label') {
     const cfg = d.tickets[i.options.getString('config')];
     return i.respond(
@@ -4161,6 +4704,22 @@ client.on(Events.ChannelDelete, (ch) => {
     d.commandChannelId = null;
     save();
   }
+  // Salon VIP supprimé : on supprime aussi son salon verrou
+  if (d.vipLocks[ch.id]) {
+    const lockId = d.vipLocks[ch.id].lockChannelId;
+    delete d.vipLocks[ch.id];
+    save();
+    ch.guild.channels.cache.get(lockId)?.delete('Salon VIP supprimé').catch(() => {});
+    return;
+  }
+  // Salon verrou supprimé à la main : on le recrée (le vrai salon reste caché en attendant)
+  const key = Object.keys(d.vipLocks).find((k) => d.vipLocks[k].lockChannelId === ch.id);
+  if (key) {
+    d.vipLocks[key].lockChannelId = null;
+    d.vipLocks[key].messageId = null;
+    save();
+    applyVipLock(ch.guild, key).catch(console.error);
+  }
 });
 
 client.on(Events.GuildMemberAdd, async (member) => {
@@ -4243,6 +4802,7 @@ client.on(Events.InteractionCreate, async (i) => {
       }
       return await handlers[i.commandName]?.(i);
     }
+    if (i.isStringSelectMenu() && i.customId.startsWith('tk_sub:')) return await subChoose(i);
     if (i.isStringSelectMenu() && i.customId.startsWith('tk_open:')) {
       return await openTicket(i, i.customId.split(':')[1], i.values[0]);
     }
@@ -4261,4 +4821,5 @@ client.on(Events.InteractionCreate, async (i) => {
   }
 });
 
-client.login(process.env.TOKEN);
+// On charge d'abord la sauvegarde Supabase, puis on connecte le bot.
+cloudLoad().finally(() => client.login(process.env.TOKEN));
