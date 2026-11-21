@@ -1,7 +1,7 @@
 // supabase.js — sauvegarde des données du bot dans Supabase (aucune dépendance : fetch natif)
 // Variables Railway : SUPABASE_URL (https://xxxx.supabase.co) et SUPABASE_KEY (clé "service_role")
 const URL_ = (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
-const KEY = process.env.SUPABASE_KEY || '';
+const KEY = process.env.SUPABASE_KEY || process.env.SUPABASE_SERVICE_KEY || ''; // les deux noms de variable fonctionnent
 const TABLE = 'bot_data', ROW = 'main';
 const enabled = !!(URL_ && KEY);
 const H = { apikey: KEY, Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json' };
