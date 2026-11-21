@@ -15,6 +15,7 @@ aside select,aside input{margin:0 12px 8px;width:calc(100% - 24px)}
 .ni:hover{background:var(--p2);color:var(--tx)}.ni.on{background:var(--p2);color:#fff;box-shadow:inset 2px 0 var(--ac)}
 .ni.cm{font:12.5px ui-monospace,Consolas,monospace}.ni em{font-style:normal;font-size:10.5px;color:var(--ko)}
 .sbf{border-top:1px solid var(--bd);padding:8px}
+.sbw{margin:0 12px 8px;padding:8px 10px;border:1px solid #5a2a33;border-radius:6px;color:#f08a99;font-size:12px}
 main{flex:1;overflow:auto;padding:24px 28px;display:grid;grid-template-columns:minmax(340px,1fr) minmax(340px,1fr);gap:16px;align-content:start}
 .card{background:var(--p1);border:1px solid var(--bd);border-radius:8px;padding:18px}
 .head{grid-column:1/-1;background:none;border:0;border-bottom:1px solid var(--bd);border-radius:0;padding:0 0 14px}.head h1{font-size:20px;font-weight:650;letter-spacing:-.01em}.head p{color:var(--mu);margin-top:2px}
@@ -56,7 +57,7 @@ h3{font-size:13.5px;font-weight:600;color:var(--tx);margin:4px 0 10px}
 @media(max-width:900px){body{flex-direction:column;height:auto;overflow:auto}aside{width:100%;max-height:44vh}main{grid-template-columns:1fr;padding:14px;overflow:visible}.sticky{position:static}}
 </style></head><body>
 <div id="login" hidden><form class="card" onsubmit="login(event)"><h1 class="logo" style="padding:0 0 4px">ZNK Panel</h1><input id="pw" type="password" placeholder="Mot de passe" autofocus><button class="run">Se connecter</button></form></div>
-<aside><div class="logo">ZNK<small>Panel</small></div><select id="guild" onchange="loadGuild(this.value)"></select><input id="q" placeholder="Rechercher une commande" oninput="nav()"><div id="nav"></div><div class="sbf"><div class="ni" id="nbk" onclick="bk()">Sauvegarde</div></div></aside>
+<aside><div class="logo">ZNK<small>Panel</small></div><select id="guild" onchange="loadGuild(this.value)"></select><input id="q" placeholder="Rechercher une commande" oninput="nav()"><div id="sbbar" class="sbw" hidden></div><div id="nav"></div><div class="sbf"><div class="ni" id="nbk" onclick="bk()">Sauvegarde</div></div></aside>
 <main id="main"><div class="empty" style="grid-column:1/-1">Choisis une commande dans le menu de gauche.</div></main>
 <div id="toasts"></div>
 <script>
@@ -70,7 +71,7 @@ async function boot(){const me=await fetch('/api/me').then(r=>r.json());if(!me.a
  [S.schema,S.guilds]=await Promise.all([api('/api/schema'),api('/api/guilds')]);
  $('#guild').innerHTML=S.guilds.map(g=>`<option value="${g.id}">${esc(g.name)} (${g.members})</option>`).join('');
  if(S.guilds[0])await loadGuild(S.guilds[0].id)}
-async function loadGuild(id){S.gid=id;S.g=await api('/api/guild?id='+id);nav();if(S.view=='tk')tkRender();else if(S.view=='sp')spRender();else if(S.view=='om')omRender();else if(S.view=='bk')bk();else if(S.cmd)render()}
+async function loadGuild(id){sbCheck();S.gid=id;S.g=await api('/api/guild?id='+id);nav();if(S.view=='tk')tkRender();else if(S.view=='sp')spRender();else if(S.view=='om')omRender();else if(S.view=='bk')bk();else if(S.cmd)render()}
 const NOEMO=s=>String(s).replace(/^[^\p{L}\p{N}]+/u,'');
 function nav(){const q=$('#q').value.toLowerCase(),d=S.g?.disabled||[];
  const it=(on,fn,l)=>`<div class="ni ${on?'on':''}" onclick="${fn}">${l}</div>`,
@@ -275,16 +276,18 @@ async function spChDel(n){const cur=spCur(),c=cur.choices[n];if(!confirm(`Retire
 const OM_VARS=['{user}','{username}','{server}','{category}','{sub}','{sub1}','{sub2}','{sub3}','{config}','{staff}','{number}','{paiement}','{prix}'];
 const chn=id=>S.g.channels.find(c=>c.id==id)?.name||'salon',omHas=m=>!!m&&Object.keys(m).length>0;
 function om(){S.view='om';S.cmd=null;if(!S.g.tickets.find(t=>t.name==S.tk))S.tk=S.g.tickets[0]?.name;S.omS='config:';nav();omRender()}
-function omScopes(t){const L=[{type:'config',id:'',label:'🌐 Toute la configuration « '+t.name+' »',own:t.openMsg}];
- t.panels.forEach((p,n)=>L.push({type:'panel',id:p.messageId,label:`📌 Panel ${n+1} — #${chn(p.channelId)}`,own:p.openMsg}));
+const omRs=(t,o)=>(o?.openMsg&&Object.keys(o.openMsg).length?o.openMsg:o?.openMsgId&&(t.openPresets||[]).find(p=>p.id==o.openMsgId)?.openMsg)||null;
+function omScopes(t){const L=[{type:'config',id:'',label:'🌐 Toute la configuration « '+t.name+' »',own:omRs(t,t),pid:t.openMsgId}];
+ t.panels.forEach((p,n)=>L.push({type:'panel',id:p.messageId,label:`📌 Panel ${n+1} — #${chn(p.channelId)}`,own:omRs(t,p),pid:p.openMsgId}));
  const ids=new Set(t.reasons.map(r=>r.id));
- [...t.reasons,...(t.dmChoices||[]).filter(r=>!ids.has(r.id))].forEach(r=>L.push({type:'reason',id:r.id,label:'📋 Catégorie : '+r.label,own:r.openMsg,cat:r.label}));
- (t.subPanels||[]).forEach(sp=>sp.choices.forEach(c=>L.push({type:'sub',id:sp.id+'/'+c.id,label:`🗂️ Sous-panel ${sp.name} › ${c.label}`,own:c.openMsg,sub:c.label})));
+ [...t.reasons,...(t.dmChoices||[]).filter(r=>!ids.has(r.id))].forEach(r=>L.push({type:'reason',id:r.id,label:'📋 Catégorie : '+r.label,own:omRs(t,r),pid:r.openMsgId,cat:r.label}));
+ (t.subPanels||[]).forEach(sp=>sp.choices.forEach(c=>L.push({type:'sub',id:sp.id+'/'+c.id,label:`🗂️ Sous-panel ${sp.name} › ${c.label}`,own:omRs(t,c),pid:c.openMsgId,sub:c.label})));
+ L.splice(1,0,...(t.openPresets||[]).map(p=>({type:'preset',id:p.id,label:'Modèle : '+p.name,own:p.openMsg||null})));
  L.forEach(x=>x.key=x.type+':'+x.id);return L}
 // message dont l'élément hérite quand il n'a pas le sien (même ordre de priorité que le bot)
 function omInherit(t,sc){if(sc.type=='config')return null;
- if(sc.type!='panel'){const p=t.panels.find(p=>omHas(p.openMsg));if(p)return{msg:p.openMsg,from:'un panel'}}
- return omHas(t.openMsg)?{msg:t.openMsg,from:'la configuration'}:null}
+ if(sc.type!='panel'){const p=t.panels.find(p=>omHas(omRs(t,p)));if(p)return{msg:omRs(t,p),from:'un panel'}}
+ return omHas(omRs(t,t))?{msg:omRs(t,t),from:'la configuration'}:null}
 function omRender(keep){const t=TC();
  let h=`<div class="head card"><h1>💬 Message d'ouverture du ticket</h1><p>Le panel (texte, embed, image, champs, boutons) que le bot envoie dans le salon <b>dès l'ouverture d'un ticket</b>. Modifiable en entier : pour toute la configuration, ou différent pour un panel, une catégorie ou un choix de sous-panel.</p></div>`;
  if(!t){$('#main').innerHTML=h+`<div class="card empty" style="grid-column:1/-1">Aucune configuration de ticket.<br><br><button class="tab on" onclick="tk()">🎫 Aller à la gestion des tickets</button></div>`;return}
@@ -293,7 +296,7 @@ function omRender(keep){const t=TC();
  const d=S.omD||{},V=(k)=>esc(d[k]||''),P=(id,k)=>`id="${id}" class="omf" value="${V(k)}" oninput="omPrev()"`;
  h+=`<div class="card"><div class="two"><label class="f"><span>Configuration</span><select onchange="omGo(()=>{S.tk=this.value;S.omS='config:'})">${S.g.tickets.map(x=>`<option ${x.name==S.tk?'selected':''}>${esc(x.name)}</option>`).join('')}</select></label>
   <label class="f"><span>Message à modifier</span><select onchange="omGo(()=>{S.omS=this.value})">${sc.map(x=>`<option value="${esc(x.key)}" ${x.key==S.omS?'selected':''}>${omHas(x.own)?'● ':'○ '}${esc(x.label)}</option>`).join('')}</select></label></div>
-  <p class="where">${omHas(cur.own)?'✅ Cet élément a son <b>propre message</b>.':inh?`ℹ️ Pas de message propre : il utilise celui de <b>${inh.from}</b> (repris ci-dessous). Modifie puis enregistre pour le personnaliser.`:'ℹ️ Aucun message personnalisé : le message par défaut du bot est utilisé.'}<br>● = message personnalisé · le plus précis gagne : <b>choix de sous-panel › catégorie › panel › configuration</b>. Appliqué aux <b>nouveaux</b> tickets.</p>${omOver(sc,cur)}
+  <p class="where">${omHas(cur.own)?'✅ Cet élément a son <b>propre message</b>.':inh?`ℹ️ Pas de message propre : il utilise celui de <b>${inh.from}</b> (repris ci-dessous). Modifie puis enregistre pour le personnaliser.`:'ℹ️ Aucun message personnalisé : le message par défaut du bot est utilisé.'}<br>● = message personnalisé · le plus précis gagne : <b>choix de sous-panel › catégorie › panel › configuration</b>. Appliqué aux <b>nouveaux</b> tickets.</p>${omOver(sc,cur)}${omPresetBar(t,cur)}
   <h3>Variables (clique pour insérer)</h3><div class="tabs">${OM_VARS.map(x=>`<button type="button" class="tab" style="padding:3px 9px" onmousedown="event.preventDefault()" onclick="omIns('${x}')">${x}</button>`).join('')}</div>
   <label class="f"><span>Texte au-dessus de l'embed</span><small>Vide = ping du membre + du staff. <code>@Rôle</code>, <code>@Pseudo</code>, <code>#salon</code> deviennent cliquables.</small><textarea id="om_content" class="omf" style="min-height:70px" maxlength="1000" oninput="omPrev()">${V('content')}</textarea></label>
   <label class="f"><span>Titre</span><input ${P('om_title','title')} maxlength="256" placeholder="🎫 Ticket — {category}"></label>
@@ -336,13 +339,40 @@ function omFAdd(){S.omD=omRead();S.omD.fields.push({name:'',value:'',inline:fals
 function omFDel(n){S.omD=omRead();S.omD.fields.splice(n,1);omRender(true)}
 /* sauvegarde automatique : rien n'est perdu en changeant de message, de configuration ou de page */
 /* un message « plus précis » (sous-panel > catégorie > panel > configuration) passe avant : on le signale et on peut tout remplacer d'un clic */
+/* ---------- modèles de message d'ouverture : un message partagé par plusieurs éléments ---------- */
+function omPresetBar(t,cur){const ps=t.openPresets||[];
+ if(cur.type=='preset')return `<div class="tabs"><button type="button" class="tab" onclick="omPNew()">Nouveau modèle</button><button type="button" class="tab" onclick="omPRen()">Renommer</button><button type="button" class="tab" onclick="omPDel()">Supprimer</button></div>
+  <label class="f"><span>Appliquer ce modèle à…</span><small>Les éléments choisis utilisent ce modèle : tu le modifies une seule fois et tout suit.</small><select onchange="omPApply(this)"><option value="">— choisir —</option><option value="config">Toute la configuration</option><option value="reasons">Toutes les catégories du menu</option>${(t.subPanels||[]).map(s=>`<option value="sub:${s.id}">Tous les choix de « ${esc(s.name)} »</option>`).join('')}</select></label>`;
+ return `<label class="f"><span>Modèle utilisé</span><small>${cur.pid?'Cet élément utilise un modèle : modifie le modèle pour changer tous ceux qui l’utilisent.':'Relie cet élément à un modèle pour partager le même message avec d’autres.'}</small><div class="two"><select onchange="omPUse(this.value)"><option value="">— message propre / hérité —</option>${ps.map(p=>`<option value="${p.id}" ${cur.pid==p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select><button type="button" class="tab" onclick="omPNew(true)">Créer un modèle depuis ce message</button></div></label>`}
+const omCur=()=>omScopes(TC()).find(x=>x.key==S.omS);
+const omApi=b=>api('/api/ticket-open-msg',{guildId:S.gid,config:TC().name,...b});
+const omPApi=b=>api('/api/open-preset',{guildId:S.gid,config:TC().name,...b});
+async function omPNew(fromCur){const name=prompt('Nom du modèle (ex : Boutique)');if(!name)return;
+ try{const cur=omCur(),from=fromCur&&cur.type!='preset',r=await omPApi({action:'create',name,fromMsg:from?omRead():null});
+  if(from)await omApi({scope:{type:cur.type,id:cur.id},presetId:r.id});
+  S.g=await api('/api/guild?id='+S.gid);if(!from)S.omS='preset:'+r.id;toast('Modèle créé');omRender()}catch(e){toast(e.message,false)}}
+async function omPRen(){const cur=omCur(),name=prompt('Nouveau nom du modèle',cur.label.replace('Modèle : ',''));if(!name)return;
+ try{await omPApi({action:'rename',id:cur.id,name});S.g=await api('/api/guild?id='+S.gid);toast('Modèle renommé');omRender()}catch(e){toast(e.message,false)}}
+async function omPDel(){const cur=omCur();if(!confirm('Supprimer ce modèle ? Les éléments qui l’utilisent gardent une copie du message.'))return;
+ try{await omPApi({action:'delete',id:cur.id});S.omS='config:';S.g=await api('/api/guild?id='+S.gid);toast('Modèle supprimé');omRender()}catch(e){toast(e.message,false)}}
+async function omPUse(v){const cur=omCur();if(!v&&!cur.pid)return;
+ try{await omApi({scope:{type:cur.type,id:cur.id},...(v?{presetId:v}:{msg:omRead()})});S.g=await api('/api/guild?id='+S.gid);toast(v?'Modèle relié':'Message propre enregistré');omRender()}catch(e){toast(e.message,false)}}
+async function omPApply(sel){const v=sel.value;if(!v)return;const cur=omCur(),all=omScopes(TC());
+ const scopes=(v=='config'?all.filter(x=>x.type=='config'):v=='reasons'?all.filter(x=>x.type=='reason'):all.filter(x=>x.type=='sub'&&x.id.startsWith(v.slice(4)+'/'))).map(x=>({type:x.type,id:x.id}));
+ if(!scopes.length){sel.value='';return toast('Aucun élément à relier',false)}
+ if(!confirm(`Relier ${scopes.length} élément(s) à ce modèle ? Leur message propre sera remplacé.`)){sel.value='';return}
+ try{await omApi({scopes,presetId:cur.id});S.g=await api('/api/guild?id='+S.gid);toast(`Modèle appliqué à ${scopes.length} élément(s)`);omRender()}catch(e){toast(e.message,false)}}
+/* alerte quand Supabase ne sauvegarde pas */
+async function sbCheck(){try{const s=(await api('/api/storage')).supabase,b=$('#sbbar');if(!b)return;
+ if(!s||!s.enabled)b.textContent='Supabase est désactivé : rien n’est sauvegardé en ligne.';else if(s.lastError)b.textContent='Supabase ne sauvegarde pas : '+s.lastError;else{b.hidden=true;return}b.hidden=false}catch{}}
+setInterval(sbCheck,30000);
 const OM_RANK={config:0,panel:1,reason:2,sub:3};
 function omOver(sc,cur){const ov=sc.filter(x=>OM_RANK[x.type]>OM_RANK[cur.type]&&omHas(x.own));if(!ov.length)return'';
  return `<div style="margin:10px 0;padding:10px 12px;border:1px solid #a8742f;border-radius:6px"><b>${ov.length} élément(s) ont leur propre message et passent avant celui-ci</b><p class="where" style="margin:6px 0">Dans ces tickets, tes changements ne s'affichent pas : ${ov.slice(0,4).map(x=>esc(x.label.replace(/^[^\p{L}\p{N}]+/u,''))).join(' · ')}${ov.length>4?' …':''}</p><button type="button" class="run" onclick="omAll()">Appliquer ce message à tous (efface ces ${ov.length} messages propres)</button></div>`}
 async function omAll(){const t=TC(),sc=omScopes(t),cur=sc.find(x=>x.key==S.omS),ov=sc.filter(x=>OM_RANK[x.type]>OM_RANK[cur.type]&&omHas(x.own));
  if(!confirm(`Enregistrer ce message et supprimer les ${ov.length} messages propres qui passent avant lui ?`))return;
  try{const call=(s,b)=>api('/api/ticket-open-msg',{guildId:S.gid,config:t.name,scope:{type:s.type,id:s.id},...b});
-  await call(cur,{msg:omRead()});for(const x of ov)await call(x,{reset:true});
+  await call(cur,cur.pid?{presetId:cur.pid}:{msg:omRead()});for(const x of ov)await call(x,{reset:true});
   S.g=await api('/api/guild?id='+S.gid);toast(`Message appliqué à tous (${ov.length} messages propres supprimés)`);omRender()}catch(e){toast(e.message,false)}}
 async function omAuto(){if(S.view!='om'||!S.omBase||!$('#om_title'))return;const m=omRead();if(JSON.stringify(m)==S.omBase)return;
  const t=TC(),sc=t&&omScopes(t).find(x=>x.key==S.omS);if(!sc)return;S.omBase=JSON.stringify(m);

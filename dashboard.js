@@ -115,6 +115,7 @@ module.exports = function startDashboard(ctx) {
   // Éléments qui peuvent porter leur propre message d'ouverture (le plus précis gagne à l'ouverture du ticket)
   const openTargets = (cfg, s) => {
     if (s.type === 'config') return [cfg];
+    if (s.type === 'preset') return (cfg.openPresets || []).filter((p) => p.id === s.id);
     if (s.type === 'panel') return (cfg.panels || []).filter((p) => p.messageId === s.id);
     if (s.type === 'reason') return [...(cfg.reasons || []), ...(cfg.dmChoices || [])].filter((r) => r.id === s.id);
     if (s.type === 'sub') {
@@ -145,10 +146,11 @@ module.exports = function startDashboard(ctx) {
         id: guild.id, name: guild.name, count: guild.memberCount, disabled: getG(guild.id).disabledCommands || [],
         welcome: getG(guild.id).welcome,
         tickets: Object.values(getG(guild.id).tickets || {}).map((t) => ({
-          name: t.name, categoryId: t.categoryId, staffRoles: t.staffRoles || [], logChannelId: t.logChannelId, counter: t.counter || 0, dm: !!t.dm, openMsg: t.openMsg || null,
-          panels: (t.panels || []).map((p) => ({ channelId: p.channelId, messageId: p.messageId, button: !!p.button, openMsg: p.openMsg || null })),
-          reasons: (t.reasons || []).map((r) => ({ id: r.id, label: r.label, emoji: r.emoji, description: r.description, categoryId: r.categoryId, staffRoleId: r.staffRoleId, openMsg: r.openMsg || null })),
-          dmChoices: (t.dmChoices || []).map((r) => ({ id: r.id, label: r.label, emoji: r.emoji, openMsg: r.openMsg || null })),
+          name: t.name, categoryId: t.categoryId, staffRoles: t.staffRoles || [], logChannelId: t.logChannelId, counter: t.counter || 0, dm: !!t.dm, openMsg: t.openMsg || null, openMsgId: t.openMsgId || null,
+          openPresets: (t.openPresets || []).map((p) => ({ id: p.id, name: p.name, openMsg: p.openMsg || null })),
+          panels: (t.panels || []).map((p) => ({ channelId: p.channelId, messageId: p.messageId, button: !!p.button, openMsg: p.openMsg || null, openMsgId: p.openMsgId || null })),
+          reasons: (t.reasons || []).map((r) => ({ id: r.id, label: r.label, emoji: r.emoji, description: r.description, categoryId: r.categoryId, staffRoleId: r.staffRoleId, openMsg: r.openMsg || null, openMsgId: r.openMsgId || null })),
+          dmChoices: (t.dmChoices || []).map((r) => ({ id: r.id, label: r.label, emoji: r.emoji, openMsg: r.openMsg || null, openMsgId: r.openMsgId || null })),
           subPanels: t.subPanels || [], subLinks: t.subLinks || {}, defaultSub: t.defaultSubPanelId || null,
         })),
         channels: guild.channels.cache.map((c) => ({ id: c.id, name: c.name, type: c.type })),
@@ -157,17 +159,66 @@ module.exports = function startDashboard(ctx) {
     },
     'POST /api/ticket-open-msg': async (_r, _q, b) => {
       const cfg = guildCfg(b.guildId, b.config);
-      const targets = openTargets(cfg, b.scope || {});
+      cfg.openPresets ??= [];
+      // un ou plusieurs éléments à la fois (scopes) : utile pour relier un modèle à tous les choix d'un sous-panel
+      const targets = [...new Set((Array.isArray(b.scopes) ? b.scopes : [b.scope || {}]).flatMap((s) => openTargets(cfg, s || {})))];
       if (!targets.length) throw new Error('Élément introuvable (il a peut-être été supprimé).');
+      if (b.presetId) { // relier les éléments à un modèle : ils n'ont plus de message propre
+        const p = cfg.openPresets.find((x) => x.id === b.presetId);
+        if (!p) throw new Error('Modèle introuvable');
+        for (const t of targets) {
+          if (t === p) continue;
+          t.openMsgId = p.id;
+          if (t === cfg) cfg.openMsg = null; else delete t.openMsg;
+        }
+        save();
+        return { ok: true, count: targets.length };
+      }
       const msg = b.reset ? {} : cleanOpenMsg(b.msg || {});
       const empty = !Object.keys(msg).length;
       for (const t of targets) {
         if (t === cfg) cfg.openMsg = empty ? null : msg;
         else if (empty) delete t.openMsg;
         else t.openMsg = JSON.parse(JSON.stringify(msg));
+        if (t.openMsgId) { if (t === cfg) cfg.openMsgId = null; else delete t.openMsgId; } // message propre : on quitte le modèle
       }
       save();
       return { ok: true, empty };
+    },
+    // Modèles de message d'ouverture : créer / renommer / supprimer
+    'POST /api/open-preset': async (_r, _q, b) => {
+      const cfg = guildCfg(b.guildId, b.config);
+      cfg.openPresets ??= [];
+      const nameOk = (n, self) => {
+        const v = txt(n, 60);
+        if (!v) throw new Error('Donne un nom au modèle');
+        if (cfg.openPresets.some((x) => x !== self && x.name.toLowerCase() === v.toLowerCase())) throw new Error('Un modèle porte déjà ce nom.');
+        return v;
+      };
+      if (b.action === 'create') {
+        if (cfg.openPresets.length >= 50) throw new Error('50 modèles maximum.');
+        const p = { id: crypto.randomUUID().slice(0, 8), name: nameOk(b.name) };
+        const src = b.fromMsg ? cleanOpenMsg(b.fromMsg) : {};
+        if (Object.keys(src).length) p.openMsg = src;
+        cfg.openPresets.push(p);
+        save();
+        return { ok: true, id: p.id };
+      }
+      const p = cfg.openPresets.find((x) => x.id === b.id);
+      if (!p) throw new Error('Modèle introuvable');
+      if (b.action === 'rename') { p.name = nameOk(b.name, p); save(); return { ok: true }; }
+      if (b.action === 'delete') {
+        cfg.openPresets = cfg.openPresets.filter((x) => x !== p);
+        const all = [cfg, ...(cfg.panels || []), ...(cfg.reasons || []), ...(cfg.dmChoices || []), ...(cfg.subPanels || []).flatMap((s) => s.choices || [])];
+        for (const t of all) {
+          if (t.openMsgId !== p.id) continue;
+          if (p.openMsg) t.openMsg = JSON.parse(JSON.stringify(p.openMsg)); // les éléments gardent une copie du message
+          if (t === cfg) cfg.openMsgId = null; else delete t.openMsgId;
+        }
+        save();
+        return { ok: true };
+      }
+      throw new Error('Action inconnue');
     },
     // Import d'une liste d'articles : chaque article devient un choix du menu (nom) avec son prix en description
     'POST /api/bulk-choices': async (_r, _q, b) => {

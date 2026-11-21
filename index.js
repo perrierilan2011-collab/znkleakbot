@@ -133,6 +133,7 @@ function getG(id) {
     c.dmImage ??= null;     // nom du fichier image du MP (dans le dossier images/)
     c.subPanels ??= [];     // sous-panels : [{ id, name, title, description, placeholder, color, choices: [{ id, label, emoji, description, categoryId, staffRoleId }] }]
     c.subLinks ??= {};      // id d'une catégorie du menu (panel ou MP) -> id d'un sous-panel, ou 'none' (aucun sous-panel)
+    c.openPresets ??= [];   // modèles de message d'ouverture : [{ id, name, openMsg }] (un élément s'y réfère avec openMsgId)
     c.defaultSubPanelId ??= null; // sous-panel de toutes les catégories qui n'ont pas de lien propre
     if (!c.dmMigrated) {    // une seule fois : reprise de l'ancien système de MP
       c.dmMigrated = true;
@@ -1431,7 +1432,9 @@ async function refreshPanels(guild, cfgName) {
 // Tout se règle depuis le panel web (« Message d'ouverture du ticket ») ou avec /ticket message.
 // Variables : {user} {username} {server} {category} {sub} {sub1} {sub2} {sub3} {config} {staff} {number} {paiement} {prix}
 function pickOpenMsg(cfg, panel, reason, subs = []) {
-  const chain = [...[...subs].reverse().map((c) => c?.openMsg), reason?.openMsg, panel?.openMsg, cfg.openMsg];
+  // Message propre de l'élément, sinon le modèle auquel il est relié (openMsgId)
+  const own = (x) => (x?.openMsg && Object.keys(x.openMsg).length ? x.openMsg : x?.openMsgId ? cfg.openPresets?.find((p) => p.id === x.openMsgId)?.openMsg : null);
+  const chain = [...[...subs].reverse().map(own), own(reason), own(panel), own(cfg)];
   return chain.find((m) => m && Object.keys(m).length) || {};
 }
 async function buildOpenMessage(guild, user, cfg, panel, reason, staffRoles, subs = []) {
