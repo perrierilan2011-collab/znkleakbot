@@ -4,6 +4,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const sb = require('./supabase');
 
 const F = (id, label, long, max, req) => ({ id, label, long, max, req });
 const ANN = (t) => [F('titre', 'Titre', 0, 256), F('texte', t, 1, 4000, 1), F('image_url', "URL d'image", 0, 500),
@@ -125,8 +126,9 @@ module.exports = function startDashboard(ctx) {
     'GET /api/storage': async () => {
       const mount = process.env.RAILWAY_VOLUME_MOUNT_PATH, st = fs.existsSync(DB_FILE) ? fs.statSync(DB_FILE) : null;
       return { path: DB_FILE, size: st?.size || 0, mtime: st?.mtimeMs || Date.now(), guilds: Object.keys(db).length,
-        persistent: !!mount && path.resolve(DB_FILE).startsWith(path.resolve(mount)) };
+        persistent: !!mount && path.resolve(DB_FILE).startsWith(path.resolve(mount)), supabase: sb.status() };
     },
+    'POST /api/supabase-push': async () => { await sb.pushNow(db); return { ok: true }; },
     'POST /api/restore': async (_r, _q, b) => {
       const d = b.data;
       if (!d || typeof d !== 'object' || Array.isArray(d) || Object.values(d).some((v) => !v || typeof v !== 'object')) throw new Error('Fichier de sauvegarde invalide');

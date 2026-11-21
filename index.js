@@ -2,6 +2,7 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const supabase = require('./supabase'); // sauvegarde distante (variables SUPABASE_URL / SUPABASE_KEY)
 const {
   Client, GatewayIntentBits, Partials, Events, PermissionFlagsBits, ChannelType, SlashCommandBuilder,
   EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder,
@@ -71,6 +72,7 @@ const save = () => {
       lastBackup = Date.now();
     }
     fs.renameSync(tmp, DB_FILE); // écriture atomique : plus de fichier à moitié écrit
+    supabase.queue(db);          // copie distante (survit aux redéploiements)
   } catch (e) {
     console.error('[db] sauvegarde impossible :', e);
   }
@@ -1550,12 +1552,21 @@ const dmVars = (txt, { guild, user, cfg, channel, choice }) =>
     .replaceAll('{link}', channel ? channel.url : '');
 
 // ----- Image du MP (enregistrée sur le disque : les liens Discord expirent) -----
-const dmImagePath = (cfg) => (cfg.dmImage ? path.join(IMG_DIR, cfg.dmImage) : null);
+const dmImagePath = (cfg) => {
+  if (!cfg.dmImage) return null;
+  const p = path.join(IMG_DIR, cfg.dmImage);
+  // Fichier disparu (redéploiement) : on le recrée depuis la copie gardée dans les données
+  if (!fs.existsSync(p) && cfg.dmImageData) {
+    try { fs.mkdirSync(IMG_DIR, { recursive: true }); fs.writeFileSync(p, Buffer.from(cfg.dmImageData, 'base64')); } catch { /* rien */ }
+  }
+  return p;
+};
 
 function removeDmImage(cfg) {
   const p = dmImagePath(cfg);
   if (p) { try { fs.rmSync(p, { force: true }); } catch { /* rien */ } }
   cfg.dmImage = null;
+  cfg.dmImageData = null;
 }
 
 async function saveDmImage(guildId, cfg, att) {
@@ -1566,8 +1577,10 @@ async function saveDmImage(guildId, cfg, att) {
   const file = `${guildId}-${cfg.name}-mp${ext}`;
   removeDmImage(cfg);
   fs.mkdirSync(IMG_DIR, { recursive: true });
-  fs.writeFileSync(path.join(IMG_DIR, file), Buffer.from(await res.arrayBuffer()));
+  const buf = Buffer.from(await res.arrayBuffer());
+  fs.writeFileSync(path.join(IMG_DIR, file), buf);
   cfg.dmImage = file;
+  cfg.dmImageData = buf.length <= 3 * 1024 * 1024 ? buf.toString('base64') : null; // copie dans les données (≤ 3 Mo)
 }
 
 // Message + menu envoyés en MP
@@ -4432,7 +4445,8 @@ client.on(Events.InteractionCreate, async (i) => {
   }
 });
 
-client.login(process.env.TOKEN);
+// Supabase fait foi au démarrage : on recharge les données (panels, configs...) AVANT de connecter le bot
+supabase.init(db).catch((e) => console.error('[supabase]', e.message)).finally(() => client.login(process.env.TOKEN));
 
 // Panel web (dashboard.js + panel.html) — nécessite la variable PANEL_PASSWORD
 require("./dashboard")({ client, commands, handlers, autocomplete, getG,
