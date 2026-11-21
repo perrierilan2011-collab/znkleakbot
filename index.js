@@ -1188,6 +1188,12 @@ const commands = [
         .addBooleanOption((o) =>
           o.setName('reinitialiser').setDescription('Remettre le message par défaut au lieu de le modifier')))
     .addSubcommand((s) =>
+      s.setName('message-boutons').setDescription("Modifier le texte des boutons du message d'ouverture du ticket")
+        .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true))
+        .addStringOption((o) => o.setName('panel').setDescription('Panel concerné (vide = tous)').setAutocomplete(true))
+        .addStringOption((o) => o.setName('prendre-en-charge').setDescription('Texte du bouton 🙋 ("defaut" = par défaut)').setMaxLength(80))
+        .addStringOption((o) => o.setName('fermer').setDescription('Texte du bouton 🔒 ("defaut" = par défaut)').setMaxLength(80)))
+    .addSubcommand((s) =>
       s.setName('bouton').setDescription("Changer la couleur ou le texte du bouton d'un panel déjà envoyé")
         .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true))
         .addStringOption((o) =>
@@ -1491,7 +1497,9 @@ async function createTicket(guild, user, cfgName, reasonId, panel, subPath = nul
   let channel;
   try {
     channel = await guild.channels.create({
-      name: `${cfg.name}-${String(cfg.counter).padStart(4, '0')}`.slice(0, 100),
+      // Nom : ❌ (pas encore pris en charge, devient ✅ à la prise en charge) + dernier choix fait (dernier sous-panel, sinon catégorie du panel, sinon config)
+      name: `❌-${String(subs.length ? subs[subs.length - 1].label : (reason?.label || cfg.name))
+        .toLowerCase().replace(/\s+/g, '-').replace(/-+/g, '-')}`.slice(0, 100),
       type: ChannelType.GuildText,
       parent: parentId,
       topic: `Ticket de ${user.tag} | ${cfg.name}${reason ? ' | ' + reason.label : ''}${subs.length ? ' | ' + subs.map((c) => c.label).join(' › ') : ''}`,
@@ -1516,9 +1524,10 @@ async function createTicket(guild, user, cfgName, reasonId, panel, subPath = nul
   save();
 
   const payload = await buildOpenMessage(guild, user, cfg, panel, reason, staffRoles, subs);
+  const om = panel?.openMsg || cfg.openMsg || {};
   const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('tk_claim').setLabel('Prendre en charge').setEmoji('🙋').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId('tk_close').setLabel('Fermer').setEmoji('🔒').setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId('tk_claim').setLabel((om.claimLabel || 'Prendre en charge').slice(0, 80)).setEmoji('🙋').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('tk_close').setLabel((om.closeLabel || 'Fermer').slice(0, 80)).setEmoji('🔒').setStyle(ButtonStyle.Danger),
   );
   await channel.send({ ...payload, components: [row] }).catch(console.error);
   return { channel };
@@ -1902,6 +1911,8 @@ async function claimTicket(i) {
   t.claimedBy = i.user.id;
   save();
   await i.reply({ content: `🙋 <@${i.user.id}> prend en charge ce ticket.`, allowedMentions: { parse: [] } });
+  // ❌ (en attente) devient ✅ (pris en charge) ; sans await : Discord limite les renommages de salons
+  if (i.channel.name.startsWith('❌')) i.channel.setName(i.channel.name.replace(/^❌/, '✅')).catch(console.error);
 }
 
 async function closeTicket(i) {
@@ -4088,7 +4099,9 @@ const handlers = {
         image: image && isUrl(image) ? image : null,
         color: color ? parseColor(color) : null,
       };
-      const empty = Object.values(data).every((v) => !v);
+      const empty = Object.values(data).every((v) => !v) && !cur.claimLabel && !cur.closeLabel;
+      if (cur.claimLabel) data.claimLabel = cur.claimLabel; // on garde le texte des boutons
+      if (cur.closeLabel) data.closeLabel = cur.closeLabel;
       if (panel) panel.openMsg = empty ? undefined : data;
       else cfg.openMsg = empty ? null : data;
       if (panel && empty) delete panel.openMsg;
@@ -4102,6 +4115,21 @@ const handlers = {
             '`@Pseudo`, `@Rôle` et `#salon` deviennent cliquables.',
         flags: EPH,
       });
+    }
+
+    /* ----- Texte des boutons du message d'ouverture (Prendre en charge / Fermer) ----- */
+    if (sub === 'message-boutons') {
+      const panelId = i.options.getString('panel');
+      const panel = panelId ? cfg.panels.find((p) => p.messageId === panelId) : null;
+      if (panelId && !panel) return i.reply({ content: '❌ Panel introuvable. Choisis-le dans la liste proposée.', flags: EPH });
+      const claim = (i.options.getString('prendre-en-charge') || '').trim();
+      const close = (i.options.getString('fermer') || '').trim();
+      if (!claim && !close) return i.reply({ content: '❌ Indique au moins un texte ("defaut" pour remettre celui par défaut).', flags: EPH });
+      const m = panel ? (panel.openMsg ??= {}) : (cfg.openMsg ??= {});
+      if (claim) m.claimLabel = claim.toLowerCase() === 'defaut' ? null : claim.slice(0, 80);
+      if (close) m.closeLabel = close.toLowerCase() === 'defaut' ? null : close.slice(0, 80);
+      save();
+      return i.reply({ content: `✅ Texte des boutons enregistré pour ${panel ? 'ce panel' : `tous les panels de **${cfgName}**`} (nouveaux tickets).`, flags: EPH });
     }
 
     /* ----- Couleur / texte du bouton d'un panel déjà envoyé ----- */
