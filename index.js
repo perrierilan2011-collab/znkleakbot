@@ -1115,6 +1115,11 @@ const commands = [
         .addStringOption(spSub)
         .addStringOption(spChoice))
     .addSubcommand((s) =>
+      s.setName('choix-suivant').setDescription('Mettre le MÊME sous-panel suivant sur TOUS les choix d\'un sous-panel')
+        .addStringOption(spCfg)
+        .addStringOption(spSub)
+        .addStringOption((o) => o.setName('suivant').setDescription('Sous-panel proposé après chaque choix (\"aucun\" = ticket direct)').setAutocomplete(true).setRequired(true)))
+    .addSubcommand((s) =>
       s.setName('lier').setDescription('Utiliser un sous-panel pour toutes les catégories, ou pour une seule')
         .addStringOption(spCfg)
         .addStringOption(spSub)
@@ -2447,6 +2452,7 @@ const HELP = [
   { title: '🗂️ Sous panel', level: 'full', lines: [
     '`/sous-panel creer` · `modifier` · `supprimer` — un 2e menu proposé après le choix d\'une catégorie du panel',
     '`/sous-panel choix-ajouter` · `choix-modifier` · `choix-retirer` — les choix du sous-panel (emoji, catégorie du serveur, staff, sous-panel suivant : autant de niveaux que tu veux)',
+    '`/sous-panel choix-suivant` — le même sous-panel suivant sur tous les choix d\'un sous-panel en une fois',
     '`/sous-panel lier` — le même sous-panel pour toutes les catégories, ou un différent par catégorie',
     '`/sous-panel delier` · `liste` — retirer un lien · voir qui utilise quoi',
   ] },
@@ -3843,7 +3849,7 @@ const handlers = {
 
     // Sous-panel proposé après un choix (option "suivant") : undefined = inchangé, null = aucun
     let nextId;
-    if (sub === 'choix-ajouter' || sub === 'choix-modifier') {
+    if (sub === 'choix-ajouter' || sub === 'choix-modifier' || sub === 'choix-suivant') {
       const raw = i.options.getString('suivant');
       if (raw !== null) {
         if (raw.trim().toLowerCase() === 'aucun') nextId = null;
@@ -3856,6 +3862,16 @@ const handlers = {
       }
     }
     const nextTxt = nextId ? ` — ouvre ensuite le sous-panel **${cfg.subPanels.find((x) => x.id === nextId).name}**` : '';
+
+    // Même sous-panel suivant pour TOUS les choix du sous-panel (nextId a déjà été vérifié : pas de boucle)
+    if (sub === 'choix-suivant') {
+      if (!sp.choices.length) return say(`❌ **${sp.name}** n'a encore aucun choix.`);
+      for (const c of sp.choices) c.nextSubId = nextId || null;
+      save();
+      return say(nextId
+        ? `✅ Les **${sp.choices.length}** choix de **${sp.name}** ouvrent tous ensuite le sous-panel **${cfg.subPanels.find((x) => x.id === nextId).name}**.`
+        : `✅ Les **${sp.choices.length}** choix de **${sp.name}** ouvrent maintenant directement le ticket.`);
+    }
 
     if (sub === 'choix-ajouter') {
       if (sp.choices.length >= 25) return say('❌ 25 choix maximum par sous-panel (limite de Discord) : utilise un sous-panel suivant pour en proposer plus.');

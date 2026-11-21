@@ -184,6 +184,20 @@ module.exports = function startDashboard(ctx) {
       const emoji = txt(b.emoji, 64) || null;
       const categoryId = b.categoryId && guild.channels.cache.has(b.categoryId) ? b.categoryId : null;
       const staffRoleId = b.staffRoleId && b.staffRoleId !== guild.id && guild.roles.cache.has(b.staffRoleId) ? b.staffRoleId : null;
+      // Sous-panel proposé après chaque article importé (facultatif) : on refuse les boucles
+      let nextSubId = null;
+      if (!isReasons && b.nextSubId) {
+        const n = cfg.subPanels.find((x) => x.id === b.nextSubId);
+        if (!n || n === sp) throw new Error('Sous-panel suivant introuvable');
+        const reaches = (from, target, seen = new Set()) => {
+          if (from === target) return true;
+          if (seen.has(from)) return false;
+          seen.add(from);
+          return !!cfg.subPanels.find((x) => x.id === from)?.choices.some((c) => c.nextSubId && reaches(c.nextSubId, target, seen));
+        };
+        if (reaches(n.id, sp.id)) throw new Error('Boucle impossible : ce sous-panel mène déjà à celui-ci.');
+        nextSubId = n.id;
+      }
       let added = 0, updated = 0, skipped = 0;
       if (b.mode === 'replace') {
         const removed = list.splice(0, list.length);
@@ -191,9 +205,9 @@ module.exports = function startDashboard(ctx) {
       }
       for (const it of items) {
         const ex = list.find((x) => x.label.toLowerCase() === it.label.toLowerCase());
-        if (ex) { if (it.description) ex.description = it.description; updated++; continue; } // même nom : on met à jour le prix
+        if (ex) { if (it.description) ex.description = it.description; if (nextSubId) ex.nextSubId = nextSubId; updated++; continue; } // même nom : on met à jour le prix
         if (list.length >= 25) { skipped++; continue; } // limite Discord : 25 choix par menu
-        list.push({ id: crypto.randomUUID().slice(0, 8), label: it.label, description: it.description, emoji, staffRoleId, categoryId, ...(isReasons ? {} : { nextSubId: null }) });
+        list.push({ id: crypto.randomUUID().slice(0, 8), label: it.label, description: it.description, emoji, staffRoleId, categoryId, ...(isReasons ? {} : { nextSubId }) });
         added++;
       }
       save();
