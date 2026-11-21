@@ -291,8 +291,8 @@ function omRender(keep){const t=TC();
  const sc=omScopes(t);if(!sc.find(x=>x.key==S.omS))S.omS='config:';const cur=sc.find(x=>x.key==S.omS),inh=omHas(cur.own)?null:omInherit(t,cur);
  if(!keep){S.omD=JSON.parse(JSON.stringify(omHas(cur.own)?cur.own:inh?.msg||{}));S.omInh=!omHas(cur.own)&&!!inh}
  const d=S.omD||{},V=(k)=>esc(d[k]||''),P=(id,k)=>`id="${id}" class="omf" value="${V(k)}" oninput="omPrev()"`;
- h+=`<div class="card"><div class="two"><label class="f"><span>Configuration</span><select onchange="S.tk=this.value;S.omS='config:';omRender()">${S.g.tickets.map(x=>`<option ${x.name==S.tk?'selected':''}>${esc(x.name)}</option>`).join('')}</select></label>
-  <label class="f"><span>Message à modifier</span><select onchange="S.omS=this.value;omRender()">${sc.map(x=>`<option value="${esc(x.key)}" ${x.key==S.omS?'selected':''}>${omHas(x.own)?'● ':'○ '}${esc(x.label)}</option>`).join('')}</select></label></div>
+ h+=`<div class="card"><div class="two"><label class="f"><span>Configuration</span><select onchange="omGo(()=>{S.tk=this.value;S.omS='config:'})">${S.g.tickets.map(x=>`<option ${x.name==S.tk?'selected':''}>${esc(x.name)}</option>`).join('')}</select></label>
+  <label class="f"><span>Message à modifier</span><select onchange="omGo(()=>{S.omS=this.value})">${sc.map(x=>`<option value="${esc(x.key)}" ${x.key==S.omS?'selected':''}>${omHas(x.own)?'● ':'○ '}${esc(x.label)}</option>`).join('')}</select></label></div>
   <p class="where">${omHas(cur.own)?'✅ Cet élément a son <b>propre message</b>.':inh?`ℹ️ Pas de message propre : il utilise celui de <b>${inh.from}</b> (repris ci-dessous). Modifie puis enregistre pour le personnaliser.`:'ℹ️ Aucun message personnalisé : le message par défaut du bot est utilisé.'}<br>● = message personnalisé · le plus précis gagne : <b>choix de sous-panel › catégorie › panel › configuration</b>. Appliqué aux <b>nouveaux</b> tickets.</p>
   <h3>Variables (clique pour insérer)</h3><div class="tabs">${OM_VARS.map(x=>`<button type="button" class="tab" style="padding:3px 9px" onmousedown="event.preventDefault()" onclick="omIns('${x}')">${x}</button>`).join('')}</div>
   <label class="f"><span>Texte au-dessus de l'embed</span><small>Vide = ping du membre + du staff. <code>@Rôle</code>, <code>@Pseudo</code>, <code>#salon</code> deviennent cliquables.</small><textarea id="om_content" class="omf" style="min-height:70px" maxlength="1000" oninput="omPrev()">${V('content')}</textarea></label>
@@ -312,7 +312,7 @@ function omRender(keep){const t=TC();
   <button class="run" onclick="omSave()">💾 Enregistrer le message</button>
   ${omHas(cur.own)?`<button class="tab" style="margin-top:8px" onclick="omReset()">↩️ Supprimer ce message personnalisé</button>`:''}</div>
  <div class="sticky"><h3>👁️ Aperçu dans le ticket</h3><div id="ompv"></div></div>`;
- $('#main').innerHTML=h;omPrev()}
+ $('#main').innerHTML=h;omPrev();S.omBase=JSON.stringify(omRead())}
 function omRead(){const v=id=>$('#'+id)?.value??'';
  const d={content:v('om_content'),title:v('om_title'),description:v('om_desc'),image:v('om_image'),thumbnail:v('om_thumb'),footer:v('om_footer'),color:v('om_color'),claimLabel:v('om_cl'),closeLabel:v('om_xl'),claimEmoji:v('om_ce'),closeEmoji:v('om_xe')};
  if(v('om_info'))d.showInfo=v('om_info')=='true';if($('#om_ts')&&!$('#om_ts').checked)d.timestamp=false;
@@ -334,6 +334,13 @@ document.addEventListener('focusin',e=>{if(e.target.classList?.contains('omf'))S
 function omIns(v){const e=S.omFocus&&document.body.contains(S.omFocus)?S.omFocus:$('#om_desc');if(!e)return;const a=e.selectionStart??e.value.length,b=e.selectionEnd??a;e.value=e.value.slice(0,a)+v+e.value.slice(b);e.focus();e.selectionStart=e.selectionEnd=a+v.length;omPrev()}
 function omFAdd(){S.omD=omRead();S.omD.fields.push({name:'',value:'',inline:false});omRender(true)}
 function omFDel(n){S.omD=omRead();S.omD.fields.splice(n,1);omRender(true)}
+/* sauvegarde automatique : rien n'est perdu en changeant de message, de configuration ou de page */
+async function omAuto(){if(S.view!='om'||!S.omBase||!$('#om_title'))return;const m=omRead();if(JSON.stringify(m)==S.omBase)return;
+ const t=TC(),sc=t&&omScopes(t).find(x=>x.key==S.omS);if(!sc)return;S.omBase=JSON.stringify(m);
+ try{await api('/api/ticket-open-msg',{guildId:S.gid,config:t.name,scope:{type:sc.type,id:sc.id},msg:m});S.g=await api('/api/guild?id='+S.gid);toast('Modifications enregistrées automatiquement')}catch(e){toast(e.message,false)}}
+async function omGo(fn){await omAuto();fn();omRender()}
+document.querySelector('aside').addEventListener('click',e=>{if(e.target.closest('.ni'))omAuto()},true);
+window.addEventListener('beforeunload',e=>{if(S.view=='om'&&S.omBase&&S.omBase!==JSON.stringify(omRead()))e.preventDefault()});
 async function omCall(body,okMsg){const t=TC(),sc=omScopes(t).find(x=>x.key==S.omS);
  try{const r=await api('/api/ticket-open-msg',{guildId:S.gid,config:t.name,scope:{type:sc.type,id:sc.id},...body});S.g=await api('/api/guild?id='+S.gid);toast(r.empty?'Message par défaut / hérité rétabli ✅':okMsg);omRender()}catch(e){toast(e.message,false)}}
 const omSave=()=>omCall({msg:omRead()},'Message enregistré ✅ (appliqué aux nouveaux tickets)');
