@@ -13,10 +13,10 @@ async function load() {
   if (!r.ok) throw new Error(`HTTP ${r.status} ${(await r.text()).slice(0, 160)}`);
   return (await r.json())[0]?.data || null;
 }
-async function push(data) {
+async function push(data, id = ROW) {
   const r = await fetch(`${URL_}/rest/v1/${TABLE}?on_conflict=id`, {
     method: 'POST', headers: { ...H, Prefer: 'resolution=merge-duplicates,return=minimal' },
-    body: JSON.stringify([{ id: ROW, data, updated_at: new Date().toISOString() }]),
+    body: JSON.stringify([{ id, data, updated_at: new Date().toISOString() }]),
   });
   if (!r.ok) throw new Error(`HTTP ${r.status} ${(await r.text()).slice(0, 160)}`);
 }
@@ -45,6 +45,11 @@ async function init(db) {
     try { data = await load(); err = null; break; } catch (e) { err = e; await new Promise((r) => setTimeout(r, 1500)); }
   }
   if (err) { st.lastError = err.message; return console.error('[supabase] lecture impossible, sauvegarde distante coupée pour cette session :', err.message); }
+  // Test d'écriture : une clé "anon" ou une table protégée se lit sans erreur mais refuse d'écrire
+  try { await push({ t: Date.now() }, 'ping'); } catch (e) {
+    st.ok = false; st.writable = false; st.lastError = `écriture refusée (utilise la clé service_role) : ${e.message}`;
+    return console.error('[supabase]', st.lastError);
+  }
   st.ok = true; st.writable = true;
   if (data && Object.keys(data).length) {
     for (const k of Object.keys(db)) delete db[k];
