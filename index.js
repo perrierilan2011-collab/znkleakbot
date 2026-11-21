@@ -1094,6 +1094,7 @@ const commands = [
         .addChannelOption((o) =>
           o.setName('categorie').setDescription('Catégorie du serveur où les tickets de ce choix seront créés')
             .addChannelTypes(ChannelType.GuildCategory))
+        .addStringOption((o) => o.setName('suivant').setDescription('Sous-panel proposé ensuite ("aucun" = ticket direct)').setAutocomplete(true))
         .addRoleOption((o) => o.setName('role-staff').setDescription('Rôle staff propre à ce choix')))
     .addSubcommand((s) =>
       s.setName('choix-modifier').setDescription("Modifier un choix d'un sous-panel")
@@ -1106,6 +1107,7 @@ const commands = [
         .addChannelOption((o) =>
           o.setName('categorie').setDescription('Nouvelle catégorie du serveur pour les tickets de ce choix')
             .addChannelTypes(ChannelType.GuildCategory))
+        .addStringOption((o) => o.setName('suivant').setDescription('Sous-panel proposé ensuite ("aucun" = ticket direct)').setAutocomplete(true))
         .addRoleOption((o) => o.setName('role-staff').setDescription('Nouveau rôle staff pour ce choix')))
     .addSubcommand((s) =>
       s.setName('choix-retirer').setDescription("Retirer un choix d'un sous-panel")
@@ -1416,7 +1418,7 @@ async function refreshPanels(guild, cfgName) {
 // Message envoyé dans le salon du ticket à son ouverture.
 // Priorité : message du panel (/ticket message panel:...) > message de la configuration > message par défaut.
 // Variables : {user} {username} {server} {category} {config} {staff}
-async function buildOpenMessage(guild, user, cfg, panel, reason, staffRoles, subChoice = null) {
+async function buildOpenMessage(guild, user, cfg, panel, reason, staffRoles, subs = []) {
   const m = panel?.openMsg || cfg.openMsg || {};
   const staffMention = staffRoles.map((r) => `<@&${r}>`).join(' ');
   const vars = (txt) => String(txt ?? '')
@@ -1424,7 +1426,7 @@ async function buildOpenMessage(guild, user, cfg, panel, reason, staffRoles, sub
     .replaceAll('{username}', user.username)
     .replaceAll('{server}', guild.name)
     .replaceAll('{category}', reason ? reason.label : 'Non précisée')
-    .replaceAll('{sub}', subChoice ? subChoice.label : '')
+    .replaceAll('{sub}', subs.map((c) => c.label).join(' › '))
     .replaceAll('{config}', cfg.name)
     .replaceAll('{staff}', staffMention);
 
@@ -1433,7 +1435,7 @@ async function buildOpenMessage(guild, user, cfg, panel, reason, staffRoles, sub
 
   const embed = new EmbedBuilder()
     .setColor(parseColor(m.color, '#5865F2'))
-    .setTitle((m.title ? vars(m.title) : `🎫 Ticket — ${[reason?.label, subChoice?.label].filter(Boolean).join(' › ') || cfg.name}`).slice(0, 256))
+    .setTitle((m.title ? vars(m.title) : `🎫 Ticket — ${[reason?.label, ...subs.map((c) => c.label)].filter(Boolean).join(' › ') || cfg.name}`).slice(0, 256))
     .setDescription((rd ? rd.text : (
       `Bonjour <@${user.id}>, un membre du staff va te répondre bientôt.\n` +
       `Explique-nous ta demande avec un maximum de détails.`)).slice(0, 4096))
@@ -1442,7 +1444,7 @@ async function buildOpenMessage(guild, user, cfg, panel, reason, staffRoles, sub
     embed.addFields(
       { name: 'Configuration', value: cfg.name, inline: true },
       { name: 'Catégorie', value: reason ? reason.label : 'Non précisée', inline: true },
-      ...(subChoice ? [{ name: 'Sous-panel', value: subChoice.label, inline: true }] : []),
+      ...(subs.length ? [{ name: 'Sous-panel', value: subs.map((c) => c.label).join(' › ').slice(0, 1024), inline: true }] : []),
     );
   }
   if (isUrl(m.image)) embed.setImage(m.image.trim());
@@ -1461,7 +1463,8 @@ async function buildOpenMessage(guild, user, cfg, panel, reason, staffRoles, sub
 // Un membre peut ouvrir autant de tickets qu'il veut (chaque salon a son numéro).
 // Le choix (reasonId) est cherché dans le menu du panel ET dans le menu du MP.
 // Renvoie { channel } ou { error }.
-async function createTicket(guild, user, cfgName, reasonId, panel, subChoice = null) {
+async function createTicket(guild, user, cfgName, reasonId, panel, subPath = null) {
+  const subs = Array.isArray(subPath) ? subPath : subPath ? [subPath] : []; // choix successifs dans les sous-panels
   const data = getG(guild.id);
   const cfg = data.tickets[cfgName];
   if (!cfg) return { error: "❌ Cette configuration n'existe plus." };
@@ -1470,7 +1473,7 @@ async function createTicket(guild, user, cfgName, reasonId, panel, subChoice = n
 
   // Rôles staff : ceux du choix (s'il y en a un) sinon ceux de la configuration
   // Priorité : rôle du choix du sous-panel > rôle de la catégorie du menu > rôles de la configuration
-  const ownStaff = subChoice?.staffRoleId || reason?.staffRoleId;
+  const ownStaff = [...subs].reverse().map((c) => c.staffRoleId).find(Boolean) || reason?.staffRoleId;
   const staffRoles = (ownStaff ? [ownStaff] : cfg.staffRoles)
     .filter((id) => guild.roles.cache.has(id));
   if (!staffRoles.length) {
@@ -1479,7 +1482,7 @@ async function createTicket(guild, user, cfgName, reasonId, panel, subChoice = n
 
   // Catégorie du serveur liée au choix du menu (sinon celle de la configuration)
   // Priorité : catégorie du choix du sous-panel > catégorie du menu > catégorie de la configuration
-  const parentId = [subChoice?.categoryId, reason?.categoryId].find((id) => id && guild.channels.cache.has(id)) || cfg.categoryId;
+  const parentId = [...[...subs].reverse().map((c) => c.categoryId), reason?.categoryId].find((id) => id && guild.channels.cache.has(id)) || cfg.categoryId;
 
   cfg.counter = (cfg.counter || 0) + 1;
   save();
@@ -1491,7 +1494,7 @@ async function createTicket(guild, user, cfgName, reasonId, panel, subChoice = n
       name: `${cfg.name}-${String(cfg.counter).padStart(4, '0')}`.slice(0, 100),
       type: ChannelType.GuildText,
       parent: parentId,
-      topic: `Ticket de ${user.tag} | ${cfg.name}${reason ? ' | ' + reason.label : ''}${subChoice ? ' | ' + subChoice.label : ''}`,
+      topic: `Ticket de ${user.tag} | ${cfg.name}${reason ? ' | ' + reason.label : ''}${subs.length ? ' | ' + subs.map((c) => c.label).join(' › ') : ''}`,
       permissionOverwrites: [
         { id: guild.id, deny: [P.ViewChannel] },
         { id: user.id, allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.AttachFiles, P.EmbedLinks] },
@@ -1508,11 +1511,11 @@ async function createTicket(guild, user, cfgName, reasonId, panel, subChoice = n
   }
 
   data.open[channel.id] = {
-    userId: user.id, config: cfgName, reason: [reason?.label, subChoice?.label].filter(Boolean).join(' › ') || null, claimedBy: null, staffRoles,
+    userId: user.id, config: cfgName, reason: [reason?.label, ...subs.map((c) => c.label)].filter(Boolean).join(' › ') || null, claimedBy: null, staffRoles,
   };
   save();
 
-  const payload = await buildOpenMessage(guild, user, cfg, panel, reason, staffRoles, subChoice);
+  const payload = await buildOpenMessage(guild, user, cfg, panel, reason, staffRoles, subs);
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('tk_claim').setLabel('Prendre en charge').setEmoji('🙋').setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId('tk_close').setLabel('Fermer').setEmoji('🔒').setStyle(ButtonStyle.Danger),
@@ -1679,6 +1682,26 @@ const findTarget = (cfg, v) => {
   const t = String(v ?? '').trim().toLowerCase();
   return subTargets(cfg).find((x) => x.id === v || x.label.toLowerCase() === t) || null;
 };
+// Le sous-panel proposé APRÈS un choix (sous-panels en chaîne, sans limite de profondeur)
+function nextSub(cfg, choice) {
+  const n = choice?.nextSubId && cfg.subPanels.find((x) => x.id === choice.nextSubId);
+  return n && n.choices.length ? n : null;
+}
+// Vrai si, en suivant les choix de `fromId`, on peut arriver au sous-panel `targetId` (sert à interdire les boucles)
+function subReaches(cfg, fromId, targetId, seen = new Set()) {
+  if (seen.has(fromId)) return false;
+  seen.add(fromId);
+  const sp = cfg.subPanels.find((x) => x.id === fromId);
+  return !!sp && sp.choices.some((c) => c.nextSubId && (c.nextSubId === targetId || subReaches(cfg, c.nextSubId, targetId, seen)));
+}
+// Choix déjà faits dans un parcours en cours (clé = id du message du menu : éphémère ou MP)
+const subFlows = new Map();
+const flowPath = (msgId) => subFlows.get(msgId)?.path || [];
+function rememberFlow(msgId, path) {
+  const now = Date.now();
+  for (const [k, v] of subFlows) if (now - v.t > 3_600_000) subFlows.delete(k);
+  subFlows.set(msgId, { path, t: now });
+}
 function subSummary(cfg) {
   const name = (id) => cfg.subPanels.find((x) => x.id === id)?.name;
   const def = name(cfg.defaultSubPanelId);
@@ -1693,7 +1716,7 @@ function subSummary(cfg) {
   }
   if (cfg.subPanels.length) {
     lines.push('', '**Sous-panels**', ...cfg.subPanels.map((x) =>
-      `• **${x.name}** — ${x.choices.length ? x.choices.map((c) => (c.emoji ? c.emoji + ' ' : '') + c.label).join(', ') : '*aucun choix*'}`));
+      `• **${x.name}** — ${x.choices.length ? x.choices.map((c) => (c.emoji ? c.emoji + ' ' : '') + c.label + (c.nextSubId && name(c.nextSubId) ? ` ➜ ${name(c.nextSubId)}` : '')).join(', ') : '*aucun choix*'}`));
   } else lines.push('', 'Aucun sous-panel. Crée-en un avec `/sous-panel creer`.');
   return lines.join('\n').slice(0, 1990);
 }
@@ -1720,13 +1743,14 @@ function buildSubMessage(guild, user, cfg, sub, customId, reason) {
 }
 
 // Mode normal : le membre a choisi une catégorie -> on lui montre le sous-panel (réponse éphémère)
-function showSub(i, cfg, sub, reasonId, panel) {
+async function showSub(i, cfg, sub, reasonId, panel) {
   const reason = reasonId ? cfg.reasons.find((r) => r.id === reasonId) : null;
   const cid = `tk_sub:${cfg.name}:${reasonId || '-'}:${sub.id}:${panel?.messageId || '-'}`;
-  return i.editReply(buildSubMessage(i.guild, i.user, cfg, sub, cid, reason));
+  const m = await i.editReply(buildSubMessage(i.guild, i.user, cfg, sub, cid, reason));
+  rememberFlow(m.id, []);
 }
 
-// Mode normal : le membre choisit dans le sous-panel -> le ticket est créé
+// Mode normal : le membre choisit dans le sous-panel -> soit un autre sous-panel, soit le ticket est créé
 async function subChoose(i) {
   const [, cfgName, rid, subId, pid] = i.customId.split(':');
   const cfg = getG(i.guildId).tickets[cfgName];
@@ -1734,10 +1758,17 @@ async function subChoose(i) {
   if (!cfg || !choice) {
     return i.update({ content: "❌ Ce menu n'est plus valide. Reclique sur le panel du serveur pour en obtenir un nouveau.", embeds: [], components: [] });
   }
+  const path = [...flowPath(i.message.id), choice];
+  const next = nextSub(cfg, choice);
+  if (next && path.length < 50) {
+    rememberFlow(i.message.id, path);
+    return i.update(buildSubMessage(i.guild, i.user, cfg, next, `tk_sub:${cfgName}:${rid}:${next.id}:${pid}`, choice));
+  }
+  subFlows.delete(i.message.id);
   // Le menu disparaît tout de suite : un seul ticket par menu
   await i.update({ content: '⏳ Création de ton ticket...', embeds: [], components: [] });
   const panel = cfg.panels.find((p) => p.messageId === pid);
-  const r = await createTicket(i.guild, i.user, cfgName, rid === '-' ? null : rid, panel, choice);
+  const r = await createTicket(i.guild, i.user, cfgName, rid === '-' ? null : rid, panel, path);
   return i.editReply(r.error || `✅ Ton ticket a été créé : <#${r.channel.id}>`);
 }
 
@@ -1781,11 +1812,20 @@ async function dmSubChoose(i) {
   }
   const choice = cfg.dmChoices.find((r) => r.id === choiceId);
   const subChoice = cfg.subPanels.find((x) => x.id === subId)?.choices.find((c) => c.id === i.values[0]) || null;
-  return dmFinish(i, guild, data, cfg, key, subChoice ? choice : null, subChoice);
+  if (!choice || !subChoice) return dmFinish(i, guild, data, cfg, key, null, null);
+  const path = [...flowPath(i.message.id), subChoice];
+  const next = nextSub(cfg, subChoice);
+  if (next && path.length < 50) { // un autre sous-panel suit : le MP reste valable
+    rememberFlow(i.message.id, path);
+    const m = buildSubMessage(guild, i.user, cfg, next, `tk_dmsub:${cfgName}:${guildId}:${choiceId}:${next.id}`, subChoice);
+    return i.update({ ...m, attachments: [] });
+  }
+  subFlows.delete(i.message.id);
+  return dmFinish(i, guild, data, cfg, key, choice, path);
 }
 
 // Fin du parcours MP : création du ticket puis message de confirmation
-async function dmFinish(i, guild, data, cfg, key, choice, subChoice) {
+async function dmFinish(i, guild, data, cfg, key, choice, subPath) {
   const p = data.pendingDm[key];
   // Usage unique : l'enregistrement est supprimé AVANT toute opération asynchrone
   // (double clic ou ancien menu = aucun ticket créé).
@@ -1805,10 +1845,10 @@ async function dmFinish(i, guild, data, cfg, key, choice, subChoice) {
   if (!choice) return reply("❌ Ce choix n'existe plus. Reclique sur le panel du serveur.");
 
   const panel = cfg.panels.find((x) => x.messageId === p.panelId);
-  const r = await createTicket(guild, i.user, cfg.name, choice.id, panel, subChoice);
+  const r = await createTicket(guild, i.user, cfg.name, choice.id, panel, subPath);
   if (r.error) return reply(r.error);
 
-  const shown = subChoice ? { ...choice, label: `${choice.label} › ${subChoice.label}` } : choice;
+  const shown = subPath?.length ? { ...choice, label: [choice.label, ...subPath.map((c) => c.label)].join(' › ') } : choice;
   const ctx = { guild, user: i.user, cfg, channel: r.channel, choice: shown };
   return reply({
     embeds: [new EmbedBuilder()
@@ -2370,7 +2410,7 @@ const HELP = [
   ] },
   { title: '🗂️ Sous panel', level: 'full', lines: [
     '`/sous-panel creer` · `modifier` · `supprimer` — un 2e menu proposé après le choix d\'une catégorie du panel',
-    '`/sous-panel choix-ajouter` · `choix-modifier` · `choix-retirer` — les choix du sous-panel (emoji, catégorie du serveur, staff)',
+    '`/sous-panel choix-ajouter` · `choix-modifier` · `choix-retirer` — les choix du sous-panel (emoji, catégorie du serveur, staff, sous-panel suivant : autant de niveaux que tu veux)',
     '`/sous-panel lier` — le même sous-panel pour toutes les catégories, ou un différent par catégorie',
     '`/sous-panel delier` · `liste` — retirer un lien · voir qui utilise quoi',
   ] },
@@ -3678,7 +3718,7 @@ const handlers = {
     if (sub === 'liste') return say(subSummary(cfg));
 
     if (sub === 'creer') {
-      if (cfg.subPanels.length >= 20) return say('❌ 20 sous-panels maximum par configuration.');
+      if (cfg.subPanels.length >= 100) return say('❌ 100 sous-panels maximum par configuration.');
       const nom = i.options.getString('nom', true).trim().slice(0, 60);
       if (findSub(cfg, nom)) return say('❌ Un sous-panel porte déjà ce nom.');
       const couleur = (i.options.getString('couleur') || '').trim();
@@ -3721,6 +3761,7 @@ const handlers = {
 
     if (sub === 'supprimer') {
       cfg.subPanels = cfg.subPanels.filter((x) => x !== sp);
+      for (const x of cfg.subPanels) for (const c of x.choices) if (c.nextSubId === sp.id) c.nextSubId = null;
       for (const [k, v] of Object.entries(cfg.subLinks)) if (v === sp.id) delete cfg.subLinks[k];
       if (cfg.defaultSubPanelId === sp.id) cfg.defaultSubPanelId = null;
       save();
@@ -3764,8 +3805,24 @@ const handlers = {
         : `✅ **${t.label}** utilise maintenant le sous-panel **${sp.name}**.${warn}`);
     }
 
+    // Sous-panel proposé après un choix (option "suivant") : undefined = inchangé, null = aucun
+    let nextId;
+    if (sub === 'choix-ajouter' || sub === 'choix-modifier') {
+      const raw = i.options.getString('suivant');
+      if (raw !== null) {
+        if (raw.trim().toLowerCase() === 'aucun') nextId = null;
+        else {
+          const n = findSub(cfg, raw);
+          if (!n) return say('❌ Sous-panel suivant introuvable. Choisis-le dans la liste proposée.');
+          if (n === sp || subReaches(cfg, n.id, sp.id)) return say('❌ Boucle impossible : ce sous-panel mène déjà (directement ou non) à celui-ci.');
+          nextId = n.id;
+        }
+      }
+    }
+    const nextTxt = nextId ? ` — ouvre ensuite le sous-panel **${cfg.subPanels.find((x) => x.id === nextId).name}**` : '';
+
     if (sub === 'choix-ajouter') {
-      if (sp.choices.length >= 25) return say('❌ 25 choix maximum par sous-panel.');
+      if (sp.choices.length >= 25) return say('❌ 25 choix maximum par sous-panel (limite de Discord) : utilise un sous-panel suivant pour en proposer plus.');
       const staff = i.options.getRole('role-staff');
       if (staff && staff.id === i.guild.id) return say('❌ Tu ne peux pas choisir @everyone.');
       const emojiRaw = (i.options.getString('emoji') || '').trim();
@@ -3782,12 +3839,13 @@ const handlers = {
         emoji: emojiRaw || null,
         staffRoleId: staff?.id || null,
         categoryId: cat?.id || null,
+        nextSubId: nextId || null,
       });
       save();
       return say(
         `✅ Choix **${label}** ajouté à **${sp.name}** (${sp.choices.length}/25)` +
         `${cat ? ` — tickets créés dans <#${cat.id}>` : ' — tickets créés dans la catégorie du menu (ou celle de la configuration)'}` +
-        `${staff ? ` — staff : <@&${staff.id}>` : ''}.`);
+        `${staff ? ` — staff : <@&${staff.id}>` : ''}${nextTxt}.`);
     }
 
     if (sub === 'choix-modifier' || sub === 'choix-retirer') {
@@ -3819,8 +3877,9 @@ const handlers = {
         if (staff.id === i.guild.id) return say('❌ Tu ne peux pas choisir @everyone.');
         ch.staffRoleId = staff.id;
       }
+      if (nextId !== undefined) ch.nextSubId = nextId;
       save();
-      return say(`✅ Choix **${ch.label}** modifié.`);
+      return say(`✅ Choix **${ch.label}** modifié${nextId === null ? ' (plus de sous-panel suivant)' : nextTxt}.`);
     }
   },
 
@@ -4185,6 +4244,14 @@ async function autocomplete(i) {
     const cfg = d.tickets[i.options.getString('config')];
     const list = (cfg?.subPanels || []).map((x) => ({ name: `${x.name} (${x.choices.length} choix)`.slice(0, 100), value: x.id }));
     if (i.options.getSubcommand(false) === 'lier') list.unshift({ name: '❌ Aucun sous-panel (ticket direct)', value: 'none' });
+    return i.respond(list.filter((o) => o.name.toLowerCase().includes(q)).slice(0, 25));
+  }
+  if (f.name === 'suivant') {
+    const cfg = d.tickets[i.options.getString('config')];
+    const cur = cfg && findSub(cfg, i.options.getString('sous-panel'));
+    const list = (cfg?.subPanels || []).filter((x) => cur && x !== cur && !subReaches(cfg, x.id, cur.id))
+      .map((x) => ({ name: `${x.name} (${x.choices.length} choix)`.slice(0, 100), value: x.id }));
+    list.unshift({ name: '❌ Aucun (ticket direct)', value: 'aucun' });
     return i.respond(list.filter((o) => o.name.toLowerCase().includes(q)).slice(0, 25));
   }
   if (f.name === 'sous-choix') {
