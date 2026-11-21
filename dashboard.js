@@ -119,6 +119,8 @@ module.exports = function startDashboard(ctx) {
     },
     'GET /api/emojis': async (_r, q) => {
       const first = q.get('id');
+      // Liste relue sur Discord à chaque ouverture : un emoji ajouté, renommé ou supprimé apparaît tout de suite
+      await Promise.all([...client.guilds.cache.values()].map((g) => g.emojis.fetch().catch(() => {})));
       return [...client.guilds.cache.values()].sort((a, b) => (b.id === first) - (a.id === first))
         .map((g) => ({ name: g.name, emojis: g.emojis.cache.map((e) => ({ id: e.id, name: e.name, animated: !!e.animated })) }))
         .filter((g) => g.emojis.length);

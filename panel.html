@@ -259,7 +259,7 @@ async function spChSave(){const cur=spCur(),ed=S.ch!=null?cur.choices[S.ch]:null
 async function spChDel(n){const cur=spCur(),c=cur.choices[n];if(!confirm(`Retirer le choix « ${c.label} » ?`))return;await spRun('choix-retirer',{'sous-panel':cur.id,'sous-choix':c.id});S.ch=null;spRender()}
 /* ---------- sélecteur d'emojis (Unicode + emojis personnalisés des serveurs du bot) ---------- */
 async function emojiPick(btn){const old=$('#ep');if(old){old.remove();if(old._b===btn)return}
- if(!S.emo)S.emo=await api('/api/emojis?id='+S.gid).catch(()=>[]);
+ S.emo=await api('/api/emojis?id='+S.gid).catch(()=>S.emo||[]);
  const inp=btn.previousElementSibling,pop=document.createElement('div'),com=['🎫','💳','🛒','❓','🎁','⚙️','🔧','💎','🎮','⭐','📩','🛡️','💬','📦','🔥','✅'];
  pop.id='ep';pop.className='ep';pop._b=btn;
  pop.innerHTML=`<input placeholder="Rechercher un emoji du serveur…" oninput="epFilter(this.value)"><div class="eg" style="margin-top:8px">${com.map(c=>`<button type="button" data-e="${c}">${c}</button>`).join('')}</div>`+
