@@ -25,6 +25,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function explain(status, text) {
   if (status === 404 || /PGRST205|does not exist|relation/i.test(text)) return 'table « bot_data » introuvable : exécute supabase.sql dans Supabase > SQL Editor';
+  if (/PGRST204|column/i.test(text)) return 'colonne manquante dans « bot_data » : relance supabase.sql dans Supabase > SQL Editor';
   if (status === 401 || status === 403) return 'clé refusée : utilise la clé « service_role » (Project Settings > API), pas la clé « anon »';
   return `HTTP ${status} ${text.slice(0, 160)}`;
 }
@@ -41,7 +42,7 @@ const upsert = (rows) => req(`${TABLE}?on_conflict=id`, {
 // Vérifie qu'on peut LIRE et ÉCRIRE (une clé "anon" ou une table protégée lit sans erreur mais refuse d'écrire)
 async function connect() {
   await req(`${TABLE}?select=id&limit=1`);
-  await upsert([{ id: '_ping', data: { t: Date.now() }, updated_at: new Date().toISOString() }]);
+  await upsert([{ id: '_ping', data: { t: Date.now() } }]);
   st.writable = true;
 }
 
@@ -65,7 +66,7 @@ async function flush() {
           if (!g || !Object.keys(g).length) continue; // on n'écrase jamais Supabase avec des données vides
           const json = JSON.stringify(g);
           marks.set(id, hash(json));
-          rows.push({ id, data: JSON.parse(json), updated_at: new Date().toISOString() });
+          rows.push({ id, data: JSON.parse(json) });
         }
         try {
           for (let n = 0; n < rows.length; n += 5) await upsert(rows.slice(n, n + 5));

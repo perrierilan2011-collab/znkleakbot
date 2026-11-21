@@ -2,34 +2,35 @@
 <html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ZNK Bot — Panel</title>
 <style>
-:root{--bg:#0b0d14;--p1:#12141f;--p2:#181b2a;--bd:#262a3d;--tx:#e8eaf6;--mu:#8b90ab;--ac:#6c63ff;--ac2:#a855f7;--ok:#23c552;--ko:#f23f5d}
-*{box-sizing:border-box;margin:0}body{font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:radial-gradient(900px 500px at 80% -10%,#2a1f5c55,transparent),var(--bg);color:var(--tx);height:100vh;display:flex;overflow:hidden}
-[hidden]{display:none!important}
-aside{width:270px;background:var(--p1);border-right:1px solid var(--bd);display:flex;flex-direction:column;flex-shrink:0}
-.logo{padding:18px;font-weight:800;font-size:18px;background:linear-gradient(90deg,var(--ac),var(--ac2));-webkit-background-clip:text;color:transparent}
-aside select,aside input{margin:0 14px 10px;width:calc(100% - 28px)}
-#nav{overflow:auto;padding:0 10px 20px;flex:1}
-.cat{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--mu);margin:16px 8px 6px}
-.ni{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:9px;cursor:pointer;color:#c7cae0}
-.ni:hover{background:var(--p2)}.ni.on{background:linear-gradient(90deg,#6c63ff33,#a855f71a);color:#fff;box-shadow:inset 3px 0 var(--ac)}
-.ni em{font-style:normal;font-size:10px;color:var(--ko)}
-main{flex:1;overflow:auto;padding:26px 30px;display:grid;grid-template-columns:minmax(340px,1fr) minmax(340px,1fr);gap:22px;align-content:start}
-.card{background:var(--p1);border:1px solid var(--bd);border-radius:16px;padding:20px;box-shadow:0 10px 30px #0006}
-.head{grid-column:1/-1}.head h1{font-size:26px}.head p{color:var(--mu);margin-top:2px}
-.bd{display:inline-block;font-size:11px;padding:2px 8px;border-radius:20px;background:#6c63ff2a;color:#b9b4ff;margin:8px 6px 0 0}.bd.r{background:#f23f5d22;color:#ff8da0}
-.tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px}
-.tab{background:var(--p2);border:1px solid var(--bd);color:#c7cae0;padding:6px 12px;border-radius:20px;cursor:pointer;font:inherit}
-.tab.on{background:linear-gradient(90deg,var(--ac),var(--ac2));border-color:transparent;color:#fff}
+:root{--bg:#0e0f11;--p1:#141518;--p2:#1b1c20;--bd:#27292e;--tx:#e6e7ea;--mu:#8b8e96;--ac:#4f8cff;--ac2:#4f8cff;--ok:#2e9e5b;--ko:#d9475c}
+*{box-sizing:border-box;margin:0}
+body{font:13.5px/1.5 Inter,-apple-system,"Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--tx);height:100vh;display:flex;overflow:hidden}
+[hidden]{display:none!important}button{font:inherit}
+aside{width:244px;background:var(--p1);border-right:1px solid var(--bd);display:flex;flex-direction:column;flex-shrink:0}
+.logo{padding:16px 16px 12px;font-weight:700;font-size:15px;letter-spacing:-.01em}.logo small{font-weight:400;color:var(--mu);margin-left:6px}
+aside select,aside input{margin:0 12px 8px;width:calc(100% - 24px)}
+#nav{overflow:auto;padding:4px 8px 12px;flex:1}
+.cat{font-size:11.5px;font-weight:600;color:var(--mu);margin:16px 8px 4px}
+.ni{display:flex;justify-content:space-between;align-items:center;padding:6px 9px;border-radius:6px;cursor:pointer;color:#b4b7bf}
+.ni:hover{background:var(--p2);color:var(--tx)}.ni.on{background:var(--p2);color:#fff;box-shadow:inset 2px 0 var(--ac)}
+.ni.cm{font:12.5px ui-monospace,Consolas,monospace}.ni em{font-style:normal;font-size:10.5px;color:var(--ko)}
+.sbf{border-top:1px solid var(--bd);padding:8px}
+main{flex:1;overflow:auto;padding:24px 28px;display:grid;grid-template-columns:minmax(340px,1fr) minmax(340px,1fr);gap:16px;align-content:start}
+.card{background:var(--p1);border:1px solid var(--bd);border-radius:8px;padding:18px}
+.head{grid-column:1/-1;background:none;border:0;border-bottom:1px solid var(--bd);border-radius:0;padding:0 0 14px}.head h1{font-size:20px;font-weight:650;letter-spacing:-.01em}.head p{color:var(--mu);margin-top:2px}
+.bd{display:inline-block;font-size:11px;padding:1px 7px;border-radius:4px;background:var(--p2);border:1px solid var(--bd);color:var(--mu);margin:8px 6px 0 0}.bd.r{color:#f08a99;border-color:#5a2a33}
+.tabs{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:14px;border-bottom:1px solid var(--bd);padding-bottom:10px}
+.tab{background:none;border:1px solid transparent;color:var(--mu);padding:4px 10px;border-radius:6px;cursor:pointer}.tab:hover{color:var(--tx)}.tab.on{background:var(--p2);border-color:var(--bd);color:#fff}
 .f{display:block;margin-bottom:14px}.f span{font-weight:600}.f small{display:block;color:var(--mu);font-size:12px;margin-bottom:4px}.req{color:var(--ko);margin-left:3px}
-input,select,textarea{width:100%;background:var(--p2);border:1px solid var(--bd);color:var(--tx);border-radius:10px;padding:9px 11px;font:inherit;outline:0}
-input:focus,select:focus,textarea:focus{border-color:var(--ac);box-shadow:0 0 0 3px #6c63ff33}textarea{min-height:110px;resize:vertical}
-.combo{position:relative}.dd{position:absolute;z-index:9;left:0;right:0;top:100%;margin-top:4px;background:#1d2033;border:1px solid var(--bd);border-radius:10px;max-height:220px;overflow:auto}
-.dd div,.dd i{display:block;padding:8px 11px;cursor:pointer;color:var(--mu)}.dd div{color:var(--tx)}.dd div:hover{background:#6c63ff33}
-h3{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mu);margin:6px 0 12px}
-.run{width:100%;margin-top:6px;border:0;border-radius:12px;padding:12px;font:700 15px inherit;color:#fff;cursor:pointer;background:linear-gradient(90deg,var(--ac),var(--ac2));box-shadow:0 8px 24px #6c63ff55}
+input,select,textarea{width:100%;background:var(--bg);border:1px solid var(--bd);color:var(--tx);border-radius:6px;padding:7px 10px;font:inherit;outline:0}
+input:focus,select:focus,textarea:focus{border-color:var(--ac)}textarea{min-height:110px;resize:vertical}
+.combo{position:relative}.dd{position:absolute;z-index:9;left:0;right:0;top:100%;margin-top:4px;background:var(--p2);border:1px solid var(--bd);border-radius:6px;max-height:220px;overflow:auto}
+.dd div,.dd i{display:block;padding:7px 10px;cursor:pointer;color:var(--mu)}.dd div{color:var(--tx)}.dd div:hover{background:#4f8cff26}
+h3{font-size:13.5px;font-weight:600;color:var(--tx);margin:4px 0 10px}
+.run{width:100%;margin-top:6px;border:0;border-radius:6px;padding:9px 12px;font-weight:600;color:#fff;cursor:pointer;background:var(--ac)}
 .run:hover{filter:brightness(1.1)}.run:disabled{opacity:.5;cursor:wait}
 .sticky{position:sticky;top:0;align-self:start}
-.slash{font:12px ui-monospace,Consolas,monospace;background:#0007;border-radius:8px;padding:8px 10px;margin-bottom:12px;color:#b9b4ff;word-break:break-all}
+.slash{font:12px ui-monospace,Consolas,monospace;background:var(--bg);border:1px solid var(--bd);border-radius:6px;padding:7px 10px;margin-bottom:12px;color:#9db8f5;word-break:break-all}
 .where{font-size:12px;color:var(--mu);margin:0 0 8px}
 .dc{background:#313338;border-radius:12px;padding:16px;color:#dbdee1;font:14px/1.4 "gg sans",system-ui,sans-serif;margin-bottom:12px}
 .dc .m{display:flex;gap:12px}.av{width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,var(--ac),var(--ac2));flex-shrink:0;display:grid;place-items:center;font-weight:800;color:#fff}
@@ -43,19 +44,19 @@ h3{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mu);
 .btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}.b{border-radius:4px;padding:6px 14px;font-size:14px;font-weight:500;color:#fff}.sel{background:#1e1f22;border:1px solid #3f4147;border-radius:4px;padding:8px 12px;color:#949ba4;min-width:260px;display:flex;justify-content:space-between}
 .rx{display:inline-block;margin-top:6px;background:#5865f233;border:1px solid #5865f2;border-radius:8px;padding:1px 8px}
 .empty{color:var(--mu);text-align:center;padding:18px}
-#toasts{position:fixed;right:18px;bottom:18px;display:flex;flex-direction:column;gap:8px;z-index:99}.toast{padding:11px 16px;border-radius:10px;color:#fff;box-shadow:0 8px 24px #0008;animation:u .25s}.toast.ok{background:var(--ok)}.toast.ko{background:var(--ko)}@keyframes u{from{transform:translateY(12px);opacity:0}}
-#login{position:fixed;inset:0;background:var(--bg);display:grid;place-items:center;z-index:100}#login .card{width:340px;text-align:center}#login h1{margin-bottom:14px}#login input{margin-bottom:12px}
+#toasts{position:fixed;right:18px;bottom:18px;display:flex;flex-direction:column;gap:8px;z-index:99}.toast{padding:9px 14px;border-radius:6px;color:#fff;animation:u .2s}.toast.ok{background:var(--ok)}.toast.ko{background:var(--ko)}@keyframes u{from{transform:translateY(8px);opacity:0}}
+#login{position:fixed;inset:0;background:var(--bg);display:grid;place-items:center;z-index:100}#login .card{width:320px;text-align:center}#login h1{margin-bottom:14px}#login input{margin-bottom:12px}
 .rr{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--bd)}.rr small{display:block;color:var(--mu)}
-.mini{background:var(--p2);border:1px solid var(--bd);border-radius:8px;padding:4px 8px;cursor:pointer;color:var(--tx);margin-left:4px}.mini:hover{border-color:var(--ac)}
+.mini{background:var(--p2);border:1px solid var(--bd);border-radius:6px;padding:3px 8px;cursor:pointer;color:var(--tx);margin-left:4px}.mini:hover{border-color:var(--ac)}
 .opt{display:flex;gap:8px;padding:8px 10px;border-radius:4px}.opt small{display:block;color:#949ba4}.opt.new{background:#5865f233}.menu{background:#2b2d31;border-radius:6px;padding:6px;margin-top:6px;max-width:420px}
 .ce{width:22px;height:22px;vertical-align:-5px;object-fit:contain}.ew{position:relative;display:flex;gap:6px}.ew .mini{margin:0;font-size:16px}
-.ep{position:absolute;z-index:30;top:100%;left:0;margin-top:6px;width:330px;max-height:320px;overflow:auto;background:#1d2033;border:1px solid var(--bd);border-radius:12px;padding:10px;box-shadow:0 14px 40px #000a}
-.ep h3{margin:10px 0 6px}.eg{display:flex;flex-wrap:wrap;gap:4px}.eg button{background:none;border:0;border-radius:6px;padding:4px;cursor:pointer;font-size:20px;color:var(--tx)}.eg button:hover{background:#6c63ff44}
+.ep{position:absolute;z-index:30;top:100%;left:0;margin-top:6px;width:330px;max-height:320px;overflow:auto;background:#1b1c20;border:1px solid var(--bd);border-radius:12px;padding:10px;box-shadow:0 14px 40px #000a}
+.ep h3{margin:10px 0 6px}.eg{display:flex;flex-wrap:wrap;gap:4px}.eg button{background:none;border:0;border-radius:6px;padding:4px;cursor:pointer;font-size:20px;color:var(--tx)}.eg button:hover{background:#4f8cff44}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-@media(max-width:900px){aside{display:none}main{grid-template-columns:1fr;padding:14px}.sticky{position:static}}
+@media(max-width:900px){body{flex-direction:column;height:auto;overflow:auto}aside{width:100%;max-height:44vh}main{grid-template-columns:1fr;padding:14px;overflow:visible}.sticky{position:static}}
 </style></head><body>
-<div id="login" hidden><form class="card" onsubmit="login(event)"><h1 class="logo" style="padding:0">ZNK Bot Panel</h1><input id="pw" type="password" placeholder="Mot de passe" autofocus><button class="run">Se connecter</button></form></div>
-<aside><div class="logo">⚡ ZNK Bot Panel</div><select id="guild" onchange="loadGuild(this.value)"></select><input id="q" placeholder="🔎 Rechercher une commande…" oninput="nav()"><div id="nav"></div></aside>
+<div id="login" hidden><form class="card" onsubmit="login(event)"><h1 class="logo" style="padding:0 0 4px">ZNK Panel</h1><input id="pw" type="password" placeholder="Mot de passe" autofocus><button class="run">Se connecter</button></form></div>
+<aside><div class="logo">ZNK<small>Panel</small></div><select id="guild" onchange="loadGuild(this.value)"></select><input id="q" placeholder="Rechercher une commande" oninput="nav()"><div id="nav"></div><div class="sbf"><div class="ni" id="nbk" onclick="bk()">Sauvegarde</div></div></aside>
 <main id="main"><div class="empty" style="grid-column:1/-1">Choisis une commande dans le menu de gauche.</div></main>
 <div id="toasts"></div>
 <script>
@@ -70,10 +71,16 @@ async function boot(){const me=await fetch('/api/me').then(r=>r.json());if(!me.a
  $('#guild').innerHTML=S.guilds.map(g=>`<option value="${g.id}">${esc(g.name)} (${g.members})</option>`).join('');
  if(S.guilds[0])await loadGuild(S.guilds[0].id)}
 async function loadGuild(id){S.gid=id;S.g=await api('/api/guild?id='+id);nav();if(S.view=='tk')tkRender();else if(S.view=='sp')spRender();else if(S.view=='om')omRender();else if(S.view=='bk')bk();else if(S.cmd)render()}
-function nav(){const q=$('#q').value.toLowerCase(),d=S.g?.disabled||[];let h=`<div class="cat">Gestion</div><div class="ni ${S.view=='tk'?'on':''}" onclick="tk()">🎫 Gestion des tickets</div><div class="ni ${S.view=='om'?'on':''}" onclick="om()">💬 Message d'ouverture du ticket</div><div class="ni ${S.view=='bk'?'on':''}" onclick="bk()">💾 Sauvegarde</div>`;
- for(const [k,l] of Object.entries(S.schema.categories)){const cs=S.schema.commands.filter(c=>c.category==k&&c.name.includes(q));if(!cs.length)continue;
-  h+=`<div class="cat">${esc(l)}</div>`+(k=='souspanel'?`<div class="ni ${S.view=='sp'?'on':''}" onclick="sp()">🗂️ Gestion des sous-panels</div>`:'')+cs.map(c=>`<div class="ni ${S.cmd?.name==c.name?'on':''}" onclick="pick('${c.name}')">/${c.name}${d.includes(c.name)?'<em>désactivée</em>':''}</div>`).join('')}
- $('#nav').innerHTML=h}
+const NOEMO=s=>String(s).replace(/^[^\p{L}\p{N}]+/u,'');
+function nav(){const q=$('#q').value.toLowerCase(),d=S.g?.disabled||[];
+ const it=(on,fn,l)=>`<div class="ni ${on?'on':''}" onclick="${fn}">${l}</div>`,
+  cmd=c=>`<div class="ni cm ${S.cmd?.name==c.name?'on':''}" onclick="pick('${c.name}')">/${c.name}${d.includes(c.name)?'<em>désactivée</em>':''}</div>`,
+  cs=k=>S.schema.commands.filter(c=>c.category==k&&c.name.includes(q));
+ let h='';
+ if(!q)h+=`<div class="cat">Tickets</div>`+it(S.view=='tk','tk()','Configurations')+it(S.view=='sp','sp()','Sous-panels')+it(S.view=='om','om()','Message d’ouverture');
+ const tc=cs('tickets');if(tc.length)h+=`<div class="cat">${q?'Tickets':'Commandes tickets'}</div>`+tc.map(cmd).join('');
+ for(const [k,l] of Object.entries(S.schema.categories)){if(k=='tickets'||k=='souspanel')continue;const c=cs(k);if(c.length)h+=`<div class="cat">${esc(NOEMO(l))}</div>`+c.map(cmd).join('')}
+ $('#nav').innerHTML=h;$('#nbk').classList.toggle('on',S.view=='bk')}
 function pick(n){S.view=null;S.cmd=S.schema.commands.find(c=>c.name==n);S.sub=S.cmd.options?.find(o=>o.type==1)||null;S.res=null;nav();render()}
 const subs=()=>S.cmd.options.filter(o=>o.type==1),def=()=>S.sub||S.cmd,key=()=>S.cmd.name+(S.sub?'/'+S.sub.name:''),MODAL=()=>S.schema.modals[key()];
 function field(o){const r=o.required?'<b class="req">*</b>':'',t=o.type;let i;
@@ -213,7 +220,7 @@ function spRender(){const t=TC();
   <h3 style="margin-top:18px">🔗 Un sous-panel différent par catégorie</h3>
   ${tg.map(r=>`<div class="rr"><div>${emo(r.emoji||'📁')} <b>${esc(r.label)}</b>${r.mp?'<small>📩 menu MP</small>':''}</div><select style="max-width:55%" onchange="spLink('${r.id}',this.value)">${opts(t.subLinks?.[r.id],'↩️ Par défaut'+(def?' ('+esc(def)+')':''))}</select></div>`).join('')||'<p class="where">Aucune catégorie dans le menu du panel. Ajoutes-en dans « Gestion des tickets » : chacune pourra avoir son sous-panel.</p>'}</div>`;
  h+=`<div class="card"><h3>🗂️ Mes sous-panels — ${sps.length}/100</h3>
-  ${sps.map(s=>`<div class="rr" ${s.id==S.sp?'style="background:#6c63ff1a"':''}><div><b>${esc(s.name)}</b>${s.payment?' 💳':''}<small>${s.choices.length} choix${s.choices.length?' : '+s.choices.map(c=>esc(c.label)).join(', '):''}</small></div><span><button class="mini" title="Gérer les choix" onclick="S.sp='${s.id}';S.ch=null;S.spEdit=false;spRender()">📋</button><button class="mini" title="Modifier les textes" onclick="S.sp='${s.id}';S.ch=null;S.spEdit=true;spRender()">✏️</button><button class="mini" title="Supprimer" onclick="spDel('${s.id}')">🗑️</button></span></div>`).join('')||'<p class="where">Aucun sous-panel. Crée le premier ci-dessous.</p>'}
+  ${sps.map(s=>`<div class="rr" ${s.id==S.sp?'style="background:#4f8cff1a"':''}><div><b>${esc(s.name)}</b>${s.payment?' 💳':''}<small>${s.choices.length} choix${s.choices.length?' : '+s.choices.map(c=>esc(c.label)).join(', '):''}</small></div><span><button class="mini" title="Gérer les choix" onclick="S.sp='${s.id}';S.ch=null;S.spEdit=false;spRender()">📋</button><button class="mini" title="Modifier les textes" onclick="S.sp='${s.id}';S.ch=null;S.spEdit=true;spRender()">✏️</button><button class="mini" title="Supprimer" onclick="spDel('${s.id}')">🗑️</button></span></div>`).join('')||'<p class="where">Aucun sous-panel. Crée le premier ci-dessous.</p>'}
   <h3 style="margin-top:18px">${es?'✏️ Modifier « '+esc(es.name)+' »':'➕ Créer un sous-panel'}</h3>
   <label class="f"><span>Nom<b class="req">*</b></span><input id="sp_name" maxlength="60" value="${esc(es?.name||'')}" oninput="spPrev()"></label>
   <label class="f"><span>Titre du message</span><input id="sp_title" maxlength="256" value="${esc(es?.title||'')}" oninput="spPrev()"></label>
@@ -385,4 +392,9 @@ async function bkRestore(i){const f=i.files[0];if(!f)return;let d;try{d=JSON.par
  if(!confirm('Remplacer TOUTES les données actuelles par ce fichier ?'))return i.value='';
  try{await api('/api/restore',{data:d});toast('Sauvegarde restaurée ✅');S.g=await api('/api/guild?id='+S.gid);bk()}catch(e){toast(e.message,false)}}
 boot();
+
+/* ---------- interface sobre : retire les emojis en tête des titres et boutons ---------- */
+const EMO=/^[\p{Extended_Pictographic}\uFE0F\u200D\s]+(?=[\p{L}«“])/u;
+const cleanUi=()=>$$('#main h1,#main h3,#main .run,#main .tab,#login h1').forEach(e=>{const n=e.firstChild;if(n&&n.nodeType==3&&EMO.test(n.nodeValue))n.nodeValue=n.nodeValue.replace(EMO,'')});
+new MutationObserver(cleanUi).observe(document.body,{childList:true,subtree:true,characterData:true});
 </script></body></html>
