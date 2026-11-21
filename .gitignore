@@ -1,0 +1,8 @@
+node_modules/
+.env
+data.json
+data.json.bak
+data.json.tmp
+data.json.corrompu-*
+npm-debug.log*
+.DS_Store
