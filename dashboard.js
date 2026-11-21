@@ -114,6 +114,12 @@ module.exports = function startDashboard(ctx) {
         roles: guild.roles.cache.filter((r) => r.id !== guild.id).map((r) => ({ id: r.id, name: r.name, color: r.hexColor })),
       };
     },
+    'GET /api/emojis': async (_r, q) => {
+      const first = q.get('id');
+      return [...client.guilds.cache.values()].sort((a, b) => (b.id === first) - (a.id === first))
+        .map((g) => ({ name: g.name, emojis: g.emojis.cache.map((e) => ({ id: e.id, name: e.name, animated: !!e.animated })) }))
+        .filter((g) => g.emojis.length);
+    },
     'GET /api/members': async (_r, q) => {
       const { guild } = await ctxFor(q.get('id'));
       const s = (q.get('q') || '').toLowerCase();

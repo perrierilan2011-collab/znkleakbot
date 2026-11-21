@@ -48,6 +48,9 @@ h3{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mu);
 .rr{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--bd)}.rr small{display:block;color:var(--mu)}
 .mini{background:var(--p2);border:1px solid var(--bd);border-radius:8px;padding:4px 8px;cursor:pointer;color:var(--tx);margin-left:4px}.mini:hover{border-color:var(--ac)}
 .opt{display:flex;gap:8px;padding:8px 10px;border-radius:4px}.opt small{display:block;color:#949ba4}.opt.new{background:#5865f233}.menu{background:#2b2d31;border-radius:6px;padding:6px;margin-top:6px;max-width:420px}
+.ce{width:22px;height:22px;vertical-align:-5px;object-fit:contain}.ew{position:relative;display:flex;gap:6px}.ew .mini{margin:0;font-size:16px}
+.ep{position:absolute;z-index:30;top:100%;left:0;margin-top:6px;width:330px;max-height:320px;overflow:auto;background:#1d2033;border:1px solid var(--bd);border-radius:12px;padding:10px;box-shadow:0 14px 40px #000a}
+.ep h3{margin:10px 0 6px}.eg{display:flex;flex-wrap:wrap;gap:4px}.eg button{background:none;border:0;border-radius:6px;padding:4px;cursor:pointer;font-size:20px;color:var(--tx)}.eg button:hover{background:#6c63ff44}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 @media(max-width:900px){aside{display:none}main{grid-template-columns:1fr;padding:14px}.sticky{position:static}}
 </style></head><body>
@@ -82,6 +85,7 @@ function field(o){const r=o.required?'<b class="req">*</b>':'',t=o.type;let i;
  else if(o.autocomplete||t==6||t==9)i=`<div class="combo"><input data-o="${o.name}" data-src="${o.autocomplete?'ac':t==6?'user':'mention'}" autocomplete="off" placeholder="${o.autocomplete?'Choisir ou saisir…':'Rechercher un membre…'}"><div class="dd" hidden></div></div>`;
  else if(t==4||t==10)i=`<input data-o="${o.name}" type="number" ${o.min_value!=null?`min="${o.min_value}"`:''} ${o.max_value!=null?`max="${o.max_value}"`:''}>`;
  else if(t==11)i=`<input data-o="${o.name}" placeholder="https://… (lien de l'image)">`;
+ else if(o.name=='emoji')i=`<div class="ew"><input data-o="emoji" placeholder="🎮 ou emoji du serveur"><button type="button" class="mini epb" onclick="emojiPick(this)" title="Choisir un emoji">😀</button></div>`;
  else i=`<input data-o="${o.name}" ${o.max_length?`maxlength="${o.max_length}"`:''}>`;
  return `<label class="f"><span>${esc(o.name)}${r}</span><small>${esc(o.description)}</small>${i}</label>`}
 function mfield(f){return `<label class="f"><span>${esc(f.label)}${f.req?'<b class="req">*</b>':''}</span>${f.long?`<textarea data-m="${f.id}" maxlength="${f.max}"></textarea>`:`<input data-m="${f.id}" maxlength="${f.max}">`}</label>`}
@@ -111,13 +115,14 @@ document.addEventListener('input',e=>{const t=e.target;if(t.dataset?.src){delete
 document.addEventListener('change',e=>{if(e.target.closest('#main'))sync()});
 document.addEventListener('click',e=>{const d=e.target.closest('.dd div');if(d){const i=d.closest('.combo').querySelector('input');i.value=d.dataset.n;i.dataset.v=d.dataset.v;sync()}$$('.dd').forEach(x=>x.hidden=true)});
 /* ---------- rendu façon Discord ---------- */
+const emo=s=>{const m=/^<(a?):(\w+):(\d+)>$/.exec(String(s||'').trim());return m?`<img class="ce" src="https://cdn.discordapp.com/emojis/${m[3]}.${m[1]?'gif':'png'}?size=48" alt=":${esc(m[2])}:">`:esc(s||'')};
 const hex=n=>typeof n=='number'?'#'+n.toString(16).padStart(6,'0'):n;
 const col=c=>/^#?[0-9a-f]{6}$/i.test((c||'').trim())?'#'+c.trim().replace('#',''):'#5865F2';
 const url=u=>/^https?:\/\/\S+$/i.test((u||'').trim())?u.trim():null;
 function mdr(t){let h=esc(String(t??'').replace(/\\n/g,'\n'));
  h=h.replace(/&lt;@&amp;(\d+)&gt;/g,(_,i)=>`<span class="pill">@${esc(S.g.roles.find(r=>r.id==i)?.name||'rôle')}</span>`)
   .replace(/&lt;#(\d+)&gt;/g,(_,i)=>`<span class="pill">#${esc(S.g.channels.find(c=>c.id==i)?.name||'salon')}</span>`)
-  .replace(/&lt;@!?(\d+)&gt;/g,'<span class="pill">@membre</span>').replace(/&lt;a?:(\w+):\d+&gt;/g,':$1:').replace(/&lt;t:\d+(?::\w)?&gt;/g,'<span class="pill">date</span>');
+  .replace(/&lt;@!?(\d+)&gt;/g,'<span class="pill">@membre</span>').replace(/&lt;(a?):(\w+):(\d+)&gt;/g,(_,a,n,i)=>`<img class="ce" src="https://cdn.discordapp.com/emojis/${i}.${a?'gif':'png'}?size=48" alt=":${n}:">`).replace(/&lt;t:\d+(?::\w)?&gt;/g,'<span class="pill">date</span>');
  for(const r of [...S.g.roles].sort((a,b)=>b.name.length-a.name.length))h=h.replace(new RegExp('(?<![\\w<])@'+r.name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'(?![\\w-])','gi'),`<span class="pill">@${esc(r.name)}</span>`);
  for(const c of [...S.g.channels].sort((a,b)=>b.name.length-a.name.length))h=h.replace(new RegExp('(?<![\\w&])#'+c.name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'(?![\\w-])','gi'),`<span class="pill">#${esc(c.name)}</span>`);
  return h.replace(/```(?:\w+\n)?([\s\S]*?)```/g,'<pre>$1</pre>').replace(/`([^`\n]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>').replace(/__([^_]+)__/g,'<u>$1</u>')
@@ -132,7 +137,7 @@ function emb(e){const c=typeof e.color=='number'?hex(e.color):(e.color||'#5865F2
 const BC={1:'#5865f2',2:'#4e5058',3:'#248046',4:'#da373c',5:'#4e5058'};
 function comps(cs){return (cs||[]).map(r=>`<div class="btns">${(r.components||[]).map(x=>x.type==2?`<span class="b" style="background:${BC[x.style]||BC[1]}">${x.emoji?.name?esc(x.emoji.name)+' ':''}${esc(x.label||'')}</span>`:`<span class="sel">${esc(x.placeholder||'Choisir…')}<span>⌄</span></span>`).join('')}</div>`).join('')}
 function msg(m,name='ZNK Bot'){return `<div class="dc"><div class="m"><div class="av">Z</div><div class="mc"><span class="nm">${esc(name)}</span><span class="tg">BOT</span><span class="dt">aujourd’hui</span>
- ${m.content?`<div>${mdr(m.content)}</div>`:''}${(m.embeds||[]).map(emb).join('')}${comps(m.components)}${m.files?.length?`<div class="fileimg">📎 ${m.files.map(esc).join(', ')}</div>`:''}${(m.reactions||[]).map(r=>`<span class="rx">${esc(r)} 1</span>`).join('')}</div></div></div>`}
+ ${m.content?`<div>${mdr(m.content)}</div>`:''}${(m.embeds||[]).map(emb).join('')}${comps(m.components)}${m.files?.length?`<div class="fileimg">📎 ${m.files.map(esc).join(', ')}</div>`:''}${(m.reactions||[]).map(r=>`<span class="rx">${emo(r)} 1</span>`).join('')}</div></div></div>`}
 function vars(t,x){return String(t??'').replace(/\{(\w+)\}/g,(_,k)=>x[k]??`{${k}}`)}
 function mentions(v){const p=[];if(v.ping)p.push('@'+v.ping);if(v.mention){const r=S.g.roles.find(x=>x.id==v.mention);p.push(r?'<@&'+r.id+'>':'<@'+v.mention+'>')}return p.join(' ')}
 function preview(){const c=S.cmd,v=S.vals,m=S.modal,k=key(),ch=id=>'#'+(S.g.channels.find(x=>x.id==id)?.name||'salon');
@@ -171,9 +176,9 @@ function tkRender(){const ts=S.g.tickets,t=TC(),e=S.edit!=null?t?.reasons[S.edit
   <h3>📌 Panels envoyés (${t.panels.length})</h3>${t.panels.map((p,n)=>`<p class="where">Panel ${n+1} · ${cn(p.channelId)} · ${p.button?'bouton':'menu'}</p>`).join('')||'<p class="where">Aucun panel envoyé.</p>'}
   <div class="tabs"><button class="tab on" onclick="tkGo('panel')">📨 Envoyer un panel</button><button class="tab" onclick="tkGo('message')">💬 Message d'ouverture</button><button class="tab" onclick="tkGo('staff-ajouter')">👥 Ajouter un staff</button><button class="tab" onclick="pick('ticket');S.sub=S.cmd.options.find(o=>o.name=='config-creer');render()">➕ Nouvelle config</button></div></div>
  <div class="card"><h3>🗂️ Sous-panels (choix du menu déroulant) — ${t.reasons.length}/25</h3>
-  ${t.reasons.map((r,n)=>`<div class="rr"><div>${esc(r.emoji||'📁')} <b>${esc(r.label)}</b><small>${esc(r.description||'')}${r.description?' · ':''}${cn(r.categoryId||t.categoryId)}${r.staffRoleId?' · '+rn(r.staffRoleId):''}</small></div><span><button class="mini" onclick="S.edit=${n};tkRender()">✏️</button><button class="mini" onclick="tkDel(${n})">🗑️</button></span></div>`).join('')||'<p class="where">Aucun sous-panel : le panel utilisera un simple bouton.</p>'}
+  ${t.reasons.map((r,n)=>`<div class="rr"><div>${emo(r.emoji||'📁')} <b>${esc(r.label)}</b><small>${esc(r.description||'')}${r.description?' · ':''}${cn(r.categoryId||t.categoryId)}${r.staffRoleId?' · '+rn(r.staffRoleId):''}</small></div><span><button class="mini" onclick="S.edit=${n};tkRender()">✏️</button><button class="mini" onclick="tkDel(${n})">🗑️</button></span></div>`).join('')||'<p class="where">Aucun sous-panel : le panel utilisera un simple bouton.</p>'}
   <h3 style="margin-top:18px">${e?'✏️ Modifier « '+esc(e.label)+' »':'➕ Créer un sous-panel'}</h3>
-  <div class="two"><label class="f"><span>Nom<b class="req">*</b></span><input id="tk_label" maxlength="100" value="${esc(e?.label||'')}" oninput="tkPrev()"></label><label class="f"><span>Emoji</span><input id="tk_emoji" placeholder="🎮 ou :emoji:" value="${esc(e?.emoji||'')}" oninput="tkPrev()"></label></div>
+  <div class="two"><label class="f"><span>Nom<b class="req">*</b></span><input id="tk_label" maxlength="100" value="${esc(e?.label||'')}" oninput="tkPrev()"></label><label class="f"><span>Emoji</span><div class="ew"><input id="tk_emoji" placeholder="🎮 ou emoji du serveur" value="${esc(e?.emoji||'')}" oninput="tkPrev()"><button type="button" class="mini epb" onclick="emojiPick(this)" title="Choisir un emoji">😀</button></div></label></div>
   <label class="f"><span>Description courte</span><input id="tk_desc" maxlength="100" value="${esc(e?.description||'')}" oninput="tkPrev()"></label>
   <label class="f"><span>Catégorie du serveur</span><small>Où les tickets de ce choix seront créés</small><select id="tk_cat"><option value="">— catégorie par défaut de la config —</option>${S.g.channels.filter(c=>c.type==4).map(c=>`<option value="${c.id}" ${e?.categoryId==c.id?'selected':''}>📁 ${esc(c.name)}</option>`).join('')}</select></label>
   ${e?'':`<label class="f"><span>Rôle staff</span><small>Remplace les rôles staff de la config pour ce choix</small><select id="tk_role"><option value="">— rôles de la config —</option>${S.g.roles.map(r=>`<option value="${r.id}">@${esc(r.name)}</option>`).join('')}</select></label>`}
@@ -185,12 +190,23 @@ function tkPrev(){const t=TC();if(!t)return;const v=id=>$('#'+id)?.value.trim()|
  const d={emoji:v('tk_emoji'),label:v('tk_label'),description:v('tk_desc')};
  if(ed)Object.assign(o[S.edit],{emoji:d.emoji||o[S.edit].emoji,label:d.label||o[S.edit].label,description:d.description});else if(d.label)o.push({...d,cur:true});
  $('#tkpv').innerHTML=`<div class="dc"><div class="m"><div class="av">Z</div><div class="mc"><span class="nm">ZNK Bot</span><span class="tg">BOT</span>${t.panels.length?'':'<div class="fileimg">(aucun panel envoyé pour l’instant)</div>'}<div class="sel" style="margin-top:8px">Choisir une catégorie... <span>⌄</span></div>
- <div class="menu">${o.map(r=>`<div class="opt ${r.cur?'new':''}"><span>${esc(r.emoji||'')}</span><div><b>${esc(r.label)}</b>${r.description?`<small>${esc(r.description)}</small>`:''}</div></div>`).join('')||'<div class="opt">Aucun choix</div>'}</div></div></div></div>`}
+ <div class="menu">${o.map(r=>`<div class="opt ${r.cur?'new':''}"><span>${emo(r.emoji||'')}</span><div><b>${esc(r.label)}</b>${r.description?`<small>${esc(r.description)}</small>`:''}</div></div>`).join('')||'<div class="opt">Aucun choix</div>'}</div></div></div></div>`}
 async function tkRun(sub,options){try{const r=await api('/api/run',{guildId:S.gid,command:'ticket',sub,options}),c=r.replies[0]?.content||'OK';toast(c.replace(/[*`]/g,'').slice(0,180),!c.startsWith('❌'));S.g=await api('/api/guild?id='+S.gid)}catch(e){toast(e.message,false)}}
 async function tkSave(){const t=TC(),v=id=>$('#'+id)?.value.trim()||'';if(!v('tk_label'))return toast('Le nom est obligatoire',false);
  const o={config:t.name},ed=S.edit!=null;if(ed){o.label=t.reasons[S.edit].label;o['nouveau-nom']=v('tk_label')}else o.label=v('tk_label');
  for(const [k,id] of [['emoji','tk_emoji'],['description','tk_desc'],['categorie','tk_cat'],['role-staff','tk_role']])if(v(id))o[k]=v(id);
  await tkRun(ed?'raison-modifier':'raison-ajouter',o);S.edit=null;nav();tkRender()}
 async function tkDel(n){const t=TC(),r=t.reasons[n];if(!confirm(`Supprimer le sous-panel « ${r.label} » ?`))return;await tkRun('raison-retirer',{config:t.name,label:r.label});nav();tkRender()}
+/* ---------- sélecteur d'emojis (Unicode + emojis personnalisés des serveurs du bot) ---------- */
+async function emojiPick(btn){const old=$('#ep');if(old){old.remove();if(old._b===btn)return}
+ if(!S.emo)S.emo=await api('/api/emojis?id='+S.gid).catch(()=>[]);
+ const inp=btn.previousElementSibling,pop=document.createElement('div'),com=['🎫','💳','🛒','❓','🎁','⚙️','🔧','💎','🎮','⭐','📩','🛡️','💬','📦','🔥','✅'];
+ pop.id='ep';pop.className='ep';pop._b=btn;
+ pop.innerHTML=`<input placeholder="Rechercher un emoji du serveur…" oninput="epFilter(this.value)"><div class="eg" style="margin-top:8px">${com.map(c=>`<button type="button" data-e="${c}">${c}</button>`).join('')}</div>`+
+  (S.emo.map(g=>`<h3>${esc(g.name)}</h3><div class="eg">${g.emojis.map(e=>`<button type="button" data-e="${esc(`<${e.animated?'a':''}:${e.name}:${e.id}>`)}" data-n="${esc(e.name)}" title=":${esc(e.name)}:"><img class="ce" src="https://cdn.discordapp.com/emojis/${e.id}.${e.animated?'gif':'png'}?size=48"></button>`).join('')}</div>`).join('')||'<p class="where" style="margin-top:8px">Aucun emoji personnalisé trouvé sur les serveurs du bot.</p>');
+ pop.onclick=ev=>{const b=ev.target.closest('button[data-e]');if(!b)return;inp.value=b.dataset.e;inp.dispatchEvent(new Event('input',{bubbles:true}));pop.remove()};
+ btn.parentElement.append(pop)}
+const epFilter=q=>$$('#ep button[data-n]').forEach(b=>b.hidden=!b.dataset.n.toLowerCase().includes(q.toLowerCase()));
+document.addEventListener('click',e=>{if(!e.target.closest('#ep,.epb'))$('#ep')?.remove()});
 boot();
 </script></body></html>
