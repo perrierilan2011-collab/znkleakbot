@@ -273,7 +273,7 @@ async function spChSave(){const cur=spCur(),ed=S.ch!=null?cur.choices[S.ch]:null
  if(await spRun(ed?'choix-modifier':'choix-ajouter',o))S.ch=null;nav();spRender()}
 async function spChDel(n){const cur=spCur(),c=cur.choices[n];if(!confirm(`Retirer le choix « ${c.label} » ?`))return;await spRun('choix-retirer',{'sous-panel':cur.id,'sous-choix':c.id});S.ch=null;spRender()}
 /* ---------- Message d'ouverture du ticket : le panel affiché dans le salon à l'ouverture, modifiable à 100 % ---------- */
-const OM_VARS=['{user}','{username}','{server}','{category}','{sub}','{sub1}','{sub2}','{sub3}','{config}','{staff}','{number}','{paiement}','{prix}'];
+const OM_VARS=['{user}','{username}','{server}','{category}','{sub}','{sub1}','{sub2}','{sub3}','{config}','{staff}','{number}','{paiement}','{prix}','{order}'];
 const chn=id=>S.g.channels.find(c=>c.id==id)?.name||'salon',omHas=m=>!!m&&Object.keys(m).length>0;
 function om(){S.view='om';S.cmd=null;if(!S.g.tickets.find(t=>t.name==S.tk))S.tk=S.g.tickets[0]?.name;S.omS='config:';nav();omRender()}
 const omRs=(t,o)=>(o?.openMsg&&Object.keys(o.openMsg).length?o.openMsg:o?.openMsgId&&(t.openPresets||[]).find(p=>p.id==o.openMsgId)?.openMsg)||null;
@@ -300,7 +300,7 @@ function omRender(keep){const t=TC();
   <h3>Variables (clique pour insérer)</h3><div class="tabs">${OM_VARS.map(x=>`<button type="button" class="tab" style="padding:3px 9px" onmousedown="event.preventDefault()" onclick="omIns('${x}')">${x}</button>`).join('')}</div>
   <label class="f"><span>Texte au-dessus de l'embed</span><small>Vide = ping du membre + du staff. <code>@Rôle</code>, <code>@Pseudo</code>, <code>#salon</code> deviennent cliquables.</small><textarea id="om_content" class="omf" style="min-height:70px" maxlength="1000" oninput="omPrev()">${V('content')}</textarea></label>
   <label class="f"><span>Titre</span><input ${P('om_title','title')} maxlength="256" placeholder="🎫 Ticket — {category}"></label>
-  <label class="f"><span>Description</span><small>Vide = texte par défaut. Tu peux y écrire le sous-panel choisi avec <code>{sub}</code> (ou <code>{sub1}</code>, <code>{sub2}</code>…) le mode de paiement avec <code>{paiement}</code> et le prix du choix avec <code>{prix}</code>.</small><textarea id="om_desc" class="omf" style="min-height:170px" maxlength="4000" placeholder="Bonjour {user}, un membre du staff va te répondre bientôt." oninput="omPrev()">${V('description')}</textarea></label>
+  <label class="f"><span>Description</span><small>Vide = texte par défaut. Tu peux y écrire le sous-panel choisi avec <code>{sub}</code> (ou <code>{sub1}</code>, <code>{sub2}</code>…) le mode de paiement avec <code>{paiement}</code> le prix du choix avec <code>{prix}</code>, et le produit choisi (avant le paiement) avec <code>{order}</code>. Pour la catégorie du menu seule, utilise <code>{category}</code>.</small><textarea id="om_desc" class="omf" style="min-height:170px" maxlength="4000" placeholder="Bonjour {user}, un membre du staff va te répondre bientôt." oninput="omPrev()">${V('description')}</textarea></label>
   <div class="two"><label class="f"><span>Image (URL)</span><input ${P('om_image','image')} maxlength="500" placeholder="https://…"></label><label class="f"><span>Miniature (URL)</span><input ${P('om_thumb','thumbnail')} maxlength="500" placeholder="https://…"></label></div>
   <label class="f"><span>Pied de page</span><input ${P('om_footer','footer')} maxlength="2048"></label>
   <div class="two"><label class="f"><span>Couleur</span><div class="ew"><input ${P('om_color','color')} maxlength="7" placeholder="#5865F2"><input type="color" style="width:48px;padding:2px" value="${/^#[0-9a-f]{6}$/i.test(d.color||'')?d.color:'#5865f2'}" oninput="$('#om_color').value=this.value;omPrev()"></div></label>
@@ -326,6 +326,7 @@ function omPrev(){const t=TC();if(!t||S.view!='om'||!$('#ompv'))return;const sc=
  const paySp=(t.subPanels||[]).find(s=>s.payment);let pay='Non précisé',hasPay=false;
  if(sc.type=='sub'){const sp0=(t.subPanels||[]).find(s=>s.id==sc.id.split('/')[0]);if(sp0?.payment){pay=sc.sub;hasPay=true}}else if(paySp?.choices[0]){pay=paySp.choices[0].label;hasPay=true}
  x.paiement=x.payement=x.payment=pay;
+ x.order=x.commande=x.article=(sc.type=='sub'&&hasPay)?cat:(subs.join(' › ')||cat);
  const own=d.description.trim(),showInfo=d.showInfo??!own,fields=[];
  if(showInfo){fields.push({name:'Configuration',value:t.name,inline:true},{name:'Catégorie',value:cat,inline:true});if(subs.length)fields.push({name:'Sous-panel',value:subs.join(' › '),inline:true});if(hasPay)fields.push({name:'Paiement',value:pay,inline:true})}
  d.fields.filter(f=>f.name.trim()&&f.value.trim()).forEach(f=>fields.push({name:vars(f.name,x),value:vars(f.value,x),inline:f.inline}));
