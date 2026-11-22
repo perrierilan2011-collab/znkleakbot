@@ -1430,7 +1430,7 @@ async function refreshPanels(guild, cfgName) {
 // Message envoyé dans le salon du ticket à son ouverture.
 // Priorité (le plus précis gagne) : dernier choix de sous-panel > catégorie du menu > panel > configuration > message par défaut.
 // Tout se règle depuis le panel web (« Message d'ouverture du ticket ») ou avec /ticket message.
-// Variables : {user} {username} {server} {category} {sub} {sub1} {sub2} {sub3} {config} {staff} {number} {paiement} {prix}
+// Variables : {user} {username} {server} {category} {sub} {sub1} {sub2} {sub3} {config} {staff} {number} {paiement} {prix} {order}
 function pickOpenMsg(cfg, panel, reason, subs = []) {
   // Message propre de l'élément, sinon le modèle auquel il est relié (openMsgId)
   const own = (x) => (x?.openMsg && Object.keys(x.openMsg).length ? x.openMsg : x?.openMsgId ? cfg.openPresets?.find((p) => p.id === x.openMsgId)?.openMsg : null);
@@ -1445,6 +1445,8 @@ async function buildOpenMessage(guild, user, cfg, panel, reason, staffRoles, sub
   const pay = payChoice?.label || 'Non précisé';
   // Prix = description du dernier choix d'article (hors choix du sous-panel de paiement), sinon celle de la catégorie du menu (variable {prix})
   const prix = [...subs].reverse().find((c) => c !== payChoice && c?.description?.trim())?.description.trim() || reason?.description?.trim() || 'Non précisé';
+  // Commande = ce qui a été choisi AVANT le moyen de paiement (variable {order} / {commande} / {article})
+  const order = subs.filter((c) => c !== payChoice).map((c) => c.label).join(' › ') || reason?.label || 'Non précisé';
   const vars = (txt) => {
     let t = String(txt ?? '')
       .replaceAll('{user}', `<@${user.id}>`)
@@ -1456,6 +1458,7 @@ async function buildOpenMessage(guild, user, cfg, panel, reason, staffRoles, sub
       .replaceAll('{number}', String(cfg.counter || 0).padStart(4, '0'))
       .replaceAll('{paiement}', pay).replaceAll('{payement}', pay).replaceAll('{payment}', pay)
       .replaceAll('{prix}', prix).replaceAll('{price}', prix)
+      .replaceAll('{order}', order).replaceAll('{commande}', order).replaceAll('{article}', order)
       .replaceAll('{staff}', staffMention);
     for (let n = 0; n < 3; n++) t = t.replaceAll(`{sub${n + 1}}`, subs[n]?.label || '');
     return t;
