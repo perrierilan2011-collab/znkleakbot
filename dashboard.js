@@ -31,6 +31,45 @@ module.exports = function startDashboard(ctx) {
     return !!m && Number(m[1]) > Date.now() && same(m[2], sign(m[1]));
   };
   const HTML = () => fs.readFileSync(path.join(__dirname, 'panel.html'));
+  /* ---------- Sauvegardes : copies automatiques sur le bot + export / import ---------- */
+  const BK_DIR = path.join(path.dirname(DB_FILE), 'backups');
+  try { fs.mkdirSync(BK_DIR, { recursive: true }); } catch { /* rien */ }
+  const bkOk = (n) => /^sauvegarde-[\w.-]+\.json$/.test(String(n || ''));
+  const listBk = () => { try {
+    return fs.readdirSync(BK_DIR).filter(bkOk).map((f) => { const s = fs.statSync(path.join(BK_DIR, f)); return { name: f, size: s.size, mtime: s.mtimeMs }; })
+      .sort((a, b) => b.mtime - a.mtime);
+  } catch { return []; } };
+  const pruneBk = () => { // garde les 100 plus récentes + les 5 plus grosses (jamais effacées par une série de copies vides)
+    const l = listBk(), keep = new Set([...l.slice(0, 100), ...[...l].sort((a, b) => b.size - a.size).slice(0, 5)].map((x) => x.name));
+    for (const x of l) if (!keep.has(x.name)) try { fs.unlinkSync(path.join(BK_DIR, x.name)); } catch { /* rien */ }
+  };
+  let lastHash = '';
+  const snapshot = (tag = 'auto') => {
+    try {
+      if (!Object.keys(db).length) return null;
+      const json = JSON.stringify(db, null, 2), h = crypto.createHash('sha1').update(json).digest('hex');
+      if (tag === 'auto' && h === lastHash) return null;
+      lastHash = h;
+      const name = `sauvegarde-${new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19)}-${tag}.json`;
+      fs.writeFileSync(path.join(BK_DIR, name), json);
+      pruneBk();
+      return name;
+    } catch (e) { console.error('[backup]', e.message); return null; }
+  };
+  setTimeout(() => snapshot('demarrage'), 20000).unref?.();
+  setInterval(() => snapshot('auto'), 30 * 60e3).unref?.();
+  async function restore(d) { // remet les serveurs du fichier ; les autres serveurs ne sont pas touchés
+    const ids = d && typeof d === 'object' && !Array.isArray(d) ? Object.keys(d) : [];
+    if (!ids.some((k) => /^\d{5,}$/.test(k)) || ids.some((k) => !d[k] || typeof d[k] !== 'object')) throw new Error('Fichier de sauvegarde invalide');
+    snapshot('avant-restauration'); // copie de l'état actuel, toujours
+    if (fs.existsSync(DB_FILE)) fs.copyFileSync(DB_FILE, DB_FILE + '.avant-restauration');
+    for (const k of ids) db[k] = d[k];
+    sb.forceNext(); // une restauration voulue peut être plus petite que Supabase
+    save();
+    let warn = null;
+    try { await sb.pushNow(db); } catch (e) { warn = e.message; }
+    return { ok: true, guilds: Object.keys(db).length, restored: ids.length, warn };
+  }
   const catOf = {};
   for (const [k, c] of Object.entries(CMD_CATEGORIES)) for (const n of c.commands) catOf[n] = k;
 
@@ -301,15 +340,9 @@ module.exports = function startDashboard(ctx) {
         persistent: !!mount && path.resolve(DB_FILE).startsWith(path.resolve(mount)), supabase: sb.status() };
     },
     'POST /api/supabase-push': async () => { await sb.pushNow(db); return { ok: true }; },
-    'POST /api/restore': async (_r, _q, b) => {
-      const d = b.data;
-      if (!d || typeof d !== 'object' || Array.isArray(d) || Object.values(d).some((v) => !v || typeof v !== 'object')) throw new Error('Fichier de sauvegarde invalide');
-      if (fs.existsSync(DB_FILE)) fs.copyFileSync(DB_FILE, DB_FILE + '.avant-restauration');
-      for (const k of Object.keys(db)) delete db[k];
-      Object.assign(db, d);
-      save();
-      return { ok: true, guilds: Object.keys(db).length };
-    },
+    'POST /api/restore': async (_r, _q, b) => restore(b.data),
+    'GET /api/backups': async () => ({ dir: BK_DIR, list: listBk(), current: Object.fromEntries(Object.entries(db).map(([k, v]) => [k, JSON.stringify(v).length])) }),
+    'POST /api/backup-now': async () => ({ ok: true, name: snapshot('manuel') }),
     'GET /api/members': async (_r, q) => {
       const { guild } = await ctxFor(q.get('id'));
       const s = (q.get('q') || '').toLowerCase();
@@ -360,8 +393,17 @@ module.exports = function startDashboard(ctx) {
       }
       if (req.method === 'GET' && url.pathname === '/api/backup') {
         if (!authed(req)) return send(res, 401, { error: 'Connexion requise' });
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Disposition': `attachment; filename="sauvegarde-bot-${new Date().toISOString().slice(0, 10)}.json"` });
-        return res.end(JSON.stringify(db, null, 2));
+        const gid = url.searchParams.get('id'), file = url.searchParams.get('file');
+        let out, nom = `sauvegarde-bot-${new Date().toISOString().slice(0, 10)}`;
+        if (file) { // une copie automatique gardée sur le bot
+          if (!bkOk(file) || !fs.existsSync(path.join(BK_DIR, file))) return send(res, 404, { error: 'Sauvegarde introuvable' });
+          out = fs.readFileSync(path.join(BK_DIR, file), 'utf8'); nom = file.replace(/\.json$/, '');
+        } else if (gid) { // un seul serveur
+          if (!db[gid]) return send(res, 404, { error: 'Serveur inconnu' });
+          out = JSON.stringify({ [gid]: db[gid] }, null, 2); nom = `sauvegarde-serveur-${gid}-${new Date().toISOString().slice(0, 10)}`;
+        } else out = JSON.stringify(db, null, 2);
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Disposition': `attachment; filename="${nom}.json"` });
+        return res.end(out);
       }
       if (url.pathname === '/api/me') return send(res, 200, { authed: authed(req) });
       const fn = routes[`${req.method} ${url.pathname}`];

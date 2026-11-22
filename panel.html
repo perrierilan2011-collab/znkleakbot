@@ -427,16 +427,29 @@ async function emojiPick(btn){const old=$('#ep');if(old){old.remove();if(old._b=
 const epFilter=q=>$$('#ep button[data-n]').forEach(b=>b.hidden=!b.dataset.n.toLowerCase().includes(q.toLowerCase()));
 document.addEventListener('click',e=>{if(!e.target.closest('#ep,.epb'))$('#ep')?.remove()});
 /* ---------- Sauvegarde / stockage ---------- */
-async function bk(){S.view='bk';S.cmd=null;nav();const s=await api('/api/storage');
+async function bk(){S.view='bk';S.cmd=null;nav();const s=await api('/api/storage'),bl=await api('/api/backups');
  $('#main').innerHTML=`<div class="head card"><h1>💾 Sauvegarde & stockage</h1><p>Toutes les configurations (tickets, giveaways, rôles, permissions…) sont enregistrées automatiquement dans Supabase (base SQL, 1 ligne par serveur) et dans un fichier sur le bot.</p></div>
  <div class="card"><h3>Stockage</h3><p class="where">📄 ${esc(s.path)}<br>📦 ${(s.size/1024).toFixed(1)} Ko · ${s.guilds} serveur(s)<br>🕒 Dernière écriture : ${new Date(s.mtime).toLocaleString('fr-FR')}</p>
  ${s.supabase&&!s.supabase.enabled?'<span class="bd r">⚠️ Supabase désactivé : SUPABASE_URL ou la clé (SUPABASE_KEY / SUPABASE_SERVICE_KEY) absentes dans Railway</span>':''}${s.supabase?.enabled?(s.supabase.ok?`<span class="bd">✅ Supabase connecté : les configs et panels survivent aux redéploiements${s.supabase.pending?` (${s.supabase.pending} serveur(s) en attente d’envoi)`:''}${s.supabase.lastOk?' (dernier envoi '+new Date(s.supabase.lastOk).toLocaleTimeString('fr-FR')+')':''}</span>`:`<span class="bd r">⚠️ Supabase injoignable : ${esc(s.supabase.lastError||'')}</span>`)+`<button class="run" style="margin-top:10px" onclick="sbPush()">☁️ Envoyer vers Supabase maintenant</button>`:s.persistent?'<span class="bd">✅ Persistant : les configs survivent aux redéploiements</span>':'<span class="bd r">⚠️ Non persistant : tout sera perdu au prochain redéploiement</span><p class="where" style="margin-top:10px">Dans Railway : ton service → <b>Settings → Volumes → New Volume</b>, chemin de montage <b>/data</b>, puis redéploie.</p>'}</div>
- <div class="card"><h3>Sauvegarde manuelle</h3><a class="run" style="display:block;text-align:center;text-decoration:none" href="/api/backup">⬇️ Télécharger la sauvegarde</a>
- <label class="f" style="margin-top:16px"><span>Restaurer depuis un fichier</span><small>Remplace toutes les données actuelles (une copie de l'ancienne version est gardée sur le bot).</small><input type="file" accept=".json" onchange="bkRestore(this)"></label></div>`}
+ <div class="card"><h3>Sauvegarde manuelle</h3><a class="run" style="display:block;text-align:center;text-decoration:none" href="/api/backup">⬇️ Tout télécharger (tous les serveurs)</a>
+ <a class="run" style="display:block;text-align:center;text-decoration:none;margin-top:8px" href="/api/backup?id=${esc(S.gid)}">⬇️ Télécharger ce serveur uniquement</a>
+ <button class="run" style="margin-top:8px" onclick="bkNow()">📸 Créer une copie sur le bot maintenant</button>
+ <label class="f" style="margin-top:16px"><span>Importer un fichier de sauvegarde</span><small>Remet directement tout ce qui est dans le fichier (tickets, panels, sous-panels, messages, permissions…). Les autres serveurs ne sont pas touchés. Une copie de l’état actuel est faite juste avant.</small><input type="file" accept=".json" onchange="bkRestore(this)"></label></div>
+ <div class="card"><h3>Copies automatiques sur le bot</h3><p class="where">Une copie toutes les 30 min dès que quelque chose change, dans ${esc(bl.dir)} (les 100 dernières + les 5 plus grosses sont gardées).</p>
+ ${bl.list.length?bl.list.map(x=>`<div class="rr"><div>${esc(x.name.replace(/^sauvegarde-|\.json$/g,''))}<small>${(x.size/1024).toFixed(1)} Ko · ${new Date(x.mtime).toLocaleString('fr-FR')}</small></div><div><a class="mini" href="/api/backup?file=${encodeURIComponent(x.name)}">⬇️</a><button class="mini" data-f="${esc(x.name)}" onclick="bkFile(this.dataset.f)">↩ Restaurer</button></div></div>`).join(''):'<p class="where">Aucune pour le moment.</p>'}</div>`}
 async function sbPush(){try{await api('/api/supabase-push',{});toast('Envoyé vers Supabase ✅');bk()}catch(e){toast(e.message,false)}}
-async function bkRestore(i){const f=i.files[0];if(!f)return;let d;try{d=JSON.parse(await f.text())}catch{return toast('Fichier illisible',false)}
- if(!confirm('Remplacer TOUTES les données actuelles par ce fichier ?'))return i.value='';
- try{await api('/api/restore',{data:d});toast('Sauvegarde restaurée ✅');S.g=await api('/api/guild?id='+S.gid);bk()}catch(e){toast(e.message,false)}}
+async function bkNow(){try{const r=await api('/api/backup-now',{});toast(r.name?'Copie créée ✅':'Rien à sauvegarder');bk()}catch(e){toast(e.message,false)}}
+async function bkDo(d,label){
+ const cur=(await api('/api/backups')).current,ids=Object.keys(d||{});
+ const sz=k=>JSON.stringify(d[k]).length;
+ const lines=ids.map(k=>'• '+k+' : '+(sz(k)/1024).toFixed(1)+' Ko dans le fichier / '+(cur[k]!=null?(cur[k]/1024).toFixed(1)+' Ko':'absent')+' actuellement');
+ const small=ids.some(k=>cur[k]&&sz(k)<cur[k]*.5);
+ if(!confirm(label+'\n\n'+lines.join('\n')+'\n\n'+(small?'⚠️ Au moins un serveur du fichier est beaucoup plus petit que l’actuel.\n\n':'')+'Les autres serveurs ne sont pas touchés. Une copie de l’état actuel est faite avant. Continuer ?'))return;
+ try{const r=await api('/api/restore',{data:d});toast('Restauré ✅'+(r.warn?' (Supabase : '+r.warn+')':''),!r.warn);S.g=await api('/api/guild?id='+S.gid);bk()}catch(e){toast(e.message,false)}}
+async function bkRestore(i){const f=i.files[0];if(!f)return;let d;try{d=JSON.parse(await f.text())}catch{i.value='';return toast('Fichier illisible',false)}
+ await bkDo(d,'Importer ce fichier de sauvegarde ?');i.value=''}
+async function bkFile(n){let d;try{const r=await fetch('/api/backup?file='+encodeURIComponent(n));if(!r.ok)throw 0;d=await r.json()}catch{return toast('Sauvegarde illisible',false)}
+ await bkDo(d,'Restaurer la copie « '+n.replace(/^sauvegarde-|\.json$/g,'')+' » ?')}
 boot();
 
 /* ---------- interface sobre : retire les emojis en tête des titres et boutons ---------- */

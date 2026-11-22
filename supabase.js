@@ -19,6 +19,9 @@ let dbRef = null;                 // l'objet db du bot (même référence)
 let timer = null, retryTimer = null, running = null;
 const dirty = new Set();          // serveurs à envoyer
 const sent = new Map();           // serveur -> empreinte du dernier contenu envoyé
+const remoteLen = new Map();      // serveur -> taille (caractères) des données connues dans Supabase
+const ALLOW_SHRINK = process.env.SUPABASE_ALLOW_SHRINK === '1';
+let force = false;                // vrai juste après une restauration voulue : le garde-fou est levé
 const isGuildId = (id) => /^\d{5,}$/.test(id);
 const hash = (s) => crypto.createHash('sha1').update(s).digest('hex');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -65,6 +68,13 @@ async function flush() {
           const g = dbRef[id];
           if (!g || !Object.keys(g).length) continue; // on n'écrase jamais Supabase avec des données vides
           const json = JSON.stringify(g);
+          // GARDE-FOU : on refuse d'écraser des données Supabase par une version beaucoup plus petite (squelette vide, config perdue)
+          const known = remoteLen.get(id) || 0;
+          if (!ALLOW_SHRINK && !force && known > 1500 && json.length < known * 0.5) {
+            console.error(`[supabase] ENVOI BLOQUÉ pour ${id} : ${json.length} caractères en local contre ${known} dans Supabase. Rien n'est écrasé. Vérifie les données, ou mets SUPABASE_ALLOW_SHRINK=1 si c'est voulu.`);
+            st.lastError = `envoi bloqué pour ${id} (données locales bien plus petites que Supabase)`;
+            continue;
+          }
           marks.set(id, hash(json));
           rows.push({ id, data: JSON.parse(json) });
         }
@@ -72,6 +82,7 @@ async function flush() {
           for (let n = 0; n < rows.length; n += 5) await upsert(rows.slice(n, n + 5));
         } catch (e) { ids.forEach((id) => dirty.add(id)); throw e; }
         for (const [id, h] of marks) sent.set(id, h);
+        for (const r of rows) remoteLen.set(r.id, JSON.stringify(r.data).length);
         st.ok = true; st.lastOk = Date.now(); st.lastError = null;
       }
     } catch (e) {
@@ -81,6 +92,7 @@ async function flush() {
       scheduleRetry();
     } finally {
       st.pending = dirty.size; st.guilds = sent.size; running = null;
+      if (!dirty.size) force = false;
       if (dirty.size && st.ok) scheduleRetry(500); // modifications arrivées pendant l'envoi
     }
   })();
@@ -109,7 +121,9 @@ function apply(db, rows, remoteWins) {
   const list = guilds.length ? guilds : legacy ? Object.entries(legacy.data).map(([id, data]) => ({ id, data, legacy: true })) : [];
   for (const r of list) {
     if (!isGuildId(r.id) || !r.data || typeof r.data !== 'object') continue;
-    if (db[r.id] && !remoteWins) continue;
+    const rl = JSON.stringify(r.data).length;
+    remoteLen.set(r.id, rl);
+    if (db[r.id] && !remoteWins && JSON.stringify(db[r.id]).length >= rl) continue; // on ne remplace le local que si Supabase est plus complet
     db[r.id] = r.data; n++;
     if (r.legacy) dirty.add(r.id); else sent.set(r.id, hash(JSON.stringify(r.data)));
   }
@@ -155,4 +169,4 @@ for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, async () => {
   try { clearTimeout(timer); if (dbRef) queue(dbRef); await Promise.race([flush(), sleep(8000)]); } finally { process.exit(0); }
 });
 
-module.exports = { init, queue, pushNow, status: () => ({ ...st, pending: dirty.size, guilds: sent.size }) };
+module.exports = { init, queue, pushNow, forceNext: () => { force = true; }, status: () => ({ ...st, pending: dirty.size, guilds: sent.size }) };
