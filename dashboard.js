@@ -269,11 +269,12 @@ module.exports = function startDashboard(ctx) {
         },
         tickets: Object.values(d.tickets || {}).map((t) => ({
           name: t.name, categoryId: t.categoryId, staffRoles: t.staffRoles || [], staffMode: t.staffMode || 'any', logChannelId: t.logChannelId, counter: t.counter || 0,
+          nameTemplate: t.nameTemplate || null,
           dm: !!t.dm, openMsg: t.openMsg || null, openMsgId: t.openMsgId || null,
           color: t.color || null, placeholder: t.placeholder || null, logo: t.logo || null, translate: !!t.translate,
           openPresets: (t.openPresets || []).map((p) => ({ id: p.id, name: p.name, openMsg: p.openMsg || null })),
           panels: (t.panels || []).map((p) => ({ channelId: p.channelId, messageId: p.messageId, button: !!p.button, multi: !!p.multi, showLogo: p.showLogo !== false, btnLabel: p.btnLabel || null, btnStyle: p.btnStyle || null, openMsg: p.openMsg || null, openMsgId: p.openMsgId || null, translate: !!p.translate, thumb: light(p.thumb), image: light(p.image), hasThumb: !!p.thumb, hasImage: !!p.image })),
-          reasons: (t.reasons || []).map((r) => ({ id: r.id, label: r.label, emoji: r.emoji, description: r.description, panelText: r.panelText || '', categoryId: r.categoryId, staffRoleId: r.staffRoleId, staffRoles: Array.isArray(r.staffRoles) ? r.staffRoles : (r.staffRoleId ? [r.staffRoleId] : []), staffMode: r.staffMode || null, openMsg: r.openMsg || null, openMsgId: r.openMsgId || null })),
+          reasons: (t.reasons || []).map((r) => ({ id: r.id, label: r.label, emoji: r.emoji, description: r.description, panelText: r.panelText || '', price: r.price || '', nameTemplate: r.nameTemplate || null, categoryId: r.categoryId, staffRoleId: r.staffRoleId, staffRoles: Array.isArray(r.staffRoles) ? r.staffRoles : (r.staffRoleId ? [r.staffRoleId] : []), staffMode: r.staffMode || null, openMsg: r.openMsg || null, openMsgId: r.openMsgId || null })),
           dmChoices: (t.dmChoices || []).map((r) => ({ id: r.id, label: r.label, emoji: r.emoji, openMsg: r.openMsg || null, openMsgId: r.openMsgId || null })),
           subPanels: t.subPanels || [], subLinks: t.subLinks || {}, defaultSub: t.defaultSubPanelId || null,
         })),
@@ -411,6 +412,7 @@ module.exports = function startDashboard(ctx) {
           staffMode: b.staffMode === 'all' ? 'all' : 'any',
           logChannelId: b.logChannelId && guild.channels.cache.has(b.logChannelId) ? b.logChannelId : null,
           reasons: [], counter: 0, panels: [], placeholder: null, openMsg: null,
+          nameTemplate: txt(b.nameTemplate, 100) || null,
           dm: false, dmMigrated: true, dmChoices: [], dmTexts: null, dmImage: null,
           subPanels: [], subLinks: {}, defaultSubPanelId: null, openPresets: [],
           color: colorOk(b.color) || null,
@@ -441,6 +443,7 @@ module.exports = function startDashboard(ctx) {
         if ('staffMode' in b) cfg.staffMode = b.staffMode === 'all' ? 'all' : 'any';
         if ('logChannelId' in b) cfg.logChannelId = b.logChannelId && guild.channels.cache.has(b.logChannelId) ? b.logChannelId : null;
         if ('placeholder' in b) cfg.placeholder = txt(b.placeholder, 150) || null;
+        if ('nameTemplate' in b) cfg.nameTemplate = txt(b.nameTemplate, 100) || null;
         if ('color' in b) cfg.color = colorOk(b.color) || null;
         if ('logo' in b) cfg.logo = imgOk(b.logo) || null;
         if ('translate' in b) cfg.translate = b.translate === true || b.translate === 'true';
@@ -537,6 +540,8 @@ module.exports = function startDashboard(ctx) {
           id: crypto.randomUUID().slice(0, 8), label,
           description: txt(b.description, 100) || '',
           panelText: txt(b.panelText, 1000) || '',
+          price: txt(b.price, 100) || '',
+          nameTemplate: txt(b.nameTemplate, 100) || null,
           emoji: txt(b.emoji, 64) || null,
           staffRoleId: staffRoles[0] || null,
           staffRoles,
@@ -558,6 +563,8 @@ module.exports = function startDashboard(ctx) {
           }
           if ('description' in b) r.description = txt(b.description, 100) || '';
           if ('panelText' in b) r.panelText = txt(b.panelText, 1000) || '';
+          if ('price' in b) r.price = txt(b.price, 100) || '';
+          if ('nameTemplate' in b) r.nameTemplate = txt(b.nameTemplate, 100) || null;
           if ('emoji' in b) r.emoji = txt(b.emoji, 64) || null;
           if ('categoryId' in b) r.categoryId = b.categoryId && guild.channels.cache.get(b.categoryId)?.type === 4 ? b.categoryId : null;
           if ('staffRoles' in b || 'staffRoleId' in b) {

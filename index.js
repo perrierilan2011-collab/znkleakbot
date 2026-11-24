@@ -167,6 +167,11 @@ function getG(id) {
     c.defaultSubPanelId ??= null; // sous-panel de toutes les catégories qui n'ont pas de lien propre
     c.color ??= null;       // couleur propre à cette configuration (sinon la couleur globale du serveur)
     c.logo ??= null;        // logo propre à cette configuration (sinon le logo global du serveur)
+    c.nameTemplate ??= null; // modèle du nom du salon du ticket ({user}, {category}, [prix]…)
+    for (const r of c.reasons || []) {
+      r.price ??= '';          // prix de la catégorie (variable [prix] / {prix})
+      r.nameTemplate ??= null; // modèle de nom propre à cette catégorie
+    }
     c.translate ??= true;   // live translation (any language → French + English) inside this configuration's tickets
     if (!c.dmMigrated) {    // une seule fois : reprise de l'ancien système de MP
       c.dmMigrated = true;
@@ -642,7 +647,7 @@ const CMD_CATEGORIES = {
   annonces:    { label: '📢 Announcements & roles', commands: ['annonce', 'autorole', 'role-arrivee', 'bienvenue'] },
   boutique:    { label: '🛍️ Shop (product & restock)', commands: ['product', 'restock'] },
   invitations: { label: '📈 Invitations (admin)', commands: ['invites-config', 'lien-invite', 'qui-a-invite', 'classement-invites', 'classement-invites-maj'] },
-  tickets:     { label: '🎫 Tickets', commands: ['ticket', 'setup-paiement'] },
+  tickets:     { label: '🎫 Tickets', commands: ['ticket', 'setup-paiement', 'add', 'remove'] },
   souspanel:   { label: '🗂️ Sub-panels', commands: ['sous-panel'] },
   serveur:     { label: '⚙️ Server', commands: ['salon-commandes', 'salon-sanctions', 'membercount', 'acces-categorie'] },
 };
@@ -673,13 +678,16 @@ const canModerate = (i) =>
 const MOD_COMMANDS = new Set(['ban', 'unban', 'mute', 'unmute', 'sanctions-actives', 'historique-sanctions']);
 // Commandes ouvertes à tout le monde
 const PUBLIC_COMMANDS = new Set(['help', 'invites', 'message-mp', 'vouch']);
+// Commandes utilisables directement dans un salon de ticket (créateur + staff)
+const TICKET_MEMBER_COMMANDS = new Set(['add', 'remove']);
 // Commandes qu'on ne peut jamais désactiver (sinon on se bloque soi-même)
 const ALWAYS_ON = new Set(['help', 'commandes', 'permissions', 'permissions-categorie', 'salon-commandes']);
 // Commandes réservées au propriétaire (on ne peut pas les donner à un rôle)
 const OWNER_ONLY = new Set(['permissions', 'permissions-categorie', 'commandes', 'role-total']);
 const commandAllowed = (i) =>
   PUBLIC_COMMANDS.has(i.commandName) || hasFullAccess(i) ||
-  (MOD_COMMANDS.has(i.commandName) && canModerate(i)) || cmdAllowed(i);
+  (MOD_COMMANDS.has(i.commandName) && canModerate(i)) || cmdAllowed(i) ||
+  (TICKET_MEMBER_COMMANDS.has(i.commandName) && !!i.guildId && !!getG(i.guildId).open[i.channelId]);
 
 const NO_ACCESS = { content: "❌ You do not have access to this command.", flags: EPH };
 
@@ -692,12 +700,14 @@ const GATE_EXEMPT = new Set([...PUBLIC_COMMANDS, 'salon-commandes']);
 function wrongChannel(i) {
   const id = getG(i.guildId).commandChannelId;
   if (!id || GATE_EXEMPT.has(i.commandName) || i.channelId === id) return null;
-  // /ticket ajouter|retirer se font directement dans le salon du ticket, même avec un salon des commandes
+  // /ticket ajouter|retirer, /add et /remove se font directement dans le salon du ticket,
+  // même avec un salon des commandes
   if (i.commandName === 'ticket') {
     let sub = null;
     try { sub = i.options.getSubcommand(false); } catch { /* aucune sous-commande */ }
     if ((sub === 'ajouter' || sub === 'retirer') && getG(i.guildId).open[i.channelId]) return null;
   }
+  if (TICKET_MEMBER_COMMANDS.has(i.commandName) && getG(i.guildId).open[i.channelId]) return null;
   if (!i.guild.channels.cache.has(id)) return null; // salon supprimé : plus de restriction
   return id;
 }
@@ -1626,6 +1636,18 @@ const commands = [
         .addStringOption((o) => o.setName('devise').setDescription('Ex : €, $, CHF…').setRequired(true).setMaxLength(8)))
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setDMPermission(false),
+
+  // ---------- Ajouter / retirer un membre d'un ticket ----------
+  new SlashCommandBuilder()
+    .setName('add')
+    .setDescription('Add a member to the current ticket')
+    .addUserOption((o) => o.setName('membre').setDescription('Member to add to the ticket').setRequired(true))
+    .setDMPermission(false),
+  new SlashCommandBuilder()
+    .setName('remove')
+    .setDescription('Remove a member from the current ticket')
+    .addUserOption((o) => o.setName('membre').setDescription('Member to remove from the ticket').setRequired(true))
+    .setDMPermission(false),
 ];
 
 /* ------------------------------------------------------------------ */
@@ -1791,7 +1813,8 @@ function panelRows(cfg, { button = false, label = null, style = 'Primary' } = {}
       .setPlaceholder((cfg.placeholder || 'Choose a category...').slice(0, 150))
       .addOptions(part.map((r) => {
         const o = { label: String(r.label).slice(0, 100), value: r.id };
-        if (r.description) o.description = String(r.description).slice(0, 100);
+        const d = reasonDesc(r);
+        if (d) o.description = String(d).slice(0, 100);
         const e = parseEmoji(r.emoji);
         if (e) o.emoji = e;
         return o;
@@ -1816,9 +1839,19 @@ function multiLimit(p, imageUrl, thumb, desc) {
   return Math.max(1, Math.min(25, Math.floor((40 - used) / 4)));
 }
 
+// Description affichée pour une catégorie : le prix remplace [prix] / {prix}.
+// Permet d'écrire « [prix] » (ou de cliquer sur le bouton du dashboard) pour afficher le prix.
+function reasonDesc(r) {
+  const price = String(r?.price ?? '').trim();
+  return String(r?.description ?? '')
+    .replaceAll('[prix]', price).replaceAll('[price]', price)
+    .replaceAll('{prix}', price).replaceAll('{price}', price);
+}
+
 function reasonSectionText(r) {
   if (r.panelText && String(r.panelText).trim()) return String(r.panelText).trim().slice(0, 250);
-  return `**${String(r.label || '').slice(0, 100)}**${r.description ? `\n${String(r.description).slice(0, 150)}` : ''}`;
+  const desc = reasonDesc(r);
+  return `**${String(r.label || '').slice(0, 100)}**${desc ? `\n${desc.slice(0, 150)}` : ''}`;
 }
 
 function reasonButton(cfg, r, style) {
@@ -2020,8 +2053,10 @@ async function buildOpenMessage(guild, user, cfg, panel, reason, staffRoles, sub
   // Mode de paiement = le choix fait dans un sous-panel marqué « paiement » (variable {paiement})
   const payChoice = subs.find((c) => cfg.subPanels?.some((sp) => sp.payment && sp.choices.some((x) => x === c || x.id === c.id)));
   const pay = payChoice?.label || 'Not specified';
-  // Prix = description du dernier choix d'article (hors choix du sous-panel de paiement), sinon celle de la catégorie du menu (variable {prix})
-  const prix = [...subs].reverse().find((c) => c !== payChoice && c?.description?.trim())?.description.trim() || reason?.description?.trim() || 'Not specified';
+  // Prix = description du dernier choix d'article (hors choix du sous-panel de paiement),
+  // sinon le prix de la catégorie (dashboard), sinon sa description (variable {prix} / [prix])
+  const prix = [...subs].reverse().find((c) => c !== payChoice && c?.description?.trim())?.description.trim()
+    || String(reason?.price ?? '').trim() || reason?.description?.trim() || 'Not specified';
   // Commande = ce qui a été choisi AVANT le moyen de paiement (variable {order} / {commande} / {article})
   const order = subs.filter((c) => c !== payChoice).map((c) => c.label).join(' › ') || reason?.label || 'Not specified';
   const vars = (txt) => {
@@ -2035,6 +2070,7 @@ async function buildOpenMessage(guild, user, cfg, panel, reason, staffRoles, sub
       .replaceAll('{number}', String(cfg.counter || 0).padStart(4, '0'))
       .replaceAll('{paiement}', pay).replaceAll('{payement}', pay).replaceAll('{payment}', pay)
       .replaceAll('{prix}', prix).replaceAll('{price}', prix)
+      .replaceAll('[prix]', prix).replaceAll('[price]', prix)
       .replaceAll('{order}', order).replaceAll('{commande}', order).replaceAll('{article}', order)
       .replaceAll('{staff}', staffMention);
     for (let n = 0; n < 3; n++) t = t.replaceAll(`{sub${n + 1}}`, subs[n]?.label || '');
@@ -2091,6 +2127,35 @@ async function buildOpenMessage(guild, user, cfg, panel, reason, staffRoles, sub
   };
 }
 
+// Nom du salon d'un ticket. Modèle configurable depuis le dashboard :
+// {user} {username} {displayname} {category} {sub} {config} {number} {prix}/[prix] {staff}
+// Sans modèle : « ❌-catégorie » (comportement historique).
+function ticketChannelName(cfg, reason, subs, user) {
+  const price = String(reason?.price ?? '').trim()
+    || String([...subs].reverse().find((c) => c?.description?.trim())?.description || '').trim();
+  const fill = (tpl) => String(tpl ?? '')
+    .replaceAll('{user}', user.username)
+    .replaceAll('{username}', user.username)
+    .replaceAll('{displayname}', user.displayName || user.username)
+    .replaceAll('{category}', reason?.label || cfg.name)
+    .replaceAll('{sub}', subs.length ? subs[subs.length - 1].label : '')
+    .replaceAll('{config}', cfg.name)
+    .replaceAll('{number}', String(cfg.counter || 0).padStart(4, '0'))
+    .replaceAll('{prix}', price).replaceAll('{price}', price)
+    .replaceAll('[prix]', price).replaceAll('[price]', price)
+    .replaceAll('{staff}', '');
+  const tpl = String(reason?.nameTemplate || cfg.nameTemplate || '').trim();
+  let name;
+  if (tpl) {
+    name = fill(tpl).toLowerCase().replace(/\s+/g, '-')
+      .replace(/[#@:/\\<>|?*"`]/g, '').replace(/-+/g, '-');
+  } else {
+    name = `❌-${String(subs.length ? subs[subs.length - 1].label : (reason?.label || cfg.name))
+      .toLowerCase().replace(/\s+/g, '-').replace(/-+/g, '-')}`;
+  }
+  return (name.replace(/^-+|-+$/g, '') || 'ticket').slice(0, 100);
+}
+
 // Création du salon du ticket (utilisée par le mode normal ET par le mode MP).
 // Un membre peut ouvrir autant de tickets qu'il veut (chaque salon a son numéro).
 // Le choix (reasonId) est cherché dans le menu du panel ET dans le menu du MP.
@@ -2137,9 +2202,9 @@ async function createTicket(guild, user, cfgName, reasonId, panel, subPath = nul
   let channel;
   try {
     channel = await guild.channels.create({
-      // Nom : ❌ (pas encore pris en charge, devient ✅ à la prise en charge) + dernier choix fait (dernier sous-panel, sinon catégorie du panel, sinon config)
-      name: `❌-${String(subs.length ? subs[subs.length - 1].label : (reason?.label || cfg.name))
-        .toLowerCase().replace(/\s+/g, '-').replace(/-+/g, '-')}`.slice(0, 100),
+      // Nom : ❌ (pas encore pris en charge, devient ✅ à la prise en charge) + dernier choix fait
+      // (dernier sous-panel, sinon catégorie du panel, sinon config) — ou modèle personnalisé du dashboard.
+      name: ticketChannelName(cfg, reason, subs, user),
       type: ChannelType.GuildText,
       parent: parentId,
       topic: `Ticket de ${user.tag} | ${cfg.name}${reason ? ' | ' + reason.label : ''}${subs.length ? ' | ' + subs.map((c) => c.label).join(' › ') : ''}`,
@@ -2588,6 +2653,42 @@ async function claimTicket(i) {
   await i.reply({ content: `🙋 <@${i.user.id}> supports this ticket.`, allowedMentions: { parse: [] } });
   // ❌ (en attente) devient ✅ (pris en charge) ; sans await : Discord limite les renommages de salons
   if (i.channel.name.startsWith('❌')) i.channel.setName(i.channel.name.replace(/^❌/, '✅')).catch(console.error);
+}
+
+// Ajout / retrait d'un membre dans le ticket courant.
+// Utilisé par /ticket ajouter|retirer ET par les commandes rapides /add et /remove.
+async function ticketMemberAction(i, mode) {
+  const d = getG(i.guildId);
+  const t = d.open[i.channelId];
+  if (!t) return i.reply({ content: '❌ Use this command **in a ticket channel**.', flags: EPH });
+  const cfg = d.tickets[t.config];
+  const allowed = i.user.id === t.userId || isStaff(i, t, cfg) || hasFullAccess(i) || cmdAllowed(i);
+  if (!allowed) return i.reply({ content: '❌ Reserved for the ticket creator and staff.', flags: EPH });
+  const user = i.options.getUser('membre', true);
+  if (user.bot) return i.reply({ content: '❌ You cannot add a bot to the ticket.', flags: EPH });
+  if (mode === 'add') {
+    if (user.id === t.userId) return i.reply({ content: '❌ This person has already opened the ticket.', flags: EPH });
+    await i.channel.permissionOverwrites.edit(user.id, {
+      ViewChannel: true, SendMessages: true, ReadMessageHistory: true, AttachFiles: true, EmbedLinks: true,
+    }, { reason: `Added to ticket by ${i.user.tag}` }).catch((e) => {
+      console.error('[ticket add]', e);
+      throw new Error('Unable to add this member (bot permissions).');
+    });
+    t.extraUsers ??= [];
+    if (!t.extraUsers.includes(user.id)) t.extraUsers.push(user.id);
+    save();
+    await i.reply({ content: `✅ <@${user.id}> has been added to the ticket.`, flags: EPH, allowedMentions: { parse: [] } });
+    await i.channel.send({ content: `➕ <@${user.id}> was added to the ticket by <@${i.user.id}>.`, allowedMentions: { parse: [] } }).catch(() => {});
+    return;
+  }
+  if (user.id === client.user.id) return i.reply({ content: '❌ I cannot withdraw from the ticket.', flags: EPH });
+  await i.channel.permissionOverwrites.delete(user.id, `Removed from ticket by ${i.user.tag}`).catch(console.error);
+  if (t.extraUsers?.length) {
+    t.extraUsers = t.extraUsers.filter((id) => id !== user.id);
+    save();
+  }
+  await i.reply({ content: `✅ <@${user.id}> has been removed from the ticket.`, flags: EPH, allowedMentions: { parse: [] } });
+  await i.channel.send({ content: `➖ <@${user.id}> was removed from the ticket by <@${i.user.id}>.`, allowedMentions: { parse: [] } }).catch(() => {});
 }
 
 /* ------------------------------------------------------------------ */
@@ -3402,6 +3503,7 @@ const HELP = [
     '`/ticket config-creer` · `config-liste` · `config-supprimer`',
     '`/ticket staff-ajouter` · `staff-retirer`',
     '`/ticket ajouter` · `retirer` — add or remove a member from the ticket where you type the command',
+    '`/add` · `/remove` — quick versions of the same thing (ticket creator and staff)',
     '`/ticket raison-ajouter` · `raison-modifier` · `raison-retirer` — panel menu categories (personal emoji + linked server category)',
     '`/ticket panel` — send the panel (banner, menu or colored button, without text possible) to a channel',
     "`/ticket message` — edit the ticket opening message (per panel or for the entire config)",
@@ -3446,7 +3548,8 @@ async function registerCommands(guild) {
     .filter((c) => ALWAYS_ON.has(c.name) || !d.disabledCommands.includes(c.name))
     .map((c) => {
       const cat = CMD_CATEGORY[c.name];
-      const visible = PUBLIC_COMMANDS.has(c.name) || d.cmdPerms[c.name]?.length ||
+      const visible = PUBLIC_COMMANDS.has(c.name) || TICKET_MEMBER_COMMANDS.has(c.name) ||
+        d.cmdPerms[c.name]?.length ||
         (cat && d.catPerms[cat]?.length) ||
         (MOD_COMMANDS.has(c.name) && d.modRoles.length);
       return c.setDefaultMemberPermissions(visible ? null : '0').toJSON();
@@ -3458,6 +3561,14 @@ async function registerCommands(guild) {
 /*  Gestionnaires de commandes                                         */
 /* ------------------------------------------------------------------ */
 const handlers = {
+  /* ---------- /add et /remove (ticket) ---------- */
+  async add(i) {
+    return ticketMemberAction(i, 'add');
+  },
+  async remove(i) {
+    return ticketMemberAction(i, 'remove');
+  },
+
   /* ---------- /vouch ---------- */
   async vouch(i) {
     return vouchPanel(i);
@@ -4918,35 +5029,7 @@ const handlers = {
 
     /* ----- Ajouter / retirer un membre du ticket actuel ----- */
     if (sub === 'ajouter' || sub === 'retirer') {
-      const t = d.open[i.channelId];
-      if (!t) return i.reply({ content: '❌ Use this command **in a ticket channel**.', flags: EPH });
-      if (!isStaff(i, t, d.tickets[t.config])) return i.reply({ content: '❌ Reserved for ticket staff.', flags: EPH });
-      const user = i.options.getUser('membre', true);
-      if (user.bot) return i.reply({ content: '❌ You cannot add a bot to the ticket.', flags: EPH });
-      if (sub === 'ajouter') {
-        if (user.id === t.userId) return i.reply({ content: '❌ This person has already opened the ticket.', flags: EPH });
-        await i.channel.permissionOverwrites.edit(user.id, {
-          ViewChannel: true, SendMessages: true, ReadMessageHistory: true, AttachFiles: true, EmbedLinks: true,
-        }, { reason: `Added to ticket by ${i.user.tag}` }).catch((e) => {
-          console.error('[ticket ajouter]', e);
-          throw new Error("Unable to add this member (bot permissions).");
-        });
-        t.extraUsers ??= [];
-        if (!t.extraUsers.includes(user.id)) t.extraUsers.push(user.id);
-        save();
-        await i.reply({ content: `✅ <@${user.id}> has been added to the ticket.`, flags: EPH, allowedMentions: { parse: [] } });
-        await i.channel.send({ content: `➕ <@${user.id}> was added to the ticket by <@${i.user.id}>.`, allowedMentions: { parse: [] } }).catch(() => {});
-        return;
-      }
-      if (user.id === client.user.id) return i.reply({ content: '❌ I cannot withdraw from the ticket.', flags: EPH });
-      await i.channel.permissionOverwrites.delete(user.id, `Removed from ticket by ${i.user.tag}`).catch(console.error);
-      if (t.extraUsers?.length) {
-        t.extraUsers = t.extraUsers.filter((id) => id !== user.id);
-        save();
-      }
-      await i.reply({ content: `✅ <@${user.id}> has been removed from the ticket.`, flags: EPH, allowedMentions: { parse: [] } });
-      await i.channel.send({ content: `➖ <@${user.id}> was removed from the ticket by <@${i.user.id}>.`, allowedMentions: { parse: [] } }).catch(() => {});
-      return;
+      return ticketMemberAction(i, sub === 'ajouter' ? 'add' : 'remove');
     }
 
     /* ----- Couleur globale des panels ----- */

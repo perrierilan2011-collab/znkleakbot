@@ -762,6 +762,8 @@ function tkConfig() {
       <label class="field"><span>Texte du menu déroulant</span><input id="c_placeholder" maxlength="150" value="${esc(t.placeholder || '')}" placeholder="Choisir une catégorie..."></label>
       <label class="field"><span>Couleur propre à cette configuration</span><small>Vide = couleur globale du serveur</small><input id="c_color" maxlength="7" value="${esc(t.color || '')}" placeholder="#5865F2"></label>
     </div>
+    <label class="field"><span>Nom du salon du ticket</span><small>Variables : <b>{user}</b> {username} {category} {sub} {config} {number} <b>[prix]</b>. Vide = « ❌-catégorie ». Ex : <b>ticket-{username}</b> ou <b>[prix]-{category}</b>.</small>
+      <input id="c_nametemplate" maxlength="100" value="${esc(t.nameTemplate || '')}" placeholder="❌-{category}"></label>
     <div class="grid2">
       ${imgField('c_logo', t.logo, 'Logo propre à cette configuration', 'Lien ou fichier importé. Vide = logo global de la page Apparence.', { max: 512 })}
       <label class="field"><span>Traduction automatique</span><small>Traduit chaque message reçu en français et en anglais, quelle que soit la langue d'origine.</small>
@@ -786,6 +788,7 @@ async function tkSaveConfig() {
       categoryId: $('#c_category').value, staffRoles, logChannelId: $('#c_logs').value,
       staffMode: $('#c_staffmode').value,
       placeholder: $('#c_placeholder').value, color: $('#c_color').value.trim(),
+      nameTemplate: $('#c_nametemplate').value,
       logo: cl.data || cl.url, translate: $('#c_translate').value === 'true',
     });
     await afterChange('Configuration enregistrée ✅');
@@ -802,6 +805,13 @@ async function tkDeleteConfig() {
 }
 
 /* ---------- Catégories du menu ---------- */
+function reasonDescPreview(x) {
+  const price = String(x?.price || '').trim();
+  const d = String(x?.description || '')
+    .replaceAll('[prix]', price).replaceAll('[price]', price)
+    .replaceAll('{prix}', price).replaceAll('{price}', price);
+  return d || 'Sans description';
+}
 function tkReasons() {
   const t = TC();
   const r = S.reasonEdit ? t.reasons.find((x) => x.id === S.reasonEdit) : null;
@@ -810,7 +820,7 @@ function tkReasons() {
     <div class="row" style="justify-content:space-between"><h2>Catégories du menu (${t.reasons.length}/125)</h2><span class="muted">Le menu déroulant du panel</span></div>
     <div class="list">${t.reasons.map((x) => `
       <div class="item"><div class="grow"><b>${esc(x.emoji || '')} ${esc(x.label)}</b>
-        <small>${esc(x.description || 'Sans description')} · ${chName(x.categoryId || t.categoryId)}${rs(x).length ? ' · ' + rs(x).map((id) => esc(roleName(id))).join(' ') : ''}</small></div>
+        <small>${esc(reasonDescPreview(x))} · ${chName(x.categoryId || t.categoryId)}${rs(x).length ? ' · ' + rs(x).map((id) => esc(roleName(id))).join(' ') : ''}</small></div>
         <div class="row"><button class="mini" onclick="S.reasonEdit='${x.id}';render()">Modifier</button><button class="mini" onclick="reasonDel('${x.id}')">Supprimer</button></div></div>`).join('') || '<div class="empty">Aucune catégorie. Sans catégorie, le panel utilise un simple bouton.</div>'}
     </div>
   </section>
@@ -821,6 +831,12 @@ function tkReasons() {
       <label class="field"><span>Emoji</span>${emojiField('r_emoji', r?.emoji || '', '🎮 ou <:nom:id>')}</label>
     </div>
     <label class="field"><span>Description courte</span><input id="r_desc" maxlength="100" value="${esc(r?.description || '')}" placeholder="Comptes Nitro, boost…"></label>
+    <div class="grid2">
+      <label class="field"><span>Prix</span><small>Remplace <b>[prix]</b> dans la description, le nom du ticket et le message d’ouverture.</small><input id="r_price" maxlength="100" value="${esc(r?.price || '')}" placeholder="5€"></label>
+      <div class="field"><span>Description = prix</span><small>Remplit la description avec <b>[prix]</b> pour afficher directement le prix de la catégorie.</small>
+        <button type="button" class="btn ghost" onclick="document.getElementById('r_desc').value='[prix]'">Mettre le prix en description</button></div>
+    </div>
+    <label class="field"><span>Nom du ticket pour cette catégorie</span><small>Remplace le nom global de la configuration. Variables identiques, dont <b>[prix]</b>. Vide = nom de la configuration.</small><input id="r_nametemplate" maxlength="100" value="${esc(r?.nameTemplate || '')}" placeholder="— nom de la configuration —"></label>
     <label class="field"><span>Texte du panel multi-boutons</span><small>Affiché à gauche du bouton dans un panel « plusieurs boutons ». Vide = nom + description.</small><textarea id="r_ptext" maxlength="1000" style="min-height:70px" placeholder="**Have a quick question about our products?**&#10;Press **Questions** to open the matching ticket flow.">${esc(r?.panelText || '')}</textarea></label>
     <div class="grid2">
       <label class="field"><span>Catégorie Discord</span><select id="r_cat">${categoryOptions(r?.categoryId || '', '— catégorie par défaut —')}</select></label>
@@ -852,6 +868,7 @@ async function reasonSave() {
       action: r ? 'update' : 'add', guildId: S.gid, config: t.name, id: r?.id,
       label: $('#r_label').value, emoji: $('#r_emoji').value, description: $('#r_desc').value,
       panelText: $('#r_ptext').value,
+      price: $('#r_price').value, nameTemplate: $('#r_nametemplate').value,
       categoryId: $('#r_cat').value,
       staffRoles: [...$('#r_staff').selectedOptions].map((o) => o.value),
       staffMode: $('#r_mode').value || null,

@@ -4,7 +4,7 @@ Bot Discord de tickets, ventes, vouchs, invitations et modération, avec un dash
 
 ## Nouveautés
 
-- **Ajouter / retirer un membre d'un ticket** : `/ticket ajouter` et `/ticket retirer` (dans le ticket).
+- **Ajouter / retirer un membre d'un ticket** : `/add` et `/remove` (ou `/ticket ajouter` et `/ticket retirer`) dans le ticket, avec la mention du membre.
 - **Vouch vérifié** : `/vouch` dans un ticket → note de 1 à 5 étoiles → message → publication dans un salon dédié. Le message est épuré (photo de profil, titre, note, citation) et tu peux mettre **ce que tu veux en dessous** (Service, Support, Prix…) : une ligne par information, avec des variables. Titre, pied de page et logo configurables depuis le dashboard.
 - **Panel multi-boutons** : un panel avec une bannière, un texte et **un bouton par catégorie** (7 à 9 selon la bannière, limite Discord). Chaque bouton ouvre sa catégorie et, si un sous-panel y est relié, le premier menu du parcours (puis les sous-panels suivants). Rendu avec les composants Discord récents (bouton à droite de chaque texte) et repli automatique en embed + boutons sur les anciennes versions de discord.js.
 - **Champs personnalisés des tickets** : dans le message d'ouverture, ajoute autant de champs que tu veux (nom + valeur, 10 maximum) sous la description : prix, service, délai… Chaque champ s'affiche sur deux lignes (nom au-dessus, valeur en dessous). Les variables `{prix}`, `{paiement}`, `{order}`, `{category}`… sont disponibles. Les champs remplacent automatiquement les deux lignes de texte par défaut, et une case permet de retirer ces lignes même sans champ.
@@ -56,6 +56,7 @@ Permissions du bot : Gérer les salons, Gérer les rôles, Gérer les messages, 
 - `/ticket config-creer`, `config-liste`, `config-supprimer`
 - `/ticket staff-ajouter`, `staff-retirer`
 - `/ticket ajouter`, `/ticket retirer` (dans un ticket)
+- `/add`, `/remove` — versions rapides, utilisables par le créateur du ticket et le staff (dans le ticket)
 - `/ticket raison-ajouter`, `raison-modifier`, `raison-retirer`
 - `/ticket panel`, `/ticket message`, `/ticket bouton`
 - `/ticket couleur` (couleur globale ou par configuration)
@@ -128,6 +129,13 @@ Tout se règle depuis le dashboard, onglet **Tickets** :
   - **Menu déroulant** : un menu listant les catégories.
 - Les panels déjà envoyés se mettent à jour automatiquement quand tu modifies les catégories, la couleur ou le logo.
 - Dans la liste **Panels envoyés**, **✏️ Modifier** recharge le panel dans le formulaire : change le titre, la description, l'image, le logo, la couleur, le pied de page ou le bouton, puis clique sur **Mettre à jour ce panel**. Le message Discord existant est modifié directement (pas de doublon).
+
+### Nom du ticket et prix
+
+- **Nom du salon du ticket** : dans **Tickets → Réglages**, le champ **Nom du salon du ticket** définit le nom donné à l'ouverture. Variables disponibles : `{user}`, `{username}`, `{displayname}`, `{category}`, `{sub}`, `{config}`, `{number}` et **`[prix]`**. Vide = « ❌-catégorie » (comportement historique). Exemple : `ticket-{username}` ou `[prix]-{category}`.
+- **Prix par catégorie** : chaque catégorie a un champ **Prix**. La variable **`[prix]`** (ou `{prix}`) est remplacée par ce prix dans la description, le nom du ticket et le message d'ouverture.
+- **Description = prix** : le bouton **Mettre le prix en description** remplit la description avec `[prix]`, qui affiche donc directement le prix de la catégorie. Il suffit ensuite d'enregistrer.
+- Chaque catégorie peut aussi avoir son **propre nom de ticket**, qui remplace le nom global de la configuration.
 
 ### Vouch
 
