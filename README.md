@@ -72,6 +72,14 @@ Deux annonces de boutique entièrement personnalisables, disponibles en commande
 
 Options communes : `salon`, `couleur`, `logo` (coché par défaut, décochable pour masquer le logo) et mentions (`mention`, `ping`). Depuis le dashboard, les lignes, les liens et les images se saisissent directement (boutons d'ajout/suppression) sans passer par une commande.
 
+Chaque envoi est **mémorisé** dans la page **Produits** / **Restock** :
+
+- **✏️ Modifier** recharge tous les paramètres dans le formulaire (titre, texte, liens, image, logo, couleur, pied de page…). Change ce que tu veux puis clique sur **Mettre à jour le message** : le message Discord est modifié directement, sans en créer un nouveau.
+- **📤 Renvoyer** publie une copie avec les mêmes paramètres (ou les paramètres actuellement affichés depuis le formulaire).
+- **🗑️** supprime le message Discord et l'entrée de la liste.
+
+Plus besoin de tout refaire : un message envoyé reste modifiable et réutilisable.
+
 ### Images : lien ou import
 
 Partout où une image est demandée (panels de tickets, sous-panels, message d'ouverture, produits, restock, logos du serveur, vouch), tu peux :
@@ -92,6 +100,7 @@ Tout se règle depuis le dashboard, onglet **Tickets** :
   - **Plusieurs boutons** : une bannière + un bouton par catégorie. Un clic sur un bouton ouvre la catégorie et enchaîne les sous-panels reliés (le ticket n'est créé qu'à la fin du parcours).
   - **Menu déroulant** : un menu listant les catégories.
 - Les panels déjà envoyés se mettent à jour automatiquement quand tu modifies les catégories, la couleur ou le logo.
+- Dans la liste **Panels envoyés**, **✏️ Modifier** recharge le panel dans le formulaire : change le titre, la description, l'image, le logo, la couleur, le pied de page ou le bouton, puis clique sur **Mettre à jour ce panel**. Le message Discord existant est modifié directement (pas de doublon).
 
 ### Vouch
 

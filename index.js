@@ -142,6 +142,9 @@ function getG(id) {
   g.sales.total ??= 0;         // argent généré (total)
   g.sales.currency ??= '€';    // devise affichée
   g.sales.entries ??= [];      // 100 dernières ventes [{ at, amount, buyerId, buyerName, product, by, config, ticket }]
+  // Annonces boutique déjà envoyées (produits / restock) : permet de les modifier ou de les renvoyer.
+  // [{ id, kind, channelId, messageId, at, params: { title, text, lines, links, image, thumb, footer, color, logo } }]
+  g.shopPosts ??= [];
   // Migration : un seul rôle staff -> plusieurs rôles staff
   for (const c of Object.values(g.tickets)) {
     c.staffRoles ??= c.staffRoleId ? [c.staffRoleId] : [];
@@ -323,6 +326,19 @@ async function toFile(att, baseName) {
   return new AttachmentBuilder(Buffer.from(await res.arrayBuffer()), { name: baseName + ext });
 }
 
+// Convertit une pièce jointe Discord en data URL (pour pouvoir la réutiliser plus tard).
+async function attToData(att) {
+  try {
+    const res = await fetch(att.url);
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length > 6 * 1024 * 1024) return att.url;
+    const type = String(att.contentType || 'image/png').split(';')[0];
+    return `data:${type};base64,${buf.toString('base64')}`;
+  } catch {
+    return att.url;
+  }
+}
+
 /* ---------- Formulaire + embed partagés par /annonce et /autorole ---------- */
 function announceModal(modalId, title, textLabel = "Announcement text (Markdown accepted)") {
   return new ModalBuilder().setCustomId(modalId).setTitle(title).addComponents(
@@ -437,6 +453,47 @@ function restockModal(modalId) {
   );
 }
 
+// Construit le message produit / restock à partir de paramètres réutilisables.
+// params : { title, text, lines, rows, links, image, thumb, footer, color, logo }
+async function buildCatalogPayload(kind, params, d, guild) {
+  const files = [];
+  const embed = new EmbedBuilder()
+    .setColor(parseColor(params.color, d.panelColor || '#5865F2'))
+    .setTimestamp();
+  if (params.title) embed.setTitle(String(params.title).slice(0, 256));
+  if (params.footer) embed.setFooter({ text: String(params.footer).slice(0, 2048) });
+
+  let mentions = { users: [], roles: [] };
+  if (kind === 'product') {
+    const texte = String(params.text || '');
+    if (texte) {
+      const r = await rich(guild, texte);
+      mentions = r;
+      embed.setDescription(r.text.slice(0, 4096));
+    }
+  } else {
+    const rows = Array.isArray(params.rows) && params.rows.length ? params.rows : parseStockRows(params.lines);
+    if (!rows.length) throw new Error('Add at least one row: Variant | Price | Stock');
+    for (const row of rows) {
+      embed.addFields(
+        { name: 'Variant', value: String(row.variant || '—').slice(0, 1024), inline: true },
+        { name: 'Price', value: String(row.price || '—').slice(0, 1024), inline: true },
+        { name: 'Stock', value: String(row.stock || '—').slice(0, 1024), inline: true },
+      );
+    }
+  }
+
+  const image = await imageRef(params.image, 'image', files);
+  if (image) embed.setImage(image);
+  let logo = null;
+  if (params.thumb) logo = await imageRef(params.thumb, 'logo', files);
+  else if (params.logo !== false) logo = await imageRef(d.panelLogo, 'logo', files);
+  if (logo) embed.setThumbnail(logo);
+
+  const links = Array.isArray(params.links) ? params.links : parseLinks(params.links);
+  return { embeds: [embed], components: linkRows(links), files, mentions };
+}
+
 // /product et /restock : même logique (embed + image + logo + boutons-liens).
 async function catalogPost(i, kind) {
   const salon = i.options.getChannel('salon', true);
@@ -462,61 +519,31 @@ async function catalogPost(i, kind) {
   await m.deferReply({ flags: EPH });
   try {
     const d = getG(i.guildId);
-    const files = [];
-    const embed = new EmbedBuilder()
-      .setColor(parseColor(couleur, d.panelColor || '#5865F2'))
-      .setTimestamp();
+    const params = {
+      title: m.fields.getTextInputValue('titre').trim(),
+      footer: m.fields.getTextInputValue('footer').trim(),
+      links: m.fields.getTextInputValue('liens').trim(),
+      color: couleur || '',
+      logo: logoOn,
+      // Les pièces jointes sont converties en data URL : elles restent utilisables pour modifier / renvoyer.
+      image: img ? await attToData(img) : m.fields.getTextInputValue('image_url').trim(),
+      thumb: thumb ? await attToData(thumb) : '',
+    };
+    if (kind === 'product') params.text = m.fields.getTextInputValue('texte').trim();
+    else params.lines = m.fields.getTextInputValue('lignes').trim();
 
-    const titre = m.fields.getTextInputValue('titre').trim();
-    if (titre) embed.setTitle(titre.slice(0, 256));
-    const footer = m.fields.getTextInputValue('footer').trim();
-    if (footer) embed.setFooter({ text: footer.slice(0, 2048) });
+    const payload = await buildCatalogPayload(kind, params, d, m.guild);
+    const { content, allowed } = buildMentions(ping, mentionOpt, payload.mentions);
+    const sent = await salon.send({
+      content, embeds: payload.embeds, components: payload.components, files: payload.files, allowedMentions: allowed,
+    });
 
-    let mentions = { users: [], roles: [] };
-    if (kind === 'product') {
-      const texte = m.fields.getTextInputValue('texte').trim();
-      if (texte) {
-        const r = await rich(m.guild, texte);
-        mentions = r;
-        embed.setDescription(r.text.slice(0, 4096));
-      }
-    } else {
-      const rows = parseStockRows(m.fields.getTextInputValue('lignes'));
-      if (!rows.length) return m.editReply('❌ Add at least one row: Variant | Price | Stock');
-      for (const row of rows) {
-        embed.addFields(
-          { name: 'Variant', value: row.variant.slice(0, 1024), inline: true },
-          { name: 'Price', value: row.price.slice(0, 1024), inline: true },
-          { name: 'Stock', value: row.stock.slice(0, 1024), inline: true },
-        );
-      }
-    }
-
-    // Grande image : fichier, lien ou image importée depuis le dashboard.
-    let imageUrl = null;
-    if (img) {
-      const f = await toFile(img, 'image');
-      files.push(f);
-      imageUrl = `attachment://${f.name}`;
-    } else {
-      imageUrl = await imageRef(m.fields.getTextInputValue('image_url'), 'image', files);
-    }
-    if (imageUrl) embed.setImage(imageUrl);
-
-    // Logo : fichier, sinon logo global (page Apparence) si la case est cochée.
-    let logo = null;
-    if (thumb) {
-      const f = await toFile(thumb, 'miniature');
-      files.push(f);
-      logo = `attachment://${f.name}`;
-    } else if (logoOn) {
-      logo = await imageRef(d.panelLogo, 'logo', files);
-    }
-    if (logo) embed.setThumbnail(logo);
-
-    const links = parseLinks(m.fields.getTextInputValue('liens'));
-    const { content, allowed } = buildMentions(ping, mentionOpt, mentions);
-    await salon.send({ content, embeds: [embed], components: linkRows(links), files, allowedMentions: allowed });
+    d.shopPosts.push({
+      id: crypto.randomUUID().slice(0, 8), kind, channelId: salon.id, messageId: sent.id,
+      at: Date.now(), params,
+    });
+    d.shopPosts = d.shopPosts.slice(-8);
+    save();
     await m.editReply(`✅ ${kind === 'product' ? 'Product' : 'Restock'} sent in <#${salon.id}>.`);
   } catch (e) {
     console.error(e);
@@ -1741,7 +1768,7 @@ function reasonButton(cfg, r, style) {
 // Sinon : embed classique + boutons sous le texte.
 async function buildMultiPanel(guild, cfg, p, { image = null, files = null } = {}) {
   const d = getG(guild.id);
-  const color = parseColor(cfg.color || d.panelColor, '#ED4245');
+  const color = parseColor(p.color || cfg.color || d.panelColor, '#ED4245');
   const title = (p.title || `🎫 Support — ${cfg.name}`).slice(0, 256);
   const desc = (p.customDesc ? (p.desc || '') : '').slice(0, 1500);
   const outFiles = [...(files || [])];
@@ -1802,16 +1829,39 @@ async function buildMultiPanel(guild, cfg, p, { image = null, files = null } = {
   return payload;
 }
 
+// Construit un panel à bouton / menu déroulant (utilisé pour l'envoi et la mise à jour directe).
+async function buildSinglePanel(guild, cfg, p) {
+  const d = getG(guild.id);
+  const files = [];
+  const color = parseColor(p.color, cfg.color || d.panelColor || '#ED4245');
+  const embed = new EmbedBuilder().setColor(color);
+  if (!p.noText) {
+    embed
+      .setTitle((p.title || `🎫 Support — ${cfg.name}`).slice(0, 256))
+      .setDescription((p.desc || panelDesc(cfg, p.button)).slice(0, 4096))
+      .setTimestamp();
+    if (p.footer) embed.setFooter({ text: String(p.footer).slice(0, 2048) });
+  }
+  const image = await imageRef(p.image, 'panel', files);
+  if (image) embed.setImage(image);
+  const logo = p.showLogo === false ? null : await imageRef(logoSource(cfg, d, p), 'logo', files);
+  if (logo) embed.setThumbnail(logo);
+  const rows = panelRows(cfg, { button: p.button, label: p.btnLabel, style: p.btnStyle });
+  const payload = { embeds: [embed], components: rows };
+  if (files.length) payload.files = files;
+  return payload;
+}
+
 function multiPanelSig(guild, cfg, p) {
   const d = getG(guild.id);
   const desc = (p.customDesc ? (p.desc || '') : '').slice(0, 1500);
-  const imageUrl = isMedia(p.image) ? p.image.trim() : null;
+  const imageUrl = (isMedia(p.image) || isDataImage(p.image)) ? 'x' : null;
   const logo = logoSource(cfg, d, p);
   return sig({
     v2: p.v2 !== false && HAS_V2,
-    color: parseColor(cfg.color || d.panelColor, '#ED4245'),
+    color: parseColor(p.color || cfg.color || d.panelColor, '#ED4245'),
     title: p.title || '', desc,
-    image: p.image || null, logo: srcHash(logo), showLogo: p.showLogo !== false, style: p.btnStyle || 'Primary',
+    image: srcHash(p.image), logo: srcHash(logo), showLogo: p.showLogo !== false, style: p.btnStyle || 'Primary',
     noText: !!p.noText, footer: p.footer || null,
     reasons: (cfg.reasons || []).slice(0, multiLimit(p, imageUrl, logo ? 'x' : null, desc)).map((r) => [r.id, r.label, r.description || '', r.panelText || '', r.emoji || '']),
   });
@@ -5168,21 +5218,9 @@ const handlers = {
 
       if (multi) {
         try {
-          const files = [];
-          // Référence stable (attachment://...) pour que le panel reste identique à chaque mise à jour.
-          let panelImage = isUrl(imgUrl) ? imgUrl : null;
-          if (img) {
-            const f = await toFile(img, 'panel');
-            files.push(f);
-            panelImage = `attachment://${f.name}`;
-          }
-          // Logo propre au panel uniquement : le logo global est résolu à l'affichage (et peut être retiré).
-          let panelThumb = isUrl(thumbUrl) ? thumbUrl : null;
-          if (thumb) {
-            const f = await toFile(thumb, 'miniature');
-            files.push(f);
-            panelThumb = `attachment://${f.name}`;
-          }
+          // Image / logo conservés en data URL pour pouvoir recharger et renvoyer le panel plus tard.
+          const panelImage = img ? await attToData(img) : (isUrl(imgUrl) ? imgUrl : null);
+          const panelThumb = thumb ? await attToData(thumb) : (isUrl(thumbUrl) ? thumbUrl : null);
           const panel = {
             channelId: salon.id,
             multi: true,
@@ -5197,8 +5235,9 @@ const handlers = {
             translate: !!panelTranslate,
             thumb: panelThumb,
             showLogo,
+            color: i.options.getString('couleur') || null,
           };
-          const sent = await salon.send(await buildMultiPanel(i.guild, cfg, panel, { files }));
+          const sent = await salon.send(await buildMultiPanel(i.guild, cfg, panel));
           panel.messageId = sent.id;
           panel.sig = multiPanelSig(i.guild, cfg, panel);
           cfg.panels.push(panel);
@@ -5222,21 +5261,21 @@ const handlers = {
 
       try {
         const files = [];
+        // Image / logo conservés en data URL pour pouvoir recharger et renvoyer le panel plus tard.
+        let panelImage = isUrl(imgUrl) ? imgUrl : null;
         if (img) {
-          const f = await toFile(img, 'panel');
-          files.push(f);
-          embed.setImage(`attachment://${f.name}`);
+          panelImage = await attToData(img);
+          const ref = await imageRef(panelImage, 'panel', files);
+          if (ref) embed.setImage(ref);
         } else if (isUrl(imgUrl)) {
           embed.setImage(imgUrl);
         }
         let explicitThumb = isUrl(thumbUrl) ? thumbUrl : null;
-        if (thumb) {
-          const f = await toFile(thumb, 'miniature');
-          files.push(f);
-          explicitThumb = `attachment://${f.name}`;
+        if (thumb) explicitThumb = await attToData(thumb);
+        if (showLogo) {
+          const logo = await imageRef(explicitThumb || cfg.logo || d.panelLogo, 'logo', files);
+          if (logo) embed.setThumbnail(logo);
         }
-        const logo = showLogo ? await imageRef(explicitThumb || cfg.logo || d.panelLogo, 'logo', files) : null;
-        if (logo) embed.setThumbnail(logo);
 
         const rows = panelRows(cfg, { button: asButton, label: btnLabel, style });
         const sent = await salon.send({ embeds: [embed], files, components: rows });
@@ -5252,6 +5291,13 @@ const handlers = {
           translate: !!panelTranslate,
           thumb: explicitThumb,
           showLogo,
+          // Paramètres réutilisables (pré-remplissage du formulaire + mise à jour directe)
+          title: (i.options.getString('titre') || `🎫 Support — ${cfg.name}`).slice(0, 256),
+          desc: customDesc ? richDesc : null,
+          image: panelImage,
+          footer: footer || null,
+          noText,
+          color: i.options.getString('couleur') || null,
           sig: sig({
             rows: rows.map((r) => r.toJSON()),
             desc: fixed ? null : panelDesc(cfg, asButton),
@@ -5735,4 +5781,5 @@ setInterval(save, 2 * 60_000).unref?.();
 
 // Panel web (dashboard.js + panel.html) — nécessite la variable PANEL_PASSWORD
 require("./dashboard")({ client, commands, handlers, autocomplete, getG, refreshPanels, refreshSalesPanel,
+  buildCatalogPayload, buildSinglePanel, buildMultiPanel, multiPanelSig, rich,
   CMD_CATEGORIES, ALWAYS_ON, PUBLIC_COMMANDS, OWNER_ONLY, db, save, DB_FILE });

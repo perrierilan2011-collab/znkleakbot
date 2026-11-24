@@ -26,7 +26,9 @@ const MODALS = {
 };
 
 module.exports = function startDashboard(ctx) {
-  const { client, commands, handlers, autocomplete, getG, refreshPanels, refreshSalesPanel, CMD_CATEGORIES, ALWAYS_ON, PUBLIC_COMMANDS, OWNER_ONLY, db, save, DB_FILE } = ctx;
+  const { client, commands, handlers, autocomplete, getG, refreshPanels, refreshSalesPanel,
+    buildCatalogPayload, buildSinglePanel, buildMultiPanel, multiPanelSig, rich,
+    CMD_CATEGORIES, ALWAYS_ON, PUBLIC_COMMANDS, OWNER_ONLY, db, save, DB_FILE } = ctx;
   const PASS = process.env.PANEL_PASSWORD;
   if (!PASS) return console.warn('[panel] PANEL_PASSWORD absent : panel désactivé.');
   const KEY = crypto.createHash('sha256').update('panel:' + PASS).digest();
@@ -155,6 +157,8 @@ module.exports = function startDashboard(ctx) {
     return undefined;
   };
   const colorOk = (v) => { const t = String(v ?? '').trim(); return /^#?[0-9a-f]{6}$/i.test(t) ? '#' + t.replace('#', '') : undefined; };
+  // Les images importées (data URL) ne sont pas renvoyées dans la liste : trop lourdes.
+  const light = (v) => (String(v ?? '').startsWith('data:') ? '' : (v || null));
   const cleanOpenMsg = (m) => {
     const infoLabels = {};
     if (m.infoLabels && typeof m.infoLabels === 'object') {
@@ -236,6 +240,12 @@ module.exports = function startDashboard(ctx) {
           })),
         },
         openTickets: Object.keys(d.open || {}).length,
+        shopPosts: (d.shopPosts || []).slice(-8).reverse().map((p) => ({
+          ...p,
+          // Les images importées (data URL) ne sont pas renvoyées dans la liste : elles sont
+          // chargées uniquement au clic sur « Modifier » (voir /api/shop-get).
+          params: { ...p.params, image: '', thumb: '' },
+        })),
         invites: {
           total: Object.values(d.invites?.stats || {}).reduce((n, s) => n + (s.joins || 0), 0),
           members: Object.keys(d.invites?.stats || {}).length,
@@ -245,7 +255,7 @@ module.exports = function startDashboard(ctx) {
           dm: !!t.dm, openMsg: t.openMsg || null, openMsgId: t.openMsgId || null,
           color: t.color || null, placeholder: t.placeholder || null, logo: t.logo || null, translate: !!t.translate,
           openPresets: (t.openPresets || []).map((p) => ({ id: p.id, name: p.name, openMsg: p.openMsg || null })),
-          panels: (t.panels || []).map((p) => ({ channelId: p.channelId, messageId: p.messageId, button: !!p.button, multi: !!p.multi, showLogo: p.showLogo !== false, btnLabel: p.btnLabel || null, btnStyle: p.btnStyle || null, openMsg: p.openMsg || null, openMsgId: p.openMsgId || null, translate: !!p.translate, thumb: p.thumb || null })),
+          panels: (t.panels || []).map((p) => ({ channelId: p.channelId, messageId: p.messageId, button: !!p.button, multi: !!p.multi, showLogo: p.showLogo !== false, btnLabel: p.btnLabel || null, btnStyle: p.btnStyle || null, openMsg: p.openMsg || null, openMsgId: p.openMsgId || null, translate: !!p.translate, thumb: light(p.thumb), image: light(p.image), hasThumb: !!p.thumb, hasImage: !!p.image })),
           reasons: (t.reasons || []).map((r) => ({ id: r.id, label: r.label, emoji: r.emoji, description: r.description, panelText: r.panelText || '', categoryId: r.categoryId, staffRoleId: r.staffRoleId, openMsg: r.openMsg || null, openMsgId: r.openMsgId || null })),
           dmChoices: (t.dmChoices || []).map((r) => ({ id: r.id, label: r.label, emoji: r.emoji, openMsg: r.openMsg || null, openMsgId: r.openMsgId || null })),
           subPanels: t.subPanels || [], subLinks: t.subLinks || {}, defaultSub: t.defaultSubPanelId || null,
@@ -253,6 +263,14 @@ module.exports = function startDashboard(ctx) {
         channels: guild.channels.cache.map((c) => ({ id: c.id, name: c.name, type: c.type })),
         roles: guild.roles.cache.filter((r) => r.id !== guild.id).map((r) => ({ id: r.id, name: r.name, color: r.hexColor })),
       };
+    },
+    // Paramètres complets d'un message produit / restock (images importées incluses).
+    'GET /api/shop-get': async (_r, q) => {
+      const { guild } = await ctxFor(q.get('guildId'));
+      const d = getG(guild.id);
+      const post = (d.shopPosts || []).find((x) => x.id === q.get('id'));
+      if (!post) throw new Error('Message introuvable (il a peut-être été supprimé).');
+      return post;
     },
     // ---------- Configuration d'un ticket (créer / modifier / supprimer) ----------
     'POST /api/ticket-config': async (_r, _q, b) => {
@@ -547,6 +565,121 @@ module.exports = function startDashboard(ctx) {
       return { ok: true };
     },
 
+    // Paramètres complets d'un panel déjà envoyé (images importées incluses).
+    'GET /api/panel-get': async (_r, q) => {
+      const cfg = guildCfg(q.get('guildId'), q.get('config'));
+      const guild = client.guilds.cache.get(q.get('guildId'));
+      const p = (cfg.panels || []).find((x) => x.messageId === q.get('messageId'));
+      if (!p) throw new Error('Panel introuvable (il a peut-être été supprimé).');
+      const ch = guild && (guild.channels.cache.get(p.channelId) || await guild.channels.fetch(p.channelId).catch(() => null));
+      const msg = ch && await ch.messages.fetch(p.messageId).catch(() => null);
+      // Les anciens panels stockaient attachment://... : on retrouve l'URL réelle de la pièce jointe.
+      const resolve = (v) => {
+        const m = /^attachment:\/\/(.+)$/.exec(String(v || ''));
+        if (!m) return v || '';
+        const att = msg && [...msg.attachments.values()].find((a) => a.name === m[1]);
+        return att ? att.url : '';
+      };
+      return { ...p, image: resolve(p.image), thumb: resolve(p.thumb) };
+    },
+    // ---------- Mise à jour directe d'un panel déjà envoyé ----------
+    'POST /api/panel-update': async (_r, _q, b) => {
+      const cfg = guildCfg(b.guildId, b.config);
+      const guild = client.guilds.cache.get(b.guildId);
+      if (!guild) throw new Error('Serveur introuvable');
+      const p = (cfg.panels || []).find((x) => x.messageId === b.messageId);
+      if (!p) throw new Error('Panel introuvable');
+      const f = b.fields || {};
+      if ('title' in f) p.title = txt(f.title, 256) || null;
+      if ('footer' in f) p.footer = txt(f.footer, 2048) || null;
+      if ('btnStyle' in f) p.btnStyle = f.btnStyle || 'Primary';
+      if ('btnLabel' in f) p.btnLabel = txt(f.btnLabel, 80) || null;
+      if ('color' in f) p.color = colorOk(f.color) || null;
+      if ('translate' in f) p.translate = !!f.translate;
+      if ('showLogo' in f) p.showLogo = !!f.showLogo;
+      if ('noText' in f) p.noText = !!f.noText;
+      if ('image' in f) p.image = imgOk(f.image) || null;
+      if ('thumb' in f) p.thumb = imgOk(f.thumb) || null;
+      if ('desc' in f) {
+        const raw = txt(f.desc, 4000);
+        p.desc = raw ? (await rich(guild, raw)).text : null;
+        p.customDesc = !!raw || !!p.noText;
+      }
+      if (p.noText && !p.image) throw new Error('Pour un panel sans texte, ajoute une image.');
+      const ch = guild.channels.cache.get(p.channelId) || await guild.channels.fetch(p.channelId).catch(() => null);
+      const msg = ch && await ch.messages.fetch(p.messageId).catch(() => null);
+      if (!msg) throw new Error('Message Discord introuvable (il a peut-être été supprimé).');
+      const payload = p.multi ? await buildMultiPanel(guild, cfg, p) : await buildSinglePanel(guild, cfg, p);
+      await msg.edit(payload);
+      p.sig = p.multi ? multiPanelSig(guild, cfg, p) : null;
+      save();
+      return { ok: true };
+    },
+
+    // ---------- Boutique : envoyer / modifier / renvoyer / supprimer un produit ou un restock ----------
+    'POST /api/shop': async (_r, _q, b) => {
+      const { guild } = await ctxFor(b.guildId);
+      const d = getG(guild.id);
+      const kind = b.kind === 'restock' ? 'restock' : 'product';
+      const action = b.action || 'new';
+      const post = b.id ? (d.shopPosts || []).find((x) => x.id === b.id) : null;
+      if (b.id && !post) throw new Error('Message introuvable (il a peut-être été supprimé).');
+
+      if (action === 'delete') {
+        const ch = guild.channels.cache.get(post.channelId) || await guild.channels.fetch(post.channelId).catch(() => null);
+        const msg = ch && await ch.messages.fetch(post.messageId).catch(() => null);
+        if (msg) await msg.delete().catch(console.error);
+        d.shopPosts = (d.shopPosts || []).filter((x) => x !== post);
+        save();
+        return { ok: true };
+      }
+
+      const raw = b.params || (post ? post.params : {});
+      const params = {
+        title: txt(raw.title, 256) || '',
+        footer: txt(raw.footer, 2048) || '',
+        links: txt(raw.links, 2000) || '',
+        color: colorOk(raw.color) || '',
+        logo: raw.logo !== false,
+        image: imgOk(raw.image) || '',
+        thumb: imgOk(raw.thumb) || '',
+      };
+      if (kind === 'product') {
+        params.text = txt(raw.text, 4000) || '';
+        if (!params.text) throw new Error('Ajoute une description.');
+      } else {
+        params.lines = txt(raw.lines, 4000) || '';
+        params.rows = (Array.isArray(raw.rows) ? raw.rows : []).slice(0, 8).map((r) => ({
+          variant: String(r.variant || '').slice(0, 200),
+          price: String(r.price || '').slice(0, 40),
+          stock: String(r.stock || '').slice(0, 40),
+        }));
+        if (!params.rows.length && !params.lines) throw new Error('Ajoute au moins une variante.');
+      }
+
+      const channelId = action === 'edit' ? post.channelId : (b.channelId || (post ? post.channelId : null));
+      const ch = channelId ? (guild.channels.cache.get(channelId) || await guild.channels.fetch(channelId).catch(() => null)) : null;
+      if (!ch) throw new Error('Choisis un salon valide.');
+      const payload = await buildCatalogPayload(kind, params, d, guild);
+
+      if (action === 'edit') {
+        const msg = await ch.messages.fetch(post.messageId).catch(() => null);
+        if (!msg) throw new Error('Message Discord introuvable (il a peut-être été supprimé).');
+        await msg.edit({ content: '', embeds: payload.embeds, components: payload.components, files: payload.files });
+        post.params = params;
+        save();
+        return { ok: true, messageId: post.messageId };
+      }
+
+      const sent = await ch.send({ embeds: payload.embeds, components: payload.components, files: payload.files });
+      d.shopPosts.push({
+        id: crypto.randomUUID().slice(0, 8), kind, channelId: ch.id, messageId: sent.id, at: Date.now(), params,
+      });
+      d.shopPosts = d.shopPosts.slice(-8);
+      save();
+      return { ok: true, messageId: sent.id };
+    },
+
     'POST /api/ticket-open-msg': async (_r, _q, b) => {
       const cfg = guildCfg(b.guildId, b.config);
       cfg.openPresets ??= [];
@@ -670,8 +803,8 @@ module.exports = function startDashboard(ctx) {
       if ('description' in f) sp.description = txt(f.description, 4000) || null;
       if ('placeholder' in f) sp.placeholder = txt(f.placeholder, 100) || null;
       if ('color' in f) sp.color = colorOk(f.color) || null;
-      if ('image' in f) sp.image = urlOk(f.image) || null;
-      if ('thumbnail' in f) sp.thumbnail = urlOk(f.thumbnail) || null;
+      if ('image' in f) sp.image = imgOk(f.image) || null;
+      if ('thumbnail' in f) sp.thumbnail = imgOk(f.thumbnail) || null;
       if ('footer' in f) sp.footer = txt(f.footer, 2048) || null;
       if ('payment' in f) sp.payment = !!f.payment; // sous-panel « mode de paiement » (variable {paiement})
       save();

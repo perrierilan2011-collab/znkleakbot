@@ -149,7 +149,7 @@ const S = {
   newTk: false, reasonEdit: null, sp: null, spEdit: false, choiceEdit: null,
   omScope: 'config:', advCmd: null, advSub: null, advResult: null,
   emojiTarget: null, emojiTab: 'server', serverEmojis: null,
-  uploads: {}, shop: {},
+  uploads: {}, shop: {}, panelEdit: null, panelDraft: null,
 };
 
 /* ---------- API ---------- */
@@ -509,7 +509,7 @@ function pageTickets() {
   if (!t) return out + '<div class="card empty">Configuration introuvable.</div>';
   out += `<section class="card ticket-bar">
     <label class="field" style="margin:0"><span>Configuration</span>
-      <select onchange="S.tk=this.value;S.reasonEdit=null;S.sp=null;S.spEdit=false;S.choiceEdit=null;S.omScope='config:';render()">
+      <select onchange="S.tk=this.value;S.reasonEdit=null;S.sp=null;S.spEdit=false;S.choiceEdit=null;S.omScope='config:';S.panelEdit=null;S.panelDraft=null;delete S.uploads.p_image;delete S.uploads.p_thumb;render()">
         ${g.tickets.map((x) => `<option value="${esc(x.name)}" ${x.name === t.name ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}
       </select></label>
     <span class="pill">${t.counter} ticket(s) créé(s)</span>
@@ -821,37 +821,78 @@ async function choiceDel(id) {
 /* ---------- Panels envoyés ---------- */
 function tkPanels() {
   const t = TC();
+  const d = S.panelDraft || {};
+  const editing = !!S.panelEdit;
+  const draft = (k, fallback = '') => (k in d ? d[k] : fallback);
   return `<section class="card"><h2>Panels envoyés (${t.panels.length})</h2>
     <div class="list">${t.panels.map((p, n) => `
       <div class="item"><div class="grow"><b>Panel ${n + 1} — ${chName(p.channelId)}</b>
-        <small>${p.multi ? 'Plusieurs boutons' : p.button ? 'Bouton' : 'Menu déroulant'}${p.btnLabel ? ' · ' + esc(p.btnLabel) : ''} · message ${p.messageId}${p.translate ? ' · 🌐 traduction' : ''}${p.showLogo !== false && (p.thumb || S.g.panelLogo) ? ' · 🖼️ logo' : ' · sans logo'}</small></div>
-        <button class="mini" onclick="panelDelete('${p.messageId}')">Supprimer</button></div>`).join('') || '<div class="empty">Aucun panel envoyé.</div>'}</div>
+        <small>${p.multi ? 'Plusieurs boutons' : p.button ? 'Bouton' : 'Menu déroulant'}${p.btnLabel ? ' · ' + esc(p.btnLabel) : ''} · message ${p.messageId}${p.translate ? ' · 🌐 traduction' : ''}${p.showLogo !== false && (p.hasThumb || S.g.panelLogo) ? ' · 🖼️ logo' : ' · sans logo'}</small></div>
+        <div class="row"><button class="mini" onclick="panelLoad('${p.messageId}')">✏️ Modifier</button>
+        <button class="mini" onclick="panelDelete('${p.messageId}')">Supprimer</button></div></div>`).join('') || '<div class="empty">Aucun panel envoyé.</div>'}</div>
   </section>
-  <section class="card"><h2>Envoyer un panel</h2>
+  <section class="card"><h2>${editing ? 'Modifier le panel sélectionné' : 'Envoyer un panel'}</h2>
+    ${editing ? '<div class="alert info">Tu modifies un panel déjà envoyé : les changements sont appliqués directement sur le message Discord (pas de doublon).</div>' : ''}
     <div class="grid2">
-      <label class="field"><span>Salon <b class="req">*</b></span><select id="p_channel">${channelOptions('', [0, 5])}</select></label>
-      <label class="field"><span>Type</span><select id="p_type"><option value="bouton">Bouton</option><option value="boutons">Plusieurs boutons (un par catégorie)</option><option value="menu">Menu déroulant (catégories)</option></select><small>« Plusieurs boutons » : un bouton par catégorie (7 à 9 selon la bannière, limite Discord). Le texte à gauche de chaque bouton se règle dans l’onglet <b>Catégories</b> (« Texte du panel multi-boutons »).</small></label>
+      <label class="field"><span>Salon <b class="req">*</b></span><select id="p_channel">${channelOptions(draft('channelId', ''), [0, 5])}</select></label>
+      <label class="field"><span>Type</span><select id="p_type" ${editing ? 'disabled' : ''}><option value="bouton" ${draft('type') === 'bouton' ? 'selected' : ''}>Bouton</option><option value="boutons" ${draft('type') === 'boutons' ? 'selected' : ''}>Plusieurs boutons (un par catégorie)</option><option value="menu" ${draft('type') === 'menu' ? 'selected' : ''}>Menu déroulant (catégories)</option></select><small>${editing ? 'Le type d’un panel déjà envoyé ne peut pas être changé.' : '« Plusieurs boutons » : un bouton par catégorie (7 à 9 selon la bannière, limite Discord). Le texte à gauche de chaque bouton se règle dans l’onglet <b>Catégories</b> (« Texte du panel multi-boutons »).'}</small></label>
     </div>
-    <label class="field"><span>Titre</span><input id="p_title" value="🎫 Support — ${esc(t.name)}" maxlength="256"></label>
-    <label class="field"><span>Description</span><textarea id="p_desc" maxlength="4000" placeholder="Clique sur le bouton ci-dessous pour ouvrir un ticket."></textarea></label>
+    <label class="field"><span>Titre</span><input id="p_title" value="${esc(draft('title', `🎫 Support — ${t.name}`))}" maxlength="256"></label>
+    <label class="field"><span>Description</span><textarea id="p_desc" maxlength="4000" placeholder="Clique sur le bouton ci-dessous pour ouvrir un ticket.">${esc(draft('desc', ''))}</textarea></label>
     <div class="grid2">
-      ${imgField('p_image', '', 'Image (lien ou fichier)', 'Grande image / bannière du panel.')}
-      <label class="field"><span>Couleur</span><input id="p_color" maxlength="7" placeholder="${esc(S.g.panelColor)}"></label>
+      ${imgField('p_image', draft('image', ''), 'Image (lien ou fichier)', 'Grande image / bannière du panel.')}
+      <label class="field"><span>Couleur</span><input id="p_color" maxlength="7" value="${esc(draft('color', ''))}" placeholder="${esc(S.g.panelColor)}"></label>
     </div>
     <div class="grid2">
-      ${imgField('p_thumb', '', 'Logo (lien ou fichier)', 'Vide = logo global de la page Apparence.')}
+      ${imgField('p_thumb', draft('thumb', ''), 'Logo (lien ou fichier)', 'Vide = logo global de la page Apparence.')}
       <label class="field"><span>Texte du menu</span><input id="p_placeholder" maxlength="150" placeholder="Choisir une catégorie..."></label>
     </div>
-    <label class="check"><input type="checkbox" id="p_logo" checked> Afficher le logo du serveur (page Apparence) sur ce panel</label>
+    <label class="check"><input type="checkbox" id="p_logo" ${draft('showLogo', true) ? 'checked' : ''}> Afficher le logo du serveur (page Apparence) sur ce panel</label>
     <div class="grid2">
-      <label class="field"><span>Texte du bouton</span><input id="p_btn" maxlength="80" placeholder="Ouvrir un ticket"></label>
-      <label class="field"><span>Couleur du bouton</span><select id="p_style"><option value="Primary">Bleu</option><option value="Secondary">Gris</option><option value="Success">Vert</option><option value="Danger">Rouge</option></select></label>
+      <label class="field"><span>Texte du bouton</span><input id="p_btn" maxlength="80" value="${esc(draft('btnLabel', ''))}" placeholder="Ouvrir un ticket"></label>
+      <label class="field"><span>Couleur du bouton</span><select id="p_style">${[['Primary', 'Bleu'], ['Secondary', 'Gris'], ['Success', 'Vert'], ['Danger', 'Rouge']].map(([v, l]) => `<option value="${v}" ${draft('btnStyle', 'Primary') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
     </div>
-    <label class="field"><span>Pied de page</span><input id="p_footer" maxlength="200"></label>
-    <label class="check"><input type="checkbox" id="p_notext"> Panel sans texte (image seule, image obligatoire)</label>
-    <label class="check"><input type="checkbox" id="p_translate" checked> Traduction automatique (toute langue → français + anglais) dans les tickets ouverts depuis ce panel</label>
-    <button class="btn" onclick="panelSend()">Envoyer le panel</button>
+    <label class="field"><span>Pied de page</span><input id="p_footer" maxlength="200" value="${esc(draft('footer', ''))}"></label>
+    <label class="check"><input type="checkbox" id="p_notext" ${draft('noText', false) ? 'checked' : ''}> Panel sans texte (image seule, image obligatoire)</label>
+    <label class="check"><input type="checkbox" id="p_translate" ${draft('translate', true) ? 'checked' : ''}> Traduction automatique (toute langue → français + anglais) dans les tickets ouverts depuis ce panel</label>
+    <div class="row" style="margin-top:10px">
+      <button class="btn" onclick="panelSend()">${editing ? 'Mettre à jour ce panel' : 'Envoyer le panel'}</button>
+      ${editing ? '<button class="btn ghost" onclick="panelNew()">Annuler</button>' : ''}
+    </div>
   </section>`;
+}
+async function panelLoad(messageId) {
+  const t = TC();
+  try {
+    const p = await api('/api/panel-get?guildId=' + encodeURIComponent(S.gid) + '&config=' + encodeURIComponent(t.name) + '&messageId=' + encodeURIComponent(messageId));
+    S.panelEdit = messageId;
+    S.panelDraft = {
+      channelId: p.channelId,
+      type: p.multi ? 'boutons' : (p.button ? 'bouton' : 'menu'),
+      title: p.title || `🎫 Support — ${t.name}`,
+      desc: p.desc || '',
+      image: p.image || '',
+      thumb: p.thumb || '',
+      footer: p.footer || '',
+      color: p.color || '',
+      btnStyle: p.btnStyle || 'Primary',
+      btnLabel: p.btnLabel || '',
+      showLogo: p.showLogo !== false,
+      noText: !!p.noText,
+      translate: p.translate !== false,
+    };
+    delete S.uploads.p_image;
+    delete S.uploads.p_thumb;
+    S.tab = 'panels';
+    render();
+  } catch (e) { toast(e.message, false); }
+}
+function panelNew() {
+  S.panelEdit = null;
+  S.panelDraft = null;
+  delete S.uploads.p_image;
+  delete S.uploads.p_thumb;
+  render();
 }
 async function panelSend() {
   const t = TC();
@@ -864,6 +905,26 @@ async function panelSend() {
   const imgV = imgValue('p_image');
   const thumbV = imgValue('p_thumb');
   if (noText && !imgV.url && !imgV.data) return toast('Pour un panel sans texte, ajoute une image (lien ou fichier).', false);
+
+  // Mise à jour directe d'un panel déjà envoyé : pas de nouveau message.
+  if (S.panelEdit) {
+    try {
+      await api('/api/panel-update', {
+        guildId: S.gid, config: t.name, messageId: S.panelEdit,
+        fields: {
+          title: $('#p_title').value, desc: $('#p_desc').value,
+          image: imgV.data || imgV.url, thumb: thumbV.data || thumbV.url,
+          footer: $('#p_footer').value, color: $('#p_color').value,
+          btnLabel: $('#p_btn').value, btnStyle: $('#p_style').value,
+          showLogo: $('#p_logo').checked, noText, translate: $('#p_translate').checked,
+        },
+      });
+      toast('Panel mis à jour ✅');
+      await afterChange();
+    } catch (e) { toast(e.message, false); }
+    return;
+  }
+
   const options = {
     config: t.name, salon: ch, titre: $('#p_title').value, description: $('#p_desc').value,
     couleur: $('#p_color').value, 'image-url': imgV.url,
@@ -885,8 +946,11 @@ async function panelSend() {
 async function panelDelete(messageId) {
   const t = TC();
   if (!confirm('Supprimer ce panel ? Le message sera aussi supprimé du salon.')) return;
-  try { await api('/api/panel-delete', { guildId: S.gid, config: t.name, messageId, removeMessage: true }); await afterChange('Panel supprimé'); }
-  catch (e) { toast(e.message, false); }
+  try {
+    await api('/api/panel-delete', { guildId: S.gid, config: t.name, messageId, removeMessage: true });
+    if (S.panelEdit === messageId) { S.panelEdit = null; S.panelDraft = null; }
+    await afterChange('Panel supprimé');
+  } catch (e) { toast(e.message, false); }
 }
 
 /* ---------- Message d'ouverture ---------- */
@@ -1140,6 +1204,8 @@ async function salesReset() {
 /* ================================================================== */
 function shopState(kind) {
   if (!S.shop[kind]) S.shop[kind] = {
+    id: null, channelId: '', title: '', text: '', footer: '', color: '', logo: true,
+    image: '', thumb: '',
     links: [{ label: '', url: '', emoji: '' }],
     rows: [{ variant: '', price: '', stock: '' }],
   };
@@ -1153,31 +1219,13 @@ function shopLinkRow(kind, l, i) {
     <button type="button" class="mini" onclick="shopLinkDel('${kind}',${i})" title="Retirer">✕</button>
   </div>`;
 }
-function shopLinksRead(kind) {
-  return $$(`#shop_links_${kind} .shop-link`).map((row) => ({
-    label: row.querySelector('.sl-label').value.trim(),
-    url: row.querySelector('.sl-url').value.trim(),
-    emoji: row.querySelector('.sl-emoji').value.trim(),
-  })).filter((l) => l.url);
-}
-function shopLinksSync(kind) {
-  const box = document.getElementById('shop_links_' + kind);
-  if (!box) return;
-  const rows = $$(`#shop_links_${kind} .shop-link`);
-  if (!rows.length) return;
-  shopState(kind).links = rows.map((row) => ({
-    label: row.querySelector('.sl-label').value,
-    url: row.querySelector('.sl-url').value,
-    emoji: row.querySelector('.sl-emoji').value,
-  }));
-}
 function renderShopLinks(kind) {
   const box = document.getElementById('shop_links_' + kind);
   if (box) box.innerHTML = shopState(kind).links.map((l, i) => shopLinkRow(kind, l, i)).join('');
 }
-function shopLinkAdd(kind) { shopLinksSync(kind); shopState(kind).links.push({ label: '', url: '', emoji: '' }); renderShopLinks(kind); }
+function shopLinkAdd(kind) { shopSync(kind); shopState(kind).links.push({ label: '', url: '', emoji: '' }); renderShopLinks(kind); }
 function shopLinkDel(kind, i) {
-  shopLinksSync(kind);
+  shopSync(kind);
   shopState(kind).links.splice(i, 1);
   if (!shopState(kind).links.length) shopState(kind).links.push({ label: '', url: '', emoji: '' });
   renderShopLinks(kind);
@@ -1190,90 +1238,178 @@ function shopStockRow(kind, r, i) {
     <button type="button" class="mini" onclick="shopRowDel('${kind}',${i})" title="Retirer">✕</button>
   </div>`;
 }
-function shopRowsRead(kind) {
-  return $$('#shop_rows .shop-stock').map((row) => ({
-    variant: row.querySelector('.sr-variant').value.trim(),
-    price: row.querySelector('.sr-price').value.trim(),
-    stock: row.querySelector('.sr-stock').value.trim(),
-  })).filter((r) => r.variant);
-}
-function shopRowsSync(kind) {
-  const rows = $$('#shop_rows .shop-stock');
-  if (!rows.length) return;
-  shopState(kind).rows = rows.map((row) => ({
-    variant: row.querySelector('.sr-variant').value,
-    price: row.querySelector('.sr-price').value,
-    stock: row.querySelector('.sr-stock').value,
-  }));
-}
 function renderShopRows(kind) {
   const box = document.getElementById('shop_rows');
   if (box) box.innerHTML = shopState(kind).rows.map((r, i) => shopStockRow(kind, r, i)).join('');
 }
-function shopRowAdd(kind) { shopRowsSync(kind); shopState(kind).rows.push({ variant: '', price: '', stock: '' }); renderShopRows(kind); }
+function shopRowAdd(kind) { shopSync(kind); shopState(kind).rows.push({ variant: '', price: '', stock: '' }); renderShopRows(kind); }
 function shopRowDel(kind, i) {
-  shopRowsSync(kind);
+  shopSync(kind);
   shopState(kind).rows.splice(i, 1);
   if (!shopState(kind).rows.length) shopState(kind).rows.push({ variant: '', price: '', stock: '' });
   renderShopRows(kind);
 }
+
+// Lit le formulaire et met à jour le brouillon (le formulaire garde ses valeurs d'une page à l'autre).
+function shopSync(kind) {
+  const st = shopState(kind);
+  const val = (id) => { const el = document.getElementById(id); return el ? el.value : null; };
+  const ch = val('shop_channel'); if (ch !== null) st.channelId = ch;
+  const title = val('shop_title'); if (title !== null) st.title = title;
+  const text = val('shop_text'); if (text !== null) st.text = text;
+  const footer = val('shop_footer'); if (footer !== null) st.footer = footer;
+  const color = val('shop_color'); if (color !== null) st.color = color;
+  const logo = document.getElementById('shop_logo'); if (logo) st.logo = logo.checked;
+  const rows = $$('#shop_rows .shop-stock');
+  if (rows.length) st.rows = rows.map((row) => ({
+    variant: row.querySelector('.sr-variant').value,
+    price: row.querySelector('.sr-price').value,
+    stock: row.querySelector('.sr-stock').value,
+  }));
+  const links = $$(`#shop_links_${kind} .shop-link`);
+  if (links.length) st.links = links.map((row) => ({
+    label: row.querySelector('.sl-label').value,
+    url: row.querySelector('.sl-url').value,
+    emoji: row.querySelector('.sl-emoji').value,
+  }));
+  const img = imgValue('shop_img_' + kind);
+  st.image = img.data || img.url;
+  return st;
+}
+function shopParams(kind) {
+  const st = shopSync(kind);
+  return {
+    title: st.title,
+    text: kind === 'product' ? st.text : '',
+    lines: kind === 'restock' ? st.rows.map((r) => [r.variant, r.price, r.stock].join(' | ')).join('\n') : '',
+    rows: kind === 'restock' ? st.rows : [],
+    links: st.links.map((l) => [l.label, l.url, l.emoji].filter((x) => String(x || '').trim()).join(' | ')).join('\n'),
+    image: st.image, thumb: st.thumb, footer: st.footer, color: st.color, logo: st.logo,
+  };
+}
+function shopPosts(kind) {
+  const posts = (S.g.shopPosts || []).filter((p) => p.kind === kind);
+  if (!posts.length) return '<div class="empty">Aucun message envoyé pour le moment.</div>';
+  return posts.map((p) => {
+    const pr = p.params || {};
+    const first = kind === 'product' ? String(pr.text || '').split('\n')[0] : String(pr.lines || '').split('\n')[0];
+    const title = (pr.title || first || '(sans titre)').slice(0, 90);
+    return `<div class="item"><div class="grow"><b>${esc(title)}</b>
+      <small>${chName(p.channelId)} · ${fmtDate(p.at)} · message ${p.messageId}${pr.logo === false ? ' · sans logo' : ''}</small></div>
+      <div class="row">
+        <button class="mini" onclick="shopLoad('${kind}','${p.id}')">✏️ Modifier</button>
+        <button class="mini" onclick="shopResend('${kind}','${p.id}')">📤 Renvoyer</button>
+        <button class="mini" onclick="shopDeletePost('${kind}','${p.id}')">🗑️</button>
+      </div></div>`;
+  }).join('');
+}
+async function shopLoad(kind, id) {
+  try {
+    const post = await api('/api/shop-get?guildId=' + encodeURIComponent(S.gid) + '&id=' + encodeURIComponent(id));
+    const pr = post.params || {};
+    const rows = (Array.isArray(pr.rows) && pr.rows.length) ? pr.rows
+      : String(pr.lines || '').split('\n').filter((l) => l.trim()).map((line) => {
+        const [variant = '', price = '', stock = ''] = line.split('|').map((x) => x.trim());
+        return { variant, price, stock };
+      });
+    const links = String(pr.links || '').split('\n').filter((l) => l.trim()).map((line) => {
+      const [label = '', url = '', emoji = ''] = line.split('|').map((x) => x.trim());
+      return { label, url, emoji };
+    });
+    S.shop[kind] = {
+      id: post.id, channelId: post.channelId, title: pr.title || '',
+      text: pr.text || '', footer: pr.footer || '', color: pr.color || '', logo: pr.logo !== false,
+      image: pr.image || '', thumb: pr.thumb || '',
+      links: links.length ? links : [{ label: '', url: '', emoji: '' }],
+      rows: rows.length ? rows : [{ variant: '', price: '', stock: '' }],
+    };
+    delete S.uploads['shop_img_' + kind];
+    render();
+    toast('Paramètres chargés : modifie ce que tu veux puis clique sur « Mettre à jour ».');
+  } catch (e) { toast(e.message, false); }
+}
+function shopNew(kind) {
+  S.shop[kind] = null;
+  delete S.uploads['shop_img_' + kind];
+  render();
+}
+async function shopSend(kind) {
+  const st = shopSync(kind);
+  if (!st.channelId) return toast('Choisis un salon.', false);
+  const params = shopParams(kind);
+  if (kind === 'product' && !String(params.text).trim()) return toast('Ajoute une description.', false);
+  if (kind === 'restock' && !String(params.lines).trim()) return toast('Ajoute au moins une variante.', false);
+  const action = st.id ? 'edit' : 'new';
+  try {
+    await api('/api/shop', { guildId: S.gid, action, id: st.id || undefined, kind, channelId: st.channelId, params });
+    toast(action === 'edit' ? 'Message mis à jour ✅' : 'Message envoyé ✅');
+    await afterChange();
+  } catch (e) { toast(e.message, false); }
+}
+async function shopResend(kind, id, useForm) {
+  const post = (S.g.shopPosts || []).find((p) => p.id === id);
+  if (!post) return toast('Message introuvable.', false);
+  const body = { guildId: S.gid, action: 'resend', id, kind };
+  if (useForm) {
+    body.params = shopParams(kind);
+    body.channelId = shopState(kind).channelId || undefined;
+  }
+  try {
+    await api('/api/shop', body);
+    toast('Message renvoyé ✅');
+    await afterChange();
+  } catch (e) { toast(e.message, false); }
+}
+async function shopDeletePost(kind, id) {
+  if (!confirm('Supprimer ce message de Discord ?')) return;
+  try {
+    await api('/api/shop', { guildId: S.gid, action: 'delete', id, kind });
+    if (shopState(kind).id === id) shopNew(kind);
+    toast('Message supprimé');
+    await afterChange();
+  } catch (e) { toast(e.message, false); }
+}
 function pageShop(kind) {
   const isP = kind === 'product';
   const st = shopState(kind);
+  const editing = !!st.id;
+  const imgId = 'shop_img_' + kind;
+  const count = (S.g.shopPosts || []).filter((p) => p.kind === kind).length;
   return head(isP ? 'Produits' : 'Restock',
-    isP ? 'Annonce produit : texte libre, image, logo et autant de boutons-liens que tu veux.'
-      : 'Panel restock : variantes, prix, stock, image, logo et boutons-liens.') +
-    `<section class="card"><h2>${isP ? 'Nouvelle annonce produit' : 'Nouveau restock'}</h2>
+    isP ? 'Annonce produit : texte libre, image, logo et autant de boutons-liens que tu veux. Modifie ou renvoie un message déjà envoyé sans tout refaire.'
+      : 'Panel restock : variantes, prix, stock, image, logo et boutons-liens. Modifie ou renvoie un message déjà envoyé sans tout refaire.') +
+    `<section class="card"><h2>Messages déjà envoyés (${count})</h2>
+      <div class="list">${shopPosts(kind)}</div>
+    </section>
+    <section class="card"><h2>${editing ? 'Modifier le message sélectionné' : (isP ? 'Nouvelle annonce produit' : 'Nouveau restock')}</h2>
+      ${editing ? '<div class="alert info">Tu modifies un message déjà envoyé : <b>Mettre à jour le message</b> applique les changements sur Discord, <b>Renvoyer comme nouveau</b> crée une copie.</div>' : ''}
       <div class="grid2">
-        <label class="field"><span>Salon <b class="req">*</b></span><select id="shop_channel">${channelOptions('', [0, 5])}</select></label>
-        <label class="field"><span>Couleur</span><div class="row" style="gap:8px"><input id="shop_color" maxlength="7" placeholder="${esc(S.g.panelColor)}" style="flex:1"><input type="color" id="shop_picker" value="${colorOf(S.g.panelColor)}" oninput="$('#shop_color').value=this.value" style="max-width:58px"></div></label>
+        <label class="field"><span>Salon <b class="req">*</b></span><select id="shop_channel">${channelOptions(st.channelId, [0, 5])}</select></label>
+        <label class="field"><span>Couleur</span><div class="row" style="gap:8px"><input id="shop_color" maxlength="7" value="${esc(st.color)}" placeholder="${esc(S.g.panelColor)}" style="flex:1"><input type="color" id="shop_picker" value="${colorOf(st.color || S.g.panelColor)}" oninput="$('#shop_color').value=this.value" style="max-width:58px"></div></label>
       </div>
-      <label class="field"><span>Titre</span><input id="shop_title" maxlength="256" placeholder="${isP ? '🎯 NEW PRODUCT: …' : 'Buy Now'}"></label>
+      <label class="field"><span>Titre</span><input id="shop_title" maxlength="256" value="${esc(st.title)}" placeholder="${isP ? '🎯 NEW PRODUCT: …' : 'Buy Now'}"></label>
       ${isP
-        ? `<label class="field"><span>Description</span><small>Markdown accepté : titres, listes, **gras**, @Pseudo, @Rôle, #salon.</small><textarea id="shop_text" style="min-height:220px" maxlength="4000"></textarea></label>`
+        ? `<label class="field"><span>Description</span><small>Markdown accepté : titres, listes, **gras**, @Pseudo, @Rôle, #salon.</small><textarea id="shop_text" style="min-height:220px" maxlength="4000">${esc(st.text)}</textarea></label>`
         : `<h3>Variantes (8 maximum)</h3><div id="shop_rows">${st.rows.map((r, i) => shopStockRow(kind, r, i)).join('')}</div><button type="button" class="mini" onclick="shopRowAdd('${kind}')">+ Ajouter une variante</button>`}
       <h3>Boutons-liens (25 maximum)</h3>
       <div id="shop_links_${kind}">${st.links.map((l, i) => shopLinkRow(kind, l, i)).join('')}</div>
       <button type="button" class="mini" onclick="shopLinkAdd('${kind}')">+ Ajouter un lien</button>
       <div class="grid2" style="margin-top:14px">
-        ${imgField('shop_image', '', 'Image (lien ou fichier)', 'Grande image affichée sous le texte.')}
-        <label class="field"><span>Pied de page</span><input id="shop_footer" maxlength="2048"></label>
+        ${imgField(imgId, st.image, 'Image (lien ou fichier)', 'Grande image affichée sous le texte.')}
+        <label class="field"><span>Pied de page</span><input id="shop_footer" maxlength="2048" value="${esc(st.footer)}"></label>
       </div>
-      <label class="check"><input type="checkbox" id="shop_logo" checked> Afficher le logo du serveur (page Apparence)</label>
-      <div class="row" style="margin-top:14px"><button class="btn" onclick="shopSend('${kind}')">Envoyer dans Discord</button></div>
+      <label class="check"><input type="checkbox" id="shop_logo" ${st.logo ? 'checked' : ''}> Afficher le logo du serveur (page Apparence)</label>
+      <div class="row" style="margin-top:14px">
+        <button class="btn" onclick="shopSend('${kind}')">${editing ? 'Mettre à jour le message' : 'Envoyer dans Discord'}</button>
+        ${editing
+          ? `<button class="btn ghost" onclick="shopResend('${kind}','${st.id}',true)">Renvoyer comme nouveau</button>
+             <button class="btn ghost" onclick="shopNew('${kind}')">Annuler</button>`
+          : `<button class="btn ghost" onclick="shopNew('${kind}')">Réinitialiser</button>`}
+      </div>
       <div class="alert info" style="margin-top:14px">${isP
         ? 'Chaque bouton : <b>Texte | https://lien | emoji</b> (emoji optionnel).'
         : 'Chaque variante : <b>Variante | Prix | Stock</b>. Les boutons-liens s’ajoutent en dessous.'}</div>
     </section>`;
-}
-async function shopSend(kind) {
-  const isP = kind === 'product';
-  const ch = $('#shop_channel').value;
-  if (!ch) return toast('Choisis un salon.', false);
-  const links = shopLinksRead(kind);
-  const img = imgValue('shop_image');
-  const options = { salon: ch, couleur: $('#shop_color').value.trim(), logo: $('#shop_logo').checked };
-  if (img.data) options.image = { url: img.data, name: uploadName(img.data) };
-  const modal = {
-    titre: $('#shop_title').value,
-    liens: links.map((l) => [l.label, l.url, l.emoji].filter((x) => x && String(x).trim()).join(' | ')).join('\n'),
-    image_url: img.url,
-    footer: $('#shop_footer').value,
-  };
-  if (isP) {
-    modal.texte = $('#shop_text').value;
-    if (!modal.texte.trim()) return toast('Ajoute une description.', false);
-  } else {
-    modal.lignes = shopRowsRead(kind).map((r) => [r.variant, r.price, r.stock].join(' | ')).join('\n');
-    if (!modal.lignes.trim()) return toast('Ajoute au moins une variante.', false);
-  }
-  try {
-    const r = await api('/api/run', { guildId: S.gid, command: kind, sub: 'creer', options, modal });
-    const t = r.replies?.[0]?.content || 'Message envoyé ✅';
-    toast(t.replace(/[*`]/g, '').slice(0, 220), !t.startsWith('❌'));
-    if (!t.startsWith('❌')) delete S.uploads.shop_image;
-    await afterChange();
-  } catch (e) { toast(e.message, false); }
 }
 
 /* ================================================================== */
