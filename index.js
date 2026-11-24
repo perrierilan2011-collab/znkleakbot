@@ -7,6 +7,8 @@ const {
   Client, GatewayIntentBits, Partials, Events, PermissionFlagsBits, ChannelType, SlashCommandBuilder,
   EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder,
   ModalBuilder, TextInputBuilder, TextInputStyle, AttachmentBuilder, MessageFlags,
+  ContainerBuilder, SectionBuilder, TextDisplayBuilder, SeparatorBuilder,
+  MediaGalleryBuilder, MediaGalleryItemBuilder, ThumbnailBuilder,
 } = require('discord.js');
 
 const client = new Client({
@@ -173,6 +175,8 @@ function getG(id) {
 /* ------------------------------------------------------------------ */
 const EPH = MessageFlags.Ephemeral;
 const isUrl = (u) => /^https?:\/\/\S+$/i.test((u || '').trim());
+// Image d'un panel : lien http(s) ou fichier déjà joint au message (attachment://...).
+const isMedia = (u) => isUrl(u) || /^attachment:\/\/\S+$/i.test(String(u || '').trim());
 
 // Convertit un emoji écrit par l'utilisateur en objet accepté par Discord.
 // Accepte : 🎮  |  <:nitro:123456789012345678>  |  <a:anim:123456789012345678>  |  un ID seul
@@ -1267,8 +1271,12 @@ const commands = [
         .addBooleanOption((o) =>
           o.setName('traduction').setDescription('Automatic translation (any language → French + English) in tickets opened from this panel'))
         .addStringOption((o) =>
-          o.setName('type').setDescription("Button or drop-down menu (menu only if there are categories, ignored in DM mode)")
-            .addChoices({ name: 'Button', value: 'bouton' }, { name: 'Drop-down menu', value: 'menu' }))
+          o.setName('type').setDescription("Button, multiple buttons or drop-down menu (menu only if there are categories, ignored in DM mode)")
+            .addChoices(
+              { name: 'Button', value: 'bouton' },
+              { name: 'Multiple buttons (one per category)', value: 'boutons' },
+              { name: 'Drop-down menu', value: 'menu' },
+            ))
         .addStringOption((o) => o.setName('bouton-texte').setDescription('Button text (default: Open ticket)').setMaxLength(80))
         .addStringOption((o) =>
           o.setName('couleur-bouton').setDescription('Button color (default: blue)').addChoices(...BTN_COLORS)))
@@ -1472,6 +1480,118 @@ function panelRows(cfg, { button = false, label = null, style = 'Primary' } = {}
       }))));
 }
 
+// Panels « plusieurs boutons » : un bouton par catégorie, chacun ouvrant son propre sous-panel.
+const HAS_V2 = !!(ContainerBuilder && SectionBuilder && TextDisplayBuilder && SeparatorBuilder &&
+  MediaGalleryBuilder && MediaGalleryItemBuilder && ThumbnailBuilder && MessageFlags?.IsComponentsV2);
+
+// Nombre de sections affichables sans dépasser 40 composants (limite Discord en V2).
+function multiLimit(p, imageUrl, thumb, desc) {
+  if (!HAS_V2 || p.v2 === false) return 25;
+  let used = 2; // container + séparateur final
+  if (imageUrl) used += 2; // galerie + image
+  if (!p.noText) {
+    used += 1; // section du titre
+    used += thumb ? 2 : 1; // texte du titre + miniature
+    if (desc) used += 1;
+  }
+  if (p.footer) used += 1;
+  return Math.max(1, Math.min(25, Math.floor((40 - used) / 4)));
+}
+
+function reasonSectionText(r) {
+  if (r.panelText && String(r.panelText).trim()) return String(r.panelText).trim().slice(0, 250);
+  return `**${String(r.label || '').slice(0, 100)}**${r.description ? `\n${String(r.description).slice(0, 150)}` : ''}`;
+}
+
+function reasonButton(cfg, r, style) {
+  const b = new ButtonBuilder()
+    .setCustomId(`tk_open:${cfg.name}:${r.id}`)
+    .setLabel(String(r.label || 'Open').slice(0, 80))
+    .setStyle(btnStyle(style));
+  const e = parseEmoji(r.emoji);
+  if (e) b.setEmoji(e);
+  return b;
+}
+
+// Construit le panel multi-boutons. Avec discord.js récent : container V2 (bouton à droite de chaque texte).
+// Sinon : embed classique + boutons sous le texte.
+function buildMultiPanel(guild, cfg, p, { image = null, files = null } = {}) {
+  const d = getG(guild.id);
+  const color = parseColor(cfg.color || d.panelColor, '#ED4245');
+  const title = (p.title || `🎫 Support — ${cfg.name}`).slice(0, 256);
+  const desc = (p.customDesc ? (p.desc || '') : '').slice(0, 1500);
+  const imageUrl = isMedia(image) ? image.trim() : (isMedia(p.image) ? p.image.trim() : null);
+  const thumb = p.thumb ?? (isUrl(cfg.logo) ? cfg.logo.trim() : (isUrl(d.panelLogo) ? d.panelLogo.trim() : null));
+  const reasons = (cfg.reasons || []).slice(0, multiLimit(p, imageUrl, thumb, desc));
+
+  if (HAS_V2 && p.v2 !== false) {
+    const container = new ContainerBuilder().setAccentColor(parseInt(color.slice(1), 16) || 0x5865F2);
+    if (imageUrl) {
+      container.addMediaGalleryComponents(
+        new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(imageUrl)),
+      );
+    }
+    if (!p.noText) {
+      const titleText = new TextDisplayBuilder().setContent(`## ${title}`);
+      if (thumb) {
+        container.addSectionComponents(
+          new SectionBuilder().addTextDisplayComponents(titleText).setThumbnailAccessory(new ThumbnailBuilder().setURL(thumb)),
+        );
+      } else {
+        container.addTextDisplayComponents(titleText);
+      }
+      if (desc) container.addTextDisplayComponents(new TextDisplayBuilder().setContent(desc));
+    }
+    for (const r of reasons) {
+      container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
+      container.addSectionComponents(
+        new SectionBuilder()
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(reasonSectionText(r)))
+          .setButtonAccessory(reasonButton(cfg, r, p.btnStyle)),
+      );
+    }
+    if (p.footer) container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# ${String(p.footer).slice(0, 2000)}`));
+    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
+    const payload = { components: [container], flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: [] } };
+    if (files && files.length) payload.files = files;
+    return payload;
+  }
+
+  // Repli (ancienne version de discord.js) : embed classique + boutons sous le texte.
+  const embed = new EmbedBuilder().setColor(color).setTimestamp();
+  if (!p.noText) embed.setTitle(title).setDescription(desc || null);
+  if (imageUrl) embed.setImage(imageUrl);
+  if (thumb) embed.setThumbnail(thumb);
+  if (p.footer) embed.setFooter({ text: String(p.footer).slice(0, 2048) });
+  for (const r of reasons) {
+    embed.addFields({
+      name: String(r.label).slice(0, 256),
+      value: String(r.panelText || r.description || 'Click the button below.').slice(0, 1024),
+      inline: false,
+    });
+  }
+  const rows = chunkList(reasons, 5).slice(0, 5).map((part) =>
+    new ActionRowBuilder().addComponents(part.map((r) => reasonButton(cfg, r, p.btnStyle))));
+  const payload = { embeds: [embed], components: rows, allowedMentions: { parse: [] } };
+  if (files && files.length) payload.files = files;
+  return payload;
+}
+
+function multiPanelSig(guild, cfg, p) {
+  const d = getG(guild.id);
+  const desc = (p.customDesc ? (p.desc || '') : '').slice(0, 1500);
+  const imageUrl = isMedia(p.image) ? p.image.trim() : null;
+  const thumb = p.thumb ?? (isUrl(cfg.logo) ? cfg.logo.trim() : (isUrl(d.panelLogo) ? d.panelLogo.trim() : null));
+  return sig({
+    v2: p.v2 !== false && HAS_V2,
+    color: parseColor(cfg.color || d.panelColor, '#ED4245'),
+    title: p.title || '', desc,
+    image: p.image || null, thumb: p.thumb || null, style: p.btnStyle || 'Primary',
+    noText: !!p.noText, footer: p.footer || null,
+    reasons: (cfg.reasons || []).slice(0, multiLimit(p, imageUrl, thumb, desc)).map((r) => [r.id, r.label, r.description || '', r.panelText || '', r.emoji || '']),
+  });
+}
+
 // Met à jour tous les panels déjà envoyés (catégories ajoutées / modifiées / retirées, nouveau code du bot...)
 async function refreshPanels(guild, cfgName) {
   const d = getG(guild.id);
@@ -1483,6 +1603,25 @@ async function refreshPanels(guild, cfgName) {
       const { msg, gone } = await fetchMsg(guild, p.channelId, p.messageId);
       if (gone) { cfg.panels = cfg.panels.filter((x) => x !== p); save(); continue; }
       if (!msg) continue;
+
+      // Panel multi-boutons : on reconstruit tout le message (texte + un bouton par catégorie).
+      if (p.multi) {
+        const s = multiPanelSig(guild, cfg, p);
+        if (p.sig === s) continue;
+        try {
+          const payload = buildMultiPanel(guild, cfg, p);
+          // Bannière / miniature envoyées en fichier : on réutilise les pièces jointes du message
+          // pour que les références attachment://... restent valides après la modification.
+          const usesFiles = [p.image, p.thumb].some((u) => String(u || '').startsWith('attachment://'));
+          if (usesFiles && msg.attachments.size) payload.files = [...msg.attachments.values()];
+          await msg.edit(payload);
+          p.sig = s;
+          save();
+        } catch (e) {
+          console.error('[panel]', e.message);
+        }
+        continue;
+      }
 
       const rows = panelRows(cfg, { button: p.button, label: p.btnLabel, style: p.btnStyle });
       const desc = p.customDesc ? null : panelDesc(cfg, p.button);
@@ -1554,14 +1693,17 @@ async function buildOpenMessage(guild, user, cfg, panel, reason, staffRoles, sub
 
   const rc = m.content ? await rich(guild, vars(m.content)) : null;
   const rd = m.description ? await rich(guild, vars(m.description)) : null;
-  const showInfo = typeof m.showInfo === 'boolean' ? m.showInfo : !rd; // champs Configuration / Catégorie / Sous-panel
+  const hasFields = Array.isArray(m.fields) && m.fields.some((f) => f && (f.name || f.value));
+  // Les champs personnalisés remplacent le texte d'intro par défaut (les 2 lignes « Hello… / Explain… »).
+  const defaultDesc = `Hello <@${user.id}>, a member of the staff will respond to you soon.\n` +
+    `Explain your request to us in as much detail as possible.`;
+  const descText = rd ? rd.text : (m.noDefaultDesc || hasFields ? '' : defaultDesc);
+  const showInfo = typeof m.showInfo === 'boolean' ? m.showInfo : (!rd && !hasFields); // champs Configuration / Catégorie / Sous-panel
 
   const embed = new EmbedBuilder()
     .setColor(parseColor(m.color, cfg.color || getG(guild.id).panelColor || '#5865F2'))
     .setTitle((m.title ? vars(m.title) : `🎫 Ticket — ${[reason?.label, ...subs.map((c) => c.label)].filter(Boolean).join(' › ') || cfg.name}`).slice(0, 256))
-    .setDescription((rd ? rd.text : (
-      `Hello <@${user.id}>, a member of the staff will respond to you soon.\n` +
-      `Explain your request to us in as much detail as possible.`)).slice(0, 4096));
+    .setDescription(descText ? descText.slice(0, 4096) : null);
   if (m.timestamp !== false) embed.setTimestamp();
   if (m.footer) embed.setFooter({ text: vars(m.footer).slice(0, 2048) });
   if (showInfo) {
@@ -1579,7 +1721,8 @@ async function buildOpenMessage(guild, user, cfg, panel, reason, staffRoles, sub
   }
   for (const f of (Array.isArray(m.fields) ? m.fields : []).slice(0, 10)) { // champs personnalisés
     const name = vars(f?.name).slice(0, 256), value = vars(f?.value).slice(0, 1024);
-    if (name && value) embed.addFields({ name, value, inline: !!f.inline });
+    // Toujours l'un sous l'autre : le nom au-dessus, la valeur en dessous.
+    if (name && value) embed.addFields({ name, value, inline: false });
   }
   if (isUrl(m.image)) embed.setImage(m.image.trim());
   if (isUrl(m.thumbnail)) embed.setThumbnail(m.thumbnail.trim());
@@ -4668,7 +4811,7 @@ const handlers = {
         image: image && isUrl(image) ? image : null,
         color: color ? parseColor(color) : null,
       };
-      const EXTRA = ['claimLabel', 'closeLabel', 'claimEmoji', 'closeEmoji', 'footer', 'thumbnail', 'fields', 'showInfo', 'timestamp', 'infoLabels'];
+      const EXTRA = ['claimLabel', 'closeLabel', 'claimEmoji', 'closeEmoji', 'footer', 'thumbnail', 'fields', 'showInfo', 'timestamp', 'infoLabels', 'noDefaultDesc'];
       const empty = Object.values(data).every((v) => !v) && !EXTRA.some((k) => cur[k] !== undefined && cur[k] !== null && cur[k] !== '');
       for (const k of EXTRA) if (cur[k] !== undefined && cur[k] !== null) data[k] = cur[k]; // on garde boutons, pied de page, champs... réglés depuis le panel web
       if (panel) panel.openMsg = empty ? undefined : data;
@@ -4735,12 +4878,29 @@ const handlers = {
       const customDesc = i.options.getString('description');
       const noText = i.options.getBoolean('sans-texte') ?? false;
       const panelTranslate = i.options.getBoolean('traduction') ?? !!cfg.translate;
-      const asButton = i.options.getString('type') === 'bouton';
+      const type = i.options.getString('type') || 'bouton';
+      const asButton = type === 'bouton';
+      const multi = type === 'boutons';
       const btnLabel = (i.options.getString('bouton-texte') || '').trim().slice(0, 80) || null;
       const style = i.options.getString('couleur-bouton') || 'Primary';
 
       if (noText && !img && !isUrl(imgUrl)) {
         return i.reply({ content: '❌ For a panel without text, add an image (file or link).', flags: EPH });
+      }
+      if (multi && !cfg.reasons.length) {
+        return i.reply({ content: '❌ Add at least one category before sending a multi-button panel.', flags: EPH });
+      }
+      if (multi) {
+        // Limite réelle du message V2 (40 composants) : dépend de la bannière, du logo, du texte et du pied de page.
+        const limit = multiLimit(
+          { v2: HAS_V2, noText, footer },
+          img || isUrl(imgUrl) ? 'x' : null,
+          thumb || isUrl(thumbUrl) || isUrl(cfg.logo) || isUrl(d.panelLogo) ? 'x' : null,
+          customDesc && String(customDesc).trim() ? 'x' : '',
+        );
+        if (cfg.reasons.length > limit) {
+          return i.reply({ content: `❌ This multi-button panel can show ${limit} categories maximum (Discord component limit with this banner/logo/text). Remove some categories or use the drop-down menu.`, flags: EPH });
+        }
       }
       await i.deferReply({ flags: EPH });
 
@@ -4748,6 +4908,49 @@ const handlers = {
 
       // @Pseudo / @Rôle / #salon dans la description -> mentions cliquables
       const richDesc = customDesc ? (await rich(i.guild, customDesc)).text : null;
+
+      if (multi) {
+        try {
+          const files = [];
+          // Référence stable (attachment://...) pour que le panel reste identique à chaque mise à jour.
+          let panelImage = isUrl(imgUrl) ? imgUrl : null;
+          if (img) {
+            const f = await toFile(img, 'panel');
+            files.push(f);
+            panelImage = `attachment://${f.name}`;
+          }
+          let panelThumb = isUrl(thumbUrl) ? thumbUrl : (isUrl(cfg.logo) ? cfg.logo.trim() : (isUrl(d.panelLogo) ? d.panelLogo.trim() : null));
+          if (thumb) {
+            const f = await toFile(thumb, 'miniature');
+            files.push(f);
+            panelThumb = `attachment://${f.name}`;
+          }
+          const panel = {
+            channelId: salon.id,
+            multi: true,
+            v2: HAS_V2,
+            customDesc: !!customDesc || noText,
+            desc: customDesc ? richDesc : null,
+            title: (i.options.getString('titre') || `🎫 Support — ${cfg.name}`).slice(0, 256),
+            noText,
+            image: panelImage,
+            footer: footer || null,
+            btnStyle: style,
+            translate: !!panelTranslate,
+            thumb: panelThumb,
+          };
+          const sent = await salon.send(buildMultiPanel(i.guild, cfg, panel, { files }));
+          panel.messageId = sent.id;
+          panel.sig = multiPanelSig(i.guild, cfg, panel);
+          cfg.panels.push(panel);
+          save();
+          return i.editReply(
+            `✅ Multi-button panel sent to <#${salon.id}>. Each button opens its category (and its sub-panel if one is linked).`);
+        } catch (e) {
+          console.error(e);
+          return i.editReply("❌ Unable to send: check my permissions in this channel, the image link and the category emojis.");
+        }
+      }
 
       const embed = new EmbedBuilder().setColor(parseColor(i.options.getString('couleur'), cfg.color || d.panelColor || '#ED4245'));
       if (!noText) {
@@ -5238,7 +5441,10 @@ client.on(Events.InteractionCreate, async (i) => {
       return await openTicket(i, i.customId.split(':')[1], i.values[0]);
     }
     if (i.isButton()) {
-      if (i.customId.startsWith('tk_open:')) return await openTicket(i, i.customId.split(':')[1], null);
+      if (i.customId.startsWith('tk_open:')) {
+        const [, cfgName, reasonId] = i.customId.split(':');
+        return await openTicket(i, cfgName, reasonId || null);
+      }
       if (i.customId === 'tk_close') return await closeTicket(i);
       if (i.customId === 'tk_claim') return await claimTicket(i);
       if (i.customId.startsWith('vouch:star:')) return await vouchModal(i, i.customId.split(':')[2]);

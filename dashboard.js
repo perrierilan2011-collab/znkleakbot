@@ -151,6 +151,7 @@ module.exports = function startDashboard(ctx) {
       claimLabel: txt(m.claimLabel, 80), closeLabel: txt(m.closeLabel, 80), claimEmoji: txt(m.claimEmoji, 64), closeEmoji: txt(m.closeEmoji, 64),
       showInfo: typeof m.showInfo === 'boolean' ? m.showInfo : undefined,
       timestamp: m.timestamp === false ? false : undefined,
+      noDefaultDesc: m.noDefaultDesc === true ? true : undefined,
       infoLabels: Object.keys(infoLabels).length ? infoLabels : undefined,
       fields: (Array.isArray(m.fields) ? m.fields : []).slice(0, 10)
         .map((f) => ({ name: txt(f?.name, 256), value: txt(f?.value, 1024), inline: !!f?.inline })).filter((f) => f.name && f.value),
@@ -226,8 +227,8 @@ module.exports = function startDashboard(ctx) {
           dm: !!t.dm, openMsg: t.openMsg || null, openMsgId: t.openMsgId || null,
           color: t.color || null, placeholder: t.placeholder || null, logo: t.logo || null, translate: !!t.translate,
           openPresets: (t.openPresets || []).map((p) => ({ id: p.id, name: p.name, openMsg: p.openMsg || null })),
-          panels: (t.panels || []).map((p) => ({ channelId: p.channelId, messageId: p.messageId, button: !!p.button, btnLabel: p.btnLabel || null, btnStyle: p.btnStyle || null, openMsg: p.openMsg || null, openMsgId: p.openMsgId || null, translate: !!p.translate, thumb: p.thumb || null })),
-          reasons: (t.reasons || []).map((r) => ({ id: r.id, label: r.label, emoji: r.emoji, description: r.description, categoryId: r.categoryId, staffRoleId: r.staffRoleId, openMsg: r.openMsg || null, openMsgId: r.openMsgId || null })),
+          panels: (t.panels || []).map((p) => ({ channelId: p.channelId, messageId: p.messageId, button: !!p.button, multi: !!p.multi, btnLabel: p.btnLabel || null, btnStyle: p.btnStyle || null, openMsg: p.openMsg || null, openMsgId: p.openMsgId || null, translate: !!p.translate, thumb: p.thumb || null })),
+          reasons: (t.reasons || []).map((r) => ({ id: r.id, label: r.label, emoji: r.emoji, description: r.description, panelText: r.panelText || '', categoryId: r.categoryId, staffRoleId: r.staffRoleId, openMsg: r.openMsg || null, openMsgId: r.openMsgId || null })),
           dmChoices: (t.dmChoices || []).map((r) => ({ id: r.id, label: r.label, emoji: r.emoji, openMsg: r.openMsg || null, openMsgId: r.openMsgId || null })),
           subPanels: t.subPanels || [], subLinks: t.subLinks || {}, defaultSub: t.defaultSubPanelId || null,
         })),
@@ -373,6 +374,7 @@ module.exports = function startDashboard(ctx) {
         cfg.reasons.push({
           id: crypto.randomUUID().slice(0, 8), label,
           description: txt(b.description, 100) || '',
+          panelText: txt(b.panelText, 1000) || '',
           emoji: txt(b.emoji, 64) || null,
           staffRoleId: b.staffRoleId && b.staffRoleId !== guild.id && guild.roles.cache.has(b.staffRoleId) ? b.staffRoleId : null,
           categoryId: b.categoryId && guild.channels.cache.get(b.categoryId)?.type === 4 ? b.categoryId : null,
@@ -391,6 +393,7 @@ module.exports = function startDashboard(ctx) {
             r.label = label;
           }
           if ('description' in b) r.description = txt(b.description, 100) || '';
+          if ('panelText' in b) r.panelText = txt(b.panelText, 1000) || '';
           if ('emoji' in b) r.emoji = txt(b.emoji, 64) || null;
           if ('categoryId' in b) r.categoryId = b.categoryId && guild.channels.cache.get(b.categoryId)?.type === 4 ? b.categoryId : null;
           if ('staffRoleId' in b) r.staffRoleId = b.staffRoleId && b.staffRoleId !== guild.id && guild.roles.cache.has(b.staffRoleId) ? b.staffRoleId : null;

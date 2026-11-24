@@ -6,7 +6,8 @@ Bot Discord de tickets, ventes, vouchs, invitations et modération, avec un dash
 
 - **Ajouter / retirer un membre d'un ticket** : `/ticket ajouter` et `/ticket retirer` (dans le ticket).
 - **Vouch vérifié** : `/vouch` dans un ticket → note de 1 à 5 étoiles → message → publication dans un salon dédié. Le message est épuré (photo de profil, titre, note, citation) et tu peux mettre **ce que tu veux en dessous** (Service, Support, Prix…) : une ligne par information, avec des variables. Titre, pied de page et logo configurables depuis le dashboard.
-- **Champs personnalisés des tickets** : dans le message d'ouverture, ajoute autant de champs que tu veux (nom + valeur, 10 maximum) sous la description : prix, service, délai… Les variables `{prix}`, `{paiement}`, `{order}`, `{category}`… sont disponibles.
+- **Panel multi-boutons** : un panel avec une bannière, un texte et **un bouton par catégorie** (7 à 9 selon la bannière, limite Discord). Chaque bouton ouvre sa catégorie et, si un sous-panel y est relié, le premier menu du parcours (puis les sous-panels suivants). Rendu avec les composants Discord récents (bouton à droite de chaque texte) et repli automatique en embed + boutons sur les anciennes versions de discord.js.
+- **Champs personnalisés des tickets** : dans le message d'ouverture, ajoute autant de champs que tu veux (nom + valeur, 10 maximum) sous la description : prix, service, délai… Chaque champ s'affiche sur deux lignes (nom au-dessus, valeur en dessous). Les variables `{prix}`, `{paiement}`, `{order}`, `{category}`… sont disponibles. Les champs remplacent automatiquement les deux lignes de texte par défaut, et une case permet de retirer ces lignes même sans champ.
 - **Traduction automatique** : dans les tickets, chaque message reçu est traduit en français et en anglais, quelle que soit la langue d'origine. Un message français reçoit sa traduction anglaise (🇬🇧), un message anglais sa traduction française (🇫🇷), et un message dans une autre langue reçoit les deux. Les mentions, liens et emojis sont conservés. Activable par configuration ou par panel.
 - **Suivi des ventes** : à la fermeture d'un ticket, le bot demande si la vente a été réalisée. Le staff saisit le montant, l'acheteur et le produit. Un panel dédié affiche le nombre de ventes, l'argent généré, le panier moyen et les dernières ventes.
 - **Couleur globale** : une seule couleur pour tous les panels (tickets, vouchs, ventes), réglable depuis le dashboard ou `/ticket couleur`.
@@ -61,6 +62,18 @@ Permissions du bot : Gérer les salons, Gérer les rôles, Gérer les messages, 
 - `/ticket vouch-salon`, `vouch-activer`, `vouch-desactiver`
 - `/ticket traduction-activer`, `traduction-desactiver` (traduction automatique toute langue → français + anglais)
 - `/ticket ventes-salon`, `ventes-panel`, `ventes-devise`
+
+### Panels de tickets
+
+Tout se règle depuis le dashboard, onglet **Tickets** :
+
+- **Catégories** : chaque catégorie a un nom, un emoji, une description courte et un **texte de panel** (affiché à gauche du bouton dans un panel multi-boutons).
+- **Sous-panels** : un sous-panel est une liste de choix ; chaque choix peut mener à un autre sous-panel (`Suivant`) ou ouvrir le ticket. Un sous-panel peut être relié à une catégorie (ou servi par défaut).
+- **Panels** → **Type** :
+  - **Bouton** : un seul bouton « Ouvrir un ticket ».
+  - **Plusieurs boutons** : une bannière + un bouton par catégorie. Un clic sur un bouton ouvre la catégorie et enchaîne les sous-panels reliés (le ticket n'est créé qu'à la fin du parcours).
+  - **Menu déroulant** : un menu listant les catégories.
+- Les panels déjà envoyés se mettent à jour automatiquement quand tu modifies les catégories, la couleur ou le logo.
 
 ### Vouch
 
