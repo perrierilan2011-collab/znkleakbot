@@ -954,6 +954,7 @@ module.exports = function startDashboard(ctx) {
       const isReasons = b.target === 'reasons';
       const sp = isReasons ? null : cfg.subPanels?.find((x) => x.id === b.target);
       if (!isReasons && !sp) throw new Error('Sous-panel introuvable');
+      if (sp) sp.choices ??= [];
       cfg.reasons ??= [];
       const list = isReasons ? cfg.reasons : sp.choices;
       const items = (Array.isArray(b.items) ? b.items : []).slice(0, 200)

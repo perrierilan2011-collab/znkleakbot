@@ -1186,7 +1186,7 @@ function tkReasons() {
     <div class="row end">${r ? '<button class="btn ghost" onclick="S.reasonEdit=null;render()">Annuler</button>' : ''}<button class="btn" onclick="reasonSave()">${r ? 'Enregistrer' : 'Ajouter la catégorie'}</button></div>
   </section>
   <section class="card"><h2>Importer une liste d’articles</h2>
-    <p class="muted" style="margin-bottom:8px">Un article par ligne au format <b>Nom : prix</b>. Chaque article devient un choix du menu, avec le prix en description.</p>
+    <p class="muted" style="margin-bottom:8px">Un article par ligne au format <b>Nom : prix</b> (ou <b>Nom | prix</b>). Chaque article devient un choix du menu, avec le prix en description.</p>
     <textarea id="bulk_text" style="min-height:140px" placeholder="Disney+ Premium : 2€&#10;Netflix Premium : 5€"></textarea>
     <div class="grid2" style="margin-top:12px">
       <label class="field"><span>Emoji commun (optionnel)</span>${emojiField('bulk_emoji', '', '🛒')}</label>
@@ -1223,11 +1223,14 @@ async function reasonDel(id) {
   try { await api('/api/ticket-reason', { action: 'remove', guildId: S.gid, config: t.name, id }); await afterChange('Catégorie supprimée'); }
   catch (e) { toast(e.message, false); }
 }
+function priceLike(s) {
+  return /^[\d.,]+\s*(?:€|\$|£|euros?|eur|usd)?$/i.test(String(s || '').trim());
+}
 function parseBulk(text) {
   const out = [];
   for (const line of String(text || '').split(/\r?\n/)) {
     if (!line.trim()) continue;
-    const m = /^(.+?)\s*[:：]\s*([\d.,]+\s*(?:€|\$|£|euros?|eur|usd)?)\s*$/i.exec(line.trim());
+    const m = /^(.+?)\s*(?::|：|\|)\s*([\d.,]+\s*(?:€|\$|£|euros?|eur|usd)?)\s*$/i.exec(line.trim());
     if (m) out.push({ label: m[1].trim().slice(0, 100), description: m[2].trim().slice(0, 100) });
     else out.push({ label: line.trim().slice(0, 100), description: '' });
   }
@@ -1281,7 +1284,7 @@ function tkSubs() {
         <button class="mini" onclick="spDel('${s.id}')">Supprimer</button></div></div>`).join('') || '<div class="empty">Aucun sous-panel.</div>'}</div>
   </section>
   ${editing ? spForm(cur) : (S.sp === 'new' ? spForm(null) : '')}
-  ${cur && !editing ? choiceCard(cur, ch) : ''}`;
+  ${cur && !editing ? choiceCard(cur, ch) + choicesBulkCard(cur) : ''}`;
 }
 function spForm(sp) {
   return `<section class="card"><h2>${sp ? 'Modifier « ' + esc(sp.name) + ' »' : 'Nouveau sous-panel'}</h2>
@@ -1348,7 +1351,12 @@ function choiceCard(sp, ch) {
       <label class="field"><span>Nom <b class="req">*</b></span><input id="ch_label" maxlength="100" value="${esc(ch?.label || '')}"></label>
       <label class="field"><span>Emoji</span>${emojiField('ch_emoji', ch?.emoji || '', '🎮')}</label>
     </div>
-    <label class="field"><span>Description courte</span><input id="ch_desc" maxlength="100" value="${esc(ch?.description || '')}" placeholder="Prix ou détail"></label>
+    <div class="grid2">
+      <label class="field"><span>Description courte</span><small>Affichée sous le nom du choix (100 caractères max).</small><input id="ch_desc" maxlength="100" value="${esc(ch?.description || '')}" placeholder="Prix ou détail"></label>
+      <label class="field"><span>Prix</span><small>Utilisé par <b>{prix}</b> et affiché en description si elle est vide.</small>
+        <div class="row" style="gap:8px;flex-wrap:nowrap"><input id="ch_price" maxlength="100" value="${esc(priceLike(ch?.description) ? ch.description : '')}" placeholder="5€" style="flex:1"><button type="button" class="mini" onclick="chPriceToDesc()">→ description</button></div>
+      </label>
+    </div>
     <div class="grid2">
       <label class="field"><span>Catégorie Discord</span><select id="ch_cat">${categoryOptions(ch?.categoryId || '', '— celle du menu / config —')}</select></label>
       <label class="field"><span>Rôles staff</span><small>Maintiens Ctrl pour en choisir plusieurs. Vide = rôles de la config.</small><select id="ch_staff" multiple size="4">${staffSelect(cs(ch))}</select></label>
@@ -1362,14 +1370,54 @@ async function choiceSave() {
   const sp = (TC().subPanels || []).find((x) => x.id === S.sp);
   if (!sp) return;
   const ch = S.choiceEdit ? sp.choices.find((c) => c.id === S.choiceEdit) : null;
+  const price = $('#ch_price').value.trim();
+  const description = $('#ch_desc').value.trim() || price;
   try {
     await api('/api/subpanel-choice', {
       action: ch ? 'update' : 'add', guildId: S.gid, config: S.tk, subId: sp.id, id: ch?.id,
-      label: $('#ch_label').value, emoji: $('#ch_emoji').value, description: $('#ch_desc').value,
+      label: $('#ch_label').value, emoji: $('#ch_emoji').value, description,
       categoryId: $('#ch_cat').value, staffRoles: [...$('#ch_staff').selectedOptions].map((o) => o.value), nextSubId: $('#ch_next').value,
     });
     S.choiceEdit = null;
     await afterChange(ch ? 'Choix modifié ✅' : 'Choix ajouté ✅');
+  } catch (e) { toast(e.message, false); }
+}
+function chPriceToDesc() {
+  const p = $('#ch_price').value.trim();
+  if (!p) return toast('Indique d’abord un prix.', false);
+  $('#ch_desc').value = p;
+}
+// Import en masse des choix d'un sous-panel : « Nom : prix » -> le prix va dans la description.
+function choicesBulkCard(sp) {
+  const others = (TC().subPanels || []).filter((s) => s.id !== sp.id);
+  return `<section class="card">
+    <h2>Importer une liste de choix</h2>
+    <p class="muted" style="margin-bottom:8px">Un article par ligne au format <b>Nom : prix</b> (ou <b>Nom | prix</b>). Le prix est placé dans la <b>description</b> du choix et utilisé par <span class="code">{prix}</span>.</p>
+    <textarea id="cb_text" style="min-height:140px" placeholder="Netflix Premium : 5€&#10;Disney+ Premium : 2€"></textarea>
+    <div class="grid2" style="margin-top:12px">
+      <label class="field"><span>Emoji commun (optionnel)</span>${emojiField('cb_emoji', '', '🛒')}</label>
+      <label class="field"><span>Mode</span><select id="cb_mode"><option value="append">Ajouter / mettre à jour</option><option value="replace">Tout remplacer</option></select></label>
+    </div>
+    <div class="grid2">
+      <label class="field"><span>Catégorie Discord</span><select id="cb_cat">${categoryOptions('', '— celle du menu / config —')}</select></label>
+      <label class="field"><span>Rôles staff</span><small>Maintiens Ctrl pour en choisir plusieurs.</small><select id="cb_role" multiple size="4">${staffSelect([])}</select></label>
+    </div>
+    <label class="field"><span>Sous-panel suivant (optionnel)</span><small>Proposé après chaque choix importé. Vide = le ticket s’ouvre.</small><select id="cb_next"><option value="">— aucun (ticket direct) —</option>${others.map((s) => `<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select></label>
+    <button class="btn" onclick="choicesBulkImport('${sp.id}')">Importer les choix</button>
+  </section>`;
+}
+async function choicesBulkImport(subId) {
+  const items = parseBulk($('#cb_text').value);
+  if (!items.length) return toast('Colle d’abord une liste.', false);
+  if ($('#cb_mode').value === 'replace' && !confirm('Remplacer TOUS les choix actuels de ce sous-panel par cette liste ?')) return;
+  try {
+    const r = await api('/api/bulk-choices', {
+      guildId: S.gid, config: S.tk, target: subId, items, mode: $('#cb_mode').value,
+      emoji: $('#cb_emoji').value, categoryId: $('#cb_cat').value,
+      staffRoles: [...$('#cb_role').selectedOptions].map((o) => o.value),
+      nextSubId: $('#cb_next').value || null,
+    });
+    await afterChange(`${r.added} ajouté(s), ${r.updated} mis à jour${r.skipped ? `, ${r.skipped} ignoré(s)` : ''}`);
   } catch (e) { toast(e.message, false); }
 }
 async function choiceDel(id) {

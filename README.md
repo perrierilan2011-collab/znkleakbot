@@ -128,6 +128,8 @@ Everything is configured from the dashboard, **Tickets** tab:
 
 - **Categories**: each category has a name, an emoji, a short description and a **panel text** (shown to the left of the button in a multi-button panel).
 - **Sub-panels**: a sub-panel is a list of choices; each choice can lead to another sub-panel (`Next`) or open the ticket. A sub-panel can be linked to a category (or served by default).
+- **Import a list of choices**: in **Tickets → Sub-panels**, select a sub-panel and use **Import a list of choices**. One item per line, format `Name : price` (or `Name | price`). The price is written into the choice **description**, which is also what `{prix}` / `[prix]` uses in the ticket opening message and ticket name.
+- **Price field on a choice**: each choice also has a **Price** field and a **→ description** button. If the description is empty when you save, the price is used as the description.
 - **Panels** → **Type**:
   - **Button**: a single “Open a ticket” button.
   - **Several buttons**: a banner + one button per category. Clicking a button opens the category and chains the linked sub-panels (the ticket is only created at the end of the flow).
