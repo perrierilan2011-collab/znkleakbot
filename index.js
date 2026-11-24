@@ -119,8 +119,11 @@ function getG(id) {
   g.invites.links ??= {};      // code -> { userId, createdBy, createdAt, joins }  (liens dédiés)
   g.invites.joinedVia ??= {};  // membre -> { code, inviterId, at }  (par quel lien il est arrivé)
   g.cmdPerms ??= {};           // commande -> [roleIds]  (rôles autorisés par commande)
+  g.cmdUsers ??= {};           // commande -> [userIds]  (membres autorisés par commande)
   g.disabledCommands ??= [];   // commandes retirées de Discord
   g.catPerms ??= {};            // clé de catégorie de commandes -> [roleIds]
+  g.catUsers ??= {};            // clé de catégorie de commandes -> [userIds]
+  g.fullUsers ??= [];           // membres qui ont accès à TOUTES les commandes
   g.catAccess ??= {};           // id catégorie Discord -> { content: [roleIds], preview: [roleIds] }
   g.pendingDm ??= {};          // "userId:config" -> { messageId, channelId, panelId }  (menu de MP en attente)
   g.panelColor ??= '#5865F2';  // couleur appliquée à TOUS les panels (tickets, vouch, ventes…)
@@ -141,10 +144,13 @@ function getG(id) {
   g.sales.count ??= 0;         // nombre total de ventes
   g.sales.total ??= 0;         // argent généré (total)
   g.sales.currency ??= '€';    // devise affichée
+  g.sales.logo ??= null;       // logo (miniature en haut à droite) du panel de suivi
   g.sales.entries ??= [];      // 100 dernières ventes [{ at, amount, buyerId, buyerName, product, by, config, ticket }]
   // Annonces boutique déjà envoyées (produits / restock) : permet de les modifier ou de les renvoyer.
   // [{ id, kind, channelId, messageId, at, params: { title, text, lines, links, image, thumb, footer, color, logo } }]
   g.shopPosts ??= [];
+  // Bibliothèque d'images du dashboard : [{ id, name, src (data URL ou lien), at }]
+  g.images ??= [];
   // Migration : un seul rôle staff -> plusieurs rôles staff
   for (const c of Object.values(g.tickets)) {
     c.staffRoles ??= c.staffRoleId ? [c.staffRoleId] : [];
@@ -319,17 +325,29 @@ function field(id, label, style, { required = false, value, max, placeholder } =
   return new ActionRowBuilder().addComponents(t);
 }
 
-// Re-télécharge une pièce jointe (les liens CDN de Discord expirent)
+// Re-télécharge une pièce jointe (les liens CDN de Discord expirent).
+// Accepte aussi les data URLs (images importées depuis le dashboard) sans passer par fetch.
 async function toFile(att, baseName) {
-  const res = await fetch(att.url);
+  const url = String(att.url || '');
+  const data = /^data:(image\/(png|jpe?g|gif|webp));base64,([\s\S]*)$/i.exec(url);
+  if (data) {
+    // Le nom du fichier doit garder la vraie extension (un JPEG importé ne doit pas s'appeler .png).
+    const k = data[2].toLowerCase();
+    const ext = k === 'jpeg' || k === 'jpg' ? '.jpg' : '.' + k;
+    const buf = Buffer.from(data[3], 'base64');
+    return new AttachmentBuilder(buf, { name: baseName + ext });
+  }
   const ext = (att.name || '').match(/\.\w+$/)?.[0] || '.png';
+  const res = await fetch(url);
   return new AttachmentBuilder(Buffer.from(await res.arrayBuffer()), { name: baseName + ext });
 }
 
 // Convertit une pièce jointe Discord en data URL (pour pouvoir la réutiliser plus tard).
 async function attToData(att) {
   try {
-    const res = await fetch(att.url);
+    const url = String(att.url || '');
+    if (url.startsWith('data:')) return url;
+    const res = await fetch(url);
     const buf = Buffer.from(await res.arrayBuffer());
     if (buf.length > 6 * 1024 * 1024) return att.url;
     const type = String(att.contentType || 'image/png').split(';')[0];
@@ -384,7 +402,28 @@ async function buildAnnounce(m, img, thumb) {
 }
 
 // Boutons-liens : "Label | https://url | emoji" (un par ligne, 25 maximum).
-function parseLinks(raw) {
+// Le lien peut aussi être un salon : "#nom-du-salon", "<#123...>" ou son ID.
+// Il devient alors https://discord.com/channels/<serveur>/<salon> et ouvre le salon en un clic.
+function channelFromRef(ref, guild) {
+  const v = String(ref || '').trim();
+  if (!v || !guild) return null;
+  let id = null;
+  const mention = /^<#(\d{15,25})>$/.exec(v);
+  const rawId = /^(\d{15,25})$/.exec(v);
+  if (mention) id = mention[1];
+  else if (rawId) id = rawId[1];
+  else if (v.startsWith('#')) {
+    const name = v.slice(1).trim().toLowerCase();
+    const list = guild.channels?.cache;
+    const ch = list?.find?.((c) => Number(c.type) !== 4 && String(c.name || '').toLowerCase() === name);
+    if (ch) id = ch.id;
+  }
+  if (!id) return null;
+  const ch = guild.channels?.cache?.get?.(id) || null;
+  return ch || { id, name: null };
+}
+const channelUrl = (guildId, channelId) => `https://discord.com/channels/${guildId}/${channelId}`;
+function parseLinks(raw, guild) {
   const out = [];
   for (const line of String(raw || '').replace(/\r/g, '').split('\n')) {
     const t = line.trim();
@@ -393,6 +432,11 @@ function parseLinks(raw) {
     let label, url, emoji;
     if (parts.length === 1) url = parts[0];
     else { label = parts[0]; url = parts[1]; emoji = parts[2]; }
+    const ch = channelFromRef(url, guild);
+    if (ch) {
+      url = channelUrl(guild.id, ch.id);
+      if (!label) label = ch.name ? '#' + ch.name : 'Open';
+    }
     if (!isUrl(url)) continue;
     out.push({ label: (label || url).slice(0, 80), url: url.slice(0, 512), emoji: emoji || null });
     if (out.length >= 25) break;
@@ -404,9 +448,17 @@ function linkRows(links) {
   for (const part of chunkList(links.slice(0, 25), 5)) {
     const row = new ActionRowBuilder();
     for (const l of part) {
-      const b = new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(l.url).setLabel(l.label || 'Open');
+      const b = new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(l.url);
       const e = parseEmoji(l.emoji);
-      if (e) b.setEmoji(e);
+      const label = String(l.label || 'Open').slice(0, 80);
+      // Un emoji Unicode est mis DANS le libellé : Discord l'aligne alors parfaitement avec le texte.
+      // Les emojis personnalisés du serveur passent par le slot emoji natif du bouton.
+      if (e && !e.id) {
+        b.setLabel((label.startsWith(e.name) ? label : `${e.name} ${label}`).slice(0, 80));
+      } else {
+        b.setLabel(label);
+        if (e) b.setEmoji(e);
+      }
       row.addComponents(b);
     }
     rows.push(row);
@@ -432,8 +484,8 @@ function productModal(modalId) {
     field('texte', 'Description (Markdown, @role #chan)', TextInputStyle.Paragraph, {
       required: true, max: 4000, placeholder: '### What’s included?\n- ...\n- ...',
     }),
-    field('liens', 'Buttons: Label | https://url | emoji', TextInputStyle.Paragraph, {
-      max: 2000, placeholder: 'Check / Purchase | https://... | 🛒\nVideo Showcase | https://... | ▶️',
+    field('liens', 'Buttons: Label | URL or #channel | emoji', TextInputStyle.Paragraph, {
+      max: 4000, placeholder: 'Check / Purchase | https://... | 🛒\nBuy in this channel | #buy-here | 🛒',
     }),
     field('image_url', 'Image URL (if no file)', TextInputStyle.Short, { max: 500 }),
     field('footer', 'Footer', TextInputStyle.Short, { max: 2048 }),
@@ -445,8 +497,8 @@ function restockModal(modalId) {
     field('lignes', 'Rows: Variant | Price | Stock (one per line)', TextInputStyle.Paragraph, {
       required: true, max: 4000, placeholder: 'Rockstar Activation Codes [Automatic Delivery] | $0.11 | 439',
     }),
-    field('liens', 'Buttons: Label | https://url | emoji', TextInputStyle.Paragraph, {
-      max: 2000, placeholder: 'Buy Now | https://... | 🛒',
+    field('liens', 'Buttons: Label | URL or #channel | emoji', TextInputStyle.Paragraph, {
+      max: 4000, placeholder: 'Buy Now | #buy-here | 🛒',
     }),
     field('image_url', 'Image URL (if no file)', TextInputStyle.Short, { max: 500 }),
     field('footer', 'Footer', TextInputStyle.Short, { max: 2048 }),
@@ -490,7 +542,7 @@ async function buildCatalogPayload(kind, params, d, guild) {
   else if (params.logo !== false) logo = await imageRef(d.panelLogo, 'logo', files);
   if (logo) embed.setThumbnail(logo);
 
-  const links = Array.isArray(params.links) ? params.links : parseLinks(params.links);
+  const links = Array.isArray(params.links) ? params.links : parseLinks(params.links, guild);
   return { embeds: [embed], components: linkRows(links), files, mentions };
 }
 
@@ -576,9 +628,12 @@ function buildMentions(ping, mentionOpt, extra = {}) {
 // 👑 = propriétaire du serveur (la couronne)
 const isOwner = (i) => i.guild.ownerId === i.user.id;
 
-// Le propriétaire OU un membre ayant un rôle choisi avec /role-total : accès à TOUTES les commandes
-const hasFullAccess = (i) =>
-  isOwner(i) || i.member.roles.cache.some((r) => getG(i.guildId).fullRoles.includes(r.id));
+// Le propriétaire OU un membre / rôle choisi avec /role-total : accès à TOUTES les commandes
+const hasFullAccess = (i) => {
+  const d = getG(i.guildId);
+  return isOwner(i) || (d.fullUsers || []).includes(i.user.id) ||
+    i.member.roles.cache.some((r) => d.fullRoles.includes(r.id));
+};
 
 // Catégories de commandes : un rôle donné à une catégorie a accès à toutes ses commandes
 const CMD_CATEGORIES = {
@@ -596,12 +651,17 @@ for (const [key, c] of Object.entries(CMD_CATEGORIES)) {
   for (const name of c.commands) CMD_CATEGORY[name] = key;
 }
 
-// Rôles autorisés pour la commande utilisée (/permissions) ou sa catégorie (/permissions-categorie)
+// Rôles / membres autorisés pour la commande utilisée (/permissions) ou sa catégorie (/permissions-categorie)
 const cmdAllowed = (i) => {
   const d = getG(i.guildId);
   const ids = [...(d.cmdPerms[i.commandName] || [])];
+  const users = [...(d.cmdUsers?.[i.commandName] || [])];
   const cat = CMD_CATEGORY[i.commandName];
-  if (cat) ids.push(...(d.catPerms[cat] || []));
+  if (cat) {
+    ids.push(...(d.catPerms[cat] || []));
+    users.push(...(d.catUsers?.[cat] || []));
+  }
+  if (users.includes(i.user.id)) return true;
   return !!ids.length && i.member.roles.cache.some((r) => ids.includes(r.id));
 };
 
@@ -643,7 +703,7 @@ function wrongChannel(i) {
 }
 
 // Visible uniquement par : rôles accès total, rôles modération, rôles ajoutés avec /salon-commandes, bot
-// (+ propriétaire / admins qui voient tout)
+// (+ propriétaire / admins qui voient tout). Les membres autorisés nommément sont ajoutés en overwrite de membre.
 function commandChannelOverwrites(guild) {
   const d = getG(guild.id);
   const P = PermissionFlagsBits;
@@ -652,9 +712,16 @@ function commandChannelOverwrites(guild) {
     ...Object.values(d.cmdPerms).flat(), ...Object.values(d.catPerms).flat(),
   ])]
     .filter((id) => id !== guild.id && guild.roles.cache.has(id));
+  const userIds = [...new Set([
+    ...(d.fullUsers || []), ...Object.values(d.cmdUsers || {}).flat(), ...Object.values(d.catUsers || {}).flat(),
+  ])].filter((id) => /^\d{5,25}$/.test(id) && id !== client.user.id);
   return [
     { id: guild.id, deny: [P.ViewChannel] },
     ...ids.map((id) => ({
+      id,
+      allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.EmbedLinks, P.AttachFiles, P.UseApplicationCommands],
+    })),
+    ...userIds.map((id) => ({
       id,
       allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.EmbedLinks, P.AttachFiles, P.UseApplicationCommands],
     })),
@@ -1433,7 +1500,7 @@ const commands = [
           o.setName('categorie').setDescription('Category where tickets will be created (default)')
             .addChannelTypes(ChannelType.GuildCategory).setRequired(true))
         .addRoleOption((o) =>
-          o.setName('role-staff').setDescription('First staff role (add d\' others with /ticket staff-add)').setRequired(true))
+          o.setName('role-staff').setDescription('First staff role (optional, add more with /ticket staff-ajouter)'))
         .addChannelOption((o) =>
           o.setName('salon-logs').setDescription('Channel where to send transcripts at closing')
             .addChannelTypes(ChannelType.GuildText)))
@@ -2036,14 +2103,20 @@ async function createTicket(guild, user, cfgName, reasonId, panel, subPath = nul
 
   const reason = [...cfg.reasons, ...(cfg.dmChoices || [])].find((r) => r.id === reasonId);
 
-  // Rôles staff : ceux du choix (s'il y en a un) sinon ceux de la configuration
-  // Priorité : rôle du choix du sous-panel > rôle de la catégorie du menu > rôles de la configuration
-  const ownStaff = [...subs].reverse().map((c) => c.staffRoleId).find(Boolean) || reason?.staffRoleId;
-  const staffRoles = (ownStaff ? [ownStaff] : cfg.staffRoles)
+  // Rôles staff : ceux du choix (s'il y en a un) sinon ceux de la configuration.
+  // Un choix peut stocker plusieurs rôles (staffRoles) ou un seul (staffRoleId, anciennes données).
+  // Priorité : rôle du choix du sous-panel > rôle de la catégorie du menu > rôles de la configuration.
+  const staffOf = (o) => {
+    const list = Array.isArray(o?.staffRoles) ? o.staffRoles : [];
+    return list.length ? list : (o?.staffRoleId ? [o.staffRoleId] : []);
+  };
+  const ownStaff = [...subs].reverse().map(staffOf).find((a) => a.length) || staffOf(reason);
+  const staffRoles = (ownStaff.length ? ownStaff : (cfg.staffRoles || []))
     .filter((id) => guild.roles.cache.has(id));
-  if (!staffRoles.length) {
-    return { error: "❌ No valid staff role is configured for this ticket. Notify an administrator." };
-  }
+  // « all » : le membre doit posséder TOUS les rôles staff de la catégorie pour voir le ticket.
+  // « any » (défaut) : un seul de ces rôles suffit (comportement historique).
+  const staffMode = [...subs].reverse().map((c) => c.staffMode).find(Boolean) || reason?.staffMode || cfg.staffMode || 'any';
+  const requireAll = staffMode === 'all' && staffRoles.length > 1;
 
   // Catégorie du serveur liée au choix du menu (sinon celle de la configuration)
   // Priorité : catégorie du choix du sous-panel > catégorie du menu > catégorie de la configuration
@@ -2053,6 +2126,14 @@ async function createTicket(guild, user, cfgName, reasonId, panel, subPath = nul
   save();
 
   const P = PermissionFlagsBits;
+  const staffAllow = [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.AttachFiles, P.EmbedLinks, P.ManageMessages];
+  // En mode « tous les rôles », on n'ouvre pas le salon aux rôles (sinon un rôle suffirait) :
+  // seuls les membres qui possèdent tous les rôles reçoivent une autorisation nominative.
+  const staffOverwrites = requireAll
+    ? guild.members.cache
+      .filter((m) => m.id !== user.id && m.id !== client.user.id && staffRoles.every((id) => m.roles.cache.has(id)))
+      .map((m) => ({ id: m.id, allow: staffAllow }))
+    : staffRoles.map((id) => ({ id, allow: staffAllow }));
   let channel;
   try {
     channel = await guild.channels.create({
@@ -2065,10 +2146,7 @@ async function createTicket(guild, user, cfgName, reasonId, panel, subPath = nul
       permissionOverwrites: [
         { id: guild.id, deny: [P.ViewChannel] },
         { id: user.id, allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.AttachFiles, P.EmbedLinks] },
-        ...staffRoles.map((id) => ({
-          id,
-          allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.AttachFiles, P.EmbedLinks, P.ManageMessages],
-        })),
+        ...staffOverwrites,
         { id: client.user.id, allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.EmbedLinks, P.ManageChannels] },
       ],
     });
@@ -2079,6 +2157,8 @@ async function createTicket(guild, user, cfgName, reasonId, panel, subPath = nul
 
   data.open[channel.id] = {
     userId: user.id, config: cfgName, reason: [reason?.label, ...subs.map((c) => c.label)].filter(Boolean).join(' › ') || null, claimedBy: null, staffRoles,
+    staffMode: requireAll ? 'all' : 'any',
+    extraUsers: [],
     translate: panel ? !!panel.translate : !!cfg.translate,
   };
   save();
@@ -2462,11 +2542,37 @@ async function openTicket(i, cfgName, reasonId) {
   await i.editReply(`✅ Your ticket has been created: <#${r.channel.id}>`);
 }
 
-// Le staff d'un ticket = les rôles enregistrés à son ouverture (ou ceux de la config pour les anciens tickets)
+// Le staff d'un ticket = les rôles enregistrés à son ouverture (ou ceux de la config pour les anciens tickets).
+// En mode « all », le membre doit posséder tous les rôles ; en mode « any », un seul suffit.
 function isStaff(i, t, cfg) {
   const roles = t.staffRoles || cfg?.staffRoles || [];
-  return roles.some((id) => i.member.roles.cache.has(id)) ||
-    i.member.permissions.has(PermissionFlagsBits.ManageChannels);
+  const has = t.staffMode === 'all'
+    ? roles.length > 0 && roles.every((id) => i.member.roles.cache.has(id))
+    : roles.some((id) => i.member.roles.cache.has(id));
+  return has || i.member.permissions.has(PermissionFlagsBits.ManageChannels);
+}
+
+// Tickets en mode « tous les rôles » : accorde / retire l'accès nominatif quand les rôles d'un membre changent.
+async function syncMemberTicketAccess(member) {
+  const d = getG(member.guild.id);
+  for (const [channelId, t] of Object.entries(d.open || {})) {
+    if (t.staffMode !== 'all' || !t.staffRoles?.length || t.userId === member.id) continue;
+    if (t.extraUsers?.includes(member.id)) continue; // ajouté manuellement avec /ticket ajouter : on ne touche pas à son accès
+    const ch = member.guild.channels.cache.get(channelId);
+    if (!ch) continue;
+    const hasAll = t.staffRoles.every((id) => member.roles.cache.has(id));
+    const ow = ch.permissionOverwrites.cache.get(member.id);
+    try {
+      if (hasAll && !ow) {
+        await ch.permissionOverwrites.edit(member.id, {
+          ViewChannel: true, SendMessages: true, ReadMessageHistory: true,
+          AttachFiles: true, EmbedLinks: true, ManageMessages: true,
+        });
+      } else if (!hasAll && ow) {
+        await ch.permissionOverwrites.delete(member.id);
+      }
+    } catch (e) { console.error('[ticket] sync access:', e.message); }
+  }
 }
 
 async function claimTicket(i) {
@@ -2492,7 +2598,7 @@ const fmtMoney = (n, cur = '€') =>
 const saleBuyer = (e) => (e.buyerId ? `<@${e.buyerId}>` : (e.buyerName || 'Inconnu'));
 const starsText = (n) => '⭐'.repeat(Math.max(0, Math.min(5, n))) + '☆'.repeat(Math.max(0, 5 - n));
 
-function buildSalesEmbed(guild) {
+async function buildSalesEmbed(guild) {
   const d = getG(guild.id);
   const s = d.sales;
   const entries = [...(s.entries || [])].slice(-8).reverse();
@@ -2509,12 +2615,16 @@ function buildSalesEmbed(guild) {
         `${e.product ? ` — ${e.product}` : ''}`).join('\n')
       : "No sales recorded yet.",
   ].join('\n').slice(0, 4096);
-  return new EmbedBuilder()
+  const embed = new EmbedBuilder()
     .setColor(parseColor(d.panelColor, '#57F287'))
     .setTitle('📈 Sales Tracking')
     .setDescription(description)
     .setFooter({ text: guild.name })
     .setTimestamp();
+  const files = [];
+  const logo = await imageRef(s.logo, 'logo', files);
+  if (logo) embed.setThumbnail(logo);
+  return { embeds: [embed], files };
 }
 
 // Crée le panel s'il n'existe pas, sinon le met à jour. Créé automatiquement au démarrage et après chaque vente.
@@ -2524,14 +2634,14 @@ async function refreshSalesPanel(guild, create = true) {
   if (!s.channelId) return null;
   const ch = await guild.channels.fetch(s.channelId).catch(() => null);
   if (!ch) return null;
-  const embed = buildSalesEmbed(guild);
-  const fingerprint = sig({ count: s.count, total: s.total, last: s.entries?.at(-1)?.at || 0, currency: s.currency, color: d.panelColor });
+  const payload = await buildSalesEmbed(guild);
+  const fingerprint = sig({ count: s.count, total: s.total, last: s.entries?.at(-1)?.at || 0, currency: s.currency, color: d.panelColor, logo: srcHash(s.logo) });
   if (s.messageId) {
     const { msg, gone } = await fetchMsg(guild, s.channelId, s.messageId);
     if (msg) {
       if (s.sig === fingerprint) return msg;
       try {
-        await msg.edit({ embeds: [embed] });
+        await msg.edit(payload);
         s.sig = fingerprint;
         save();
       } catch (e) {
@@ -2543,7 +2653,7 @@ async function refreshSalesPanel(guild, create = true) {
     else return null;
   }
   if (!create) return null;
-  const sent = await ch.send({ embeds: [embed] }).catch((e) => { console.error('[ventes]', e.message); return null; });
+  const sent = await ch.send(payload).catch((e) => { console.error('[ventes]', e.message); return null; });
   if (!sent) return null;
   s.messageId = sent.id;
   s.sig = fingerprint;
@@ -4821,12 +4931,19 @@ const handlers = {
           console.error('[ticket ajouter]', e);
           throw new Error("Unable to add this member (bot permissions).");
         });
+        t.extraUsers ??= [];
+        if (!t.extraUsers.includes(user.id)) t.extraUsers.push(user.id);
+        save();
         await i.reply({ content: `✅ <@${user.id}> has been added to the ticket.`, flags: EPH, allowedMentions: { parse: [] } });
         await i.channel.send({ content: `➕ <@${user.id}> was added to the ticket by <@${i.user.id}>.`, allowedMentions: { parse: [] } }).catch(() => {});
         return;
       }
       if (user.id === client.user.id) return i.reply({ content: '❌ I cannot withdraw from the ticket.', flags: EPH });
       await i.channel.permissionOverwrites.delete(user.id, `Removed from ticket by ${i.user.tag}`).catch(console.error);
+      if (t.extraUsers?.length) {
+        t.extraUsers = t.extraUsers.filter((id) => id !== user.id);
+        save();
+      }
       await i.reply({ content: `✅ <@${user.id}> has been removed from the ticket.`, flags: EPH, allowedMentions: { parse: [] } });
       await i.channel.send({ content: `➖ <@${user.id}> was removed from the ticket by <@${i.user.id}>.`, allowedMentions: { parse: [] } }).catch(() => {});
       return;
@@ -4923,12 +5040,13 @@ const handlers = {
         return i.reply({ content: '❌ Invalid name: lowercase letters, numbers and hyphens only (30 max).', flags: EPH });
       }
       if (d.tickets[nom]) return i.reply({ content: '❌ A configuration already has this name.', flags: EPH });
-      const staff = i.options.getRole('role-staff', true);
-      if (staff.id === i.guild.id) return i.reply({ content: '❌ You can\'t choose @everyone.', flags: EPH });
+      const staff = i.options.getRole('role-staff');
+      if (staff && staff.id === i.guild.id) return i.reply({ content: '❌ You can\'t choose @everyone.', flags: EPH });
       d.tickets[nom] = {
         name: nom,
         categoryId: i.options.getChannel('categorie', true).id,
-        staffRoles: [staff.id],
+        staffRoles: staff ? [staff.id] : [],
+        staffMode: 'any',
         logChannelId: i.options.getChannel('salon-logs')?.id || null,
         reasons: [],
         counter: 0,
@@ -4956,9 +5074,11 @@ const handlers = {
     if (sub === 'config-liste') {
       const list = Object.values(d.tickets);
       if (!list.length) return i.reply({ content: "No configuration. Create one with `/ticket config-creer`.", flags: EPH });
+      const reasonStaff = (r) => (Array.isArray(r.staffRoles) && r.staffRoles.length ? r.staffRoles : (r.staffRoleId ? [r.staffRoleId] : []))
+        .map((id) => `<@&${id}>`).join(' ');
       const embed = new EmbedBuilder().setColor('#5865F2').setTitle('🎫 Ticket configurations').setDescription(
         list.map((c) =>
-          `**${c.name}**${c.dm ? ' · 📩 DM mode' : ''}\n• Default category: <#${c.categoryId}>\n• Staff: ${c.staffRoles.length ? c.staffRoles.map((r) => `<@&${r}>`).join(' ') : 'none'}\n• Logs: ${c.logChannelId ? `<#${c.logChannelId}>` : 'none'}\n• Panel menu: ${c.reasons.length ? c.reasons.map((r) => (r.emoji ? r.emoji + ' ' : '') + r.label + (r.categoryId ? ` → <#${r.categoryId}>` : '') + (r.staffRoleId ? ` (staff : <@&${r.staffRoleId}>)` : '')).join(', ') : 'no category'}` +
+          `**${c.name}**${c.dm ? ' · 📩 DM mode' : ''}\n• Default category: <#${c.categoryId}>\n• Staff: ${c.staffRoles.length ? c.staffRoles.map((r) => `<@&${r}>`).join(' ') : 'none'}${c.staffMode === 'all' ? ' · all roles required' : ''}\n• Logs: ${c.logChannelId ? `<#${c.logChannelId}>` : 'none'}\n• Panel menu: ${c.reasons.length ? c.reasons.map((r) => (r.emoji ? r.emoji + ' ' : '') + r.label + (r.categoryId ? ` → <#${r.categoryId}>` : '') + (reasonStaff(r) ? ` (staff : ${reasonStaff(r)})` : '')).join(', ') : 'no category'}` +
           (c.dm
             ? `\n• DM menu: ${c.dmChoices.length ? c.dmChoices.map((r) => (r.emoji ? r.emoji + ' ' : '') + r.label + (r.categoryId ? ` → <#${r.categoryId}>` : '') + (r.staffRoleId ? ` (staff : <@&${r.staffRoleId}>)` : '')).join(', ') : 'no choice'}` +
               `\n• DM image: ${c.dmImage ? 'yes' : 'no'}`
@@ -4997,9 +5117,6 @@ const handlers = {
       if (!cfg.staffRoles.includes(role.id)) {
         return i.reply({ content: "❌ This role is not in the staff of this configuration.", flags: EPH });
       }
-      if (cfg.staffRoles.length === 1) {
-        return i.reply({ content: '❌ You must keep at least one staff role. Add another one before removing this one.', flags: EPH });
-      }
       cfg.staffRoles = cfg.staffRoles.filter((id) => id !== role.id);
       save();
       return i.reply({
@@ -5023,6 +5140,7 @@ const handlers = {
         description: (i.options.getString('description') || '').slice(0, 100),
         emoji: emojiRaw || null,
         staffRoleId: staff?.id || null,
+        staffRoles: staff ? [staff.id] : [],
         categoryId: cat?.id || null, // catégorie du serveur où les tickets de ce choix sont créés
       });
       save();
@@ -5428,7 +5546,8 @@ async function autocomplete(i) {
         ? d.disabledCommands.slice()
         : names.filter((n) => !ALWAYS_ON.has(n) && !d.disabledCommands.includes(n));
     } else if (sub === 'retirer') {
-      names = Object.keys(d.cmdPerms).filter((n) => d.cmdPerms[n].length);
+      names = [...new Set([...Object.keys(d.cmdPerms), ...Object.keys(d.cmdUsers || {})])]
+        .filter((n) => (d.cmdPerms[n]?.length || d.cmdUsers?.[n]?.length));
     } else {
       names = names.filter((n) => !OWNER_ONLY.has(n));
     }
@@ -5660,6 +5779,13 @@ client.on(Events.ChannelDelete, (ch) => {
   }
 });
 
+// Rôles modifiés : met à jour l'accès aux tickets « tous les rôles requis »
+client.on(Events.GuildMemberUpdate, (oldM, newM) => {
+  const a = oldM.roles.cache, b = newM.roles.cache;
+  if (a.size === b.size && [...a.keys()].every((id) => b.has(id))) return;
+  syncMemberTicketAccess(newM).catch(console.error);
+});
+
 client.on(Events.GuildMemberAdd, async (member) => {
   scheduleCount(member.guild);
 
@@ -5781,5 +5907,5 @@ setInterval(save, 2 * 60_000).unref?.();
 
 // Panel web (dashboard.js + panel.html) — nécessite la variable PANEL_PASSWORD
 require("./dashboard")({ client, commands, handlers, autocomplete, getG, refreshPanels, refreshSalesPanel,
-  buildCatalogPayload, buildSinglePanel, buildMultiPanel, multiPanelSig, rich,
+  buildCatalogPayload, buildSinglePanel, buildMultiPanel, multiPanelSig, rich, syncCommandChannel,
   CMD_CATEGORIES, ALWAYS_ON, PUBLIC_COMMANDS, OWNER_ONLY, db, save, DB_FILE });

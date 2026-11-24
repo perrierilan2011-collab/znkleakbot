@@ -11,7 +11,7 @@ Bot Discord de tickets, ventes, vouchs, invitations et modération, avec un dash
 - **Traduction automatique** : dans les tickets, chaque message reçu est traduit en français et en anglais, quelle que soit la langue d'origine. Un message français reçoit sa traduction anglaise (🇬🇧), un message anglais sa traduction française (🇫🇷), et un message dans une autre langue reçoit les deux. Les mentions, liens et emojis sont conservés. Activable par configuration ou par panel.
 - **Suivi des ventes** : à la fermeture d'un ticket, le bot demande si la vente a été réalisée. Le staff saisit le montant, l'acheteur et le produit. Un panel dédié affiche le nombre de ventes, l'argent généré, le panier moyen et les dernières ventes.
 - **Couleur globale** : une seule couleur pour tous les panels (tickets, vouchs, ventes), réglable depuis le dashboard ou `/ticket couleur`.
-- **Dashboard simplifié** : navigation par sections (Accueil, Tickets, Vouches, Ventes, Produits, Restock, Apparence, Invitations, Commandes, Sauvegarde).
+- **Dashboard simplifié** : navigation par sections (Accueil, Tickets, Vouches, Ventes, Produits, Restock, Images, Admin, Apparence, Invitations, Commandes, Sauvegarde).
 - **Tickets réorganisés** : onglets Réglages, Catégories, Sous-panels, Panels, Message d'ouverture.
 - **Sauvegarde Supabase complète** : `supabase.sql` contient la table principale, l'historique et des vues pour lire les invitations, panels, vouchs et ventes.
 
@@ -67,10 +67,14 @@ Permissions du bot : Gérer les salons, Gérer les rôles, Gérer les messages, 
 
 Deux annonces de boutique entièrement personnalisables, disponibles en commande et depuis le dashboard (pages **Produits** et **Restock**) :
 
-- `/product creer` — **annonce produit** : titre, description libre en Markdown, image, logo, pied de page et **autant de boutons-liens que tu veux** (25 maximum, limite Discord). Chaque bouton s'écrit `Texte | https://lien | emoji` (emoji optionnel).
+- `/product creer` — **annonce produit** : titre, description libre en Markdown, image, logo, pied de page et **autant de boutons-liens que tu veux** (25 maximum, limite Discord). Chaque bouton s'écrit `Texte | lien ou salon | emoji` (emoji optionnel).
 - `/restock creer` — **tableau de restock** : lignes `Variante | Prix | Stock`, image, logo, pied de page et boutons-liens.
 
 Options communes : `salon`, `couleur`, `logo` (coché par défaut, décochable pour masquer le logo) et mentions (`mention`, `ping`). Depuis le dashboard, les lignes, les liens et les images se saisissent directement (boutons d'ajout/suppression) sans passer par une commande.
+
+Un bouton peut pointer vers un site **ou vers un salon Discord** : dans le dashboard, choisis le salon dans « ou salon (achat direct) », ou écris `#nom-du-salon` / `<#ID>` / l'ID du salon dans la commande. Le bouton ouvre alors directement le salon d'achat, sans lien intermédiaire. Les emojis Unicode des boutons sont placés dans le libellé pour être parfaitement alignés avec le texte.
+
+Pour mettre **n'importe quel texte en gras**, sélectionne-le dans un champ Markdown puis clique sur **G** dans la barre de mise en forme en haut de page (ou `Ctrl+B`). Le gras fonctionne dans les descriptions, les variantes, les prix, le stock, les textes de panels, etc.
 
 Chaque envoi est **mémorisé** dans la page **Produits** / **Restock** :
 
@@ -80,14 +84,37 @@ Chaque envoi est **mémorisé** dans la page **Produits** / **Restock** :
 
 Plus besoin de tout refaire : un message envoyé reste modifiable et réutilisable.
 
-### Images : lien ou import
+### Images : lien, import et bibliothèque
 
 Partout où une image est demandée (panels de tickets, sous-panels, message d'ouverture, produits, restock, logos du serveur, vouch), tu peux :
 
 - coller un **lien** (`https://…`) ;
-- ou **importer un fichier** depuis le dashboard (4 Mo maximum). Le fichier est envoyé avec le message Discord (pièce jointe), donc il ne dépend d'aucun hébergement externe.
+- **importer un fichier** depuis le dashboard. L'image est automatiquement redimensionnée et compressée dans le navigateur (photos de téléphone acceptées), puis envoyée avec le message Discord en pièce jointe : elle ne dépend d'aucun hébergement externe ;
+- choisir une image déjà enregistrée dans la **bibliothèque** (liste déroulante sous chaque champ image).
 
-Le **logo global** se règle dans **Apparence** et s'applique à tous les panels, messages et annonces. La case « logo » est cochée par défaut partout : décoche-la pour publier un message sans logo.
+La page **Images** permet de gérer la bibliothèque : ajouter un fichier ou un lien, lui donner un **nom** simple, le renommer, le supprimer et copier son lien. Les images sont stockées dans Supabase avec le serveur (40 maximum) et réutilisables partout en un clic. Le bouton **＋ Bibliothèque** sous un champ image enregistre directement l'image déjà choisie.
+
+Le **logo global** se règle dans **Apparence** et s'applique à tous les panels, messages et annonces. Chaque annonce **Produits** / **Restock**, chaque panel de tickets, chaque sous-panel, le message d'ouverture, les vouchs et le panel des ventes ont aussi leur **propre logo** : choisis-le dans le champ « Logo » (lien, fichier importé ou image de la bibliothèque), il s'affiche en haut à droite. Vide = logo global (si la case correspondante est cochée).
+
+### Accès aux commandes (onglet Admin)
+
+L'onglet **Admin** permet de choisir précisément qui peut utiliser chaque commande :
+
+- **Par commande** ou **par catégorie de commandes** (Boutique, Tickets, Modération…).
+- Pour un **rôle** ou une **personne** (recherche par pseudo), avec la liste des accès actuels et un bouton pour retirer chacun.
+- **Tout autoriser** donne immédiatement **toutes les commandes** à un rôle ou à une personne (accès total).
+- Les commandes publiques (`/help`, `/vouch`, `/invites`, `/message-mp`) restent ouvertes à tous ; les commandes réservées au propriétaire ne peuvent pas être déléguées.
+- Le salon privé des commandes est mis à jour automatiquement avec les rôles et les personnes autorisés.
+
+Les mêmes réglages existent côté Discord avec `/permissions` et `/permissions-categorie` (rôles) ; le dashboard ajoute les autorisations nominatives et le bouton « tout autoriser ».
+
+### Rôles staff des tickets
+
+Dans **Tickets → Réglages** :
+
+- Ajoute **autant de rôles staff que tu veux** (Ctrl + clic), ou **aucun rôle** (seuls les administrateurs et le membre qui ouvre voient alors le ticket).
+- **Accès staff** : « Au moins un rôle suffit » (comportement classique) ou « **Tous les rôles sont requis** » : un membre doit posséder chaque rôle staff de la catégorie pour voir le ticket. En mode « tous les rôles », l'accès est recalculé automatiquement quand les rôles d'un membre changent.
+- Chaque **catégorie du menu** et chaque **choix de sous-panel** peut avoir ses **propres rôles staff** (plusieurs) et son propre mode d'accès. Un ticket de cette catégorie utilise ces rôles à la place de ceux de la configuration.
 
 ### Panels de tickets
 

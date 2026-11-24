@@ -60,6 +60,9 @@ input[type=checkbox]{width:auto;accent-color:var(--accent)}
 .item small{display:block;overflow:hidden;text-overflow:ellipsis}
 .pill{display:inline-block;background:var(--panel2);border:1px solid var(--line);color:var(--muted);border-radius:999px;padding:2px 9px;font-size:11px;white-space:nowrap}
 .pill.ok{color:#7ee2aa;border-color:#2c5b43}.pill.ko{color:#ff9aaa;border-color:#633039}
+.chip{display:inline-flex;align-items:center;gap:6px;background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:3px 4px 3px 10px;font-size:12px;margin:0 6px 6px 0}
+.chip button{background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;line-height:1;padding:2px 4px}
+.chip button:hover{color:#ff9aaa}
 .mini{background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:5px 9px;cursor:pointer;font-size:12px}
 .mini:hover{border-color:var(--accent)}
 .empty{text-align:center;color:var(--muted);padding:26px 14px}
@@ -100,6 +103,18 @@ input[type=checkbox]{width:auto;accent-color:var(--accent)}
 .error-banner{position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:400;max-width:92vw;background:#3a1218;border:1px solid #7a2c38;color:#ffb9c4;border-radius:9px;padding:10px 14px;font-size:13px;box-shadow:0 10px 30px #000a;white-space:pre-wrap}
 .check{display:flex;align-items:center;gap:8px;margin:10px 0;font-size:13px;font-weight:500}
 .check input{width:auto}
+.img-prev{max-width:100%;max-height:150px;border-radius:8px;margin-top:8px;border:1px solid var(--line);object-fit:contain;background:#0b0c0f;display:block}
+.img-lib{flex:1;min-width:140px}
+.md-bar{position:sticky;top:0;z-index:20;display:flex;gap:6px;align-items:center;flex-wrap:wrap;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:7px 10px;margin-bottom:14px;box-shadow:0 6px 18px #0006}
+.md-bar .md-hint{color:var(--muted);font-size:12px;margin-right:4px}
+.md-bar button{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:3px 9px;cursor:pointer;font-size:12px}
+.md-bar button:hover{border-color:var(--accent)}
+.img-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px}
+.img-card{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:8px}
+.img-card .img-thumb{aspect-ratio:16/9;background:#0b0c0f;border:1px solid var(--line);border-radius:8px;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.img-card .img-thumb img{max-width:100%;max-height:100%;object-fit:contain}
+.img-card .img-name{font-size:12px;padding:6px 8px}
+.img-card .row{gap:6px}
 @media(max-width:1000px){.stats{grid-template-columns:1fr 1fr}.cols,.grid2{grid-template-columns:1fr}}
 @media(max-width:760px){#app{flex-direction:column}aside{width:100%;height:auto;position:static}nav{display:flex;flex-wrap:wrap}main{padding:18px}.stats{grid-template-columns:1fr 1fr}}
 </style></head><body>
@@ -150,7 +165,54 @@ const S = {
   omScope: 'config:', advCmd: null, advSub: null, advResult: null,
   emojiTarget: null, emojiTab: 'server', serverEmojis: null,
   uploads: {}, shop: {}, panelEdit: null, panelDraft: null,
+  admin: { scope: 'command', key: '', target: 'role', roleId: '', userId: '', memberQ: '', members: [] },
 };
+let mdTarget = null;
+
+/* ---------- Mise en forme (gras, italique…) sur n'importe quel champ ---------- */
+function isMdField(el) {
+  return !!el && el.dataset?.md !== '0' && (el.tagName === 'TEXTAREA' ||
+    (el.tagName === 'INPUT' && !['file', 'checkbox', 'radio', 'color', 'range'].includes(el.type)));
+}
+function mdBar() {
+  const b = (label, before, after, title) =>
+    `<button type="button" onmousedown="event.preventDefault()" onclick="mdApply('${before}','${after}')" title="${esc(title)}">${label}</button>`;
+  return `<div class="md-bar"><span class="md-hint">Sélectionne du texte dans un champ puis :</span>
+    ${b('<b>G</b>', '**', '**', 'Gras (Ctrl+B)')}
+    ${b('<i>I</i>', '*', '*', 'Italique')}
+    ${b('<s>S</s>', '~~', '~~', 'Barré')}
+    ${b('Code', '`', '`', 'Code')}
+    ${b('Souligné', '__', '__', 'Souligné')}
+  </div>`;
+}
+function mdApply(before, after) {
+  const active = document.activeElement;
+  if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) {
+    if (!isMdField(active)) return toast('Ce champ ne supporte pas la mise en forme.', false);
+    mdTarget = active;
+  }
+  const el = mdTarget;
+  if (!isMdField(el)) return toast('Clique d’abord dans un champ de texte.', false);
+  const s = el.selectionStart ?? 0;
+  const e = el.selectionEnd ?? 0;
+  const sel = el.value.slice(s, e) || 'texte';
+  el.value = el.value.slice(0, s) + before + sel + after + el.value.slice(e);
+  const a = s + before.length;
+  const z = a + sel.length;
+  el.focus();
+  try { el.setSelectionRange(a, z); } catch { /* champ non compatible */ }
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+}
+if (typeof document.addEventListener === 'function') {
+  document.addEventListener('focusin', (e) => { if (isMdField(e.target)) mdTarget = e.target; });
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && String(e.key).toLowerCase() === 'b' && isMdField(e.target)) {
+      e.preventDefault();
+      mdTarget = e.target;
+      mdApply('**', '**');
+    }
+  });
+}
 
 /* ---------- API ---------- */
 async function api(path, body) {
@@ -351,6 +413,8 @@ const NAV = [
   ['sales', '📈', 'Ventes'],
   ['products', '🛍️', 'Produits'],
   ['restock', '📦', 'Restock'],
+  ['images', '🖼️', 'Images'],
+  ['admin', '🛡️', 'Admin'],
   ['appearance', '🎨', 'Apparence'],
   ['invites', '📨', 'Invitations'],
   ['advanced', '⌨️', 'Commandes'],
@@ -365,9 +429,11 @@ function render() {
   try {
     const err = $('#errBanner');
     if (err) err.hidden = true;
+    mdTarget = null;
     renderNav();
-    const pages = { home: pageHome, tickets: pageTickets, vouch: pageVouch, sales: pageSales, products: () => pageShop('product'), restock: () => pageShop('restock'), appearance: pageAppearance, invites: pageInvites, advanced: pageAdvanced, backup: pageBackup };
-    $('#main').innerHTML = (pages[S.page] || pageHome)();
+    const pages = { home: pageHome, tickets: pageTickets, vouch: pageVouch, sales: pageSales, products: () => pageShop('product'), restock: () => pageShop('restock'), images: pageImages, admin: pageAdmin, appearance: pageAppearance, invites: pageInvites, advanced: pageAdvanced, backup: pageBackup };
+    const mdPages = ['tickets', 'vouch', 'products', 'restock', 'advanced'];
+    $('#main').innerHTML = (mdPages.includes(S.page) ? mdBar() : '') + (pages[S.page] || pageHome)();
     if (S.page === 'advanced' || (S.page === 'tickets' && S.tab === 'commands')) fillMembers();
     if (S.page === 'backup') refreshBackupBoxes();
   } catch (e) {
@@ -383,35 +449,117 @@ const stars = (n) => '⭐'.repeat(Math.max(0, Math.min(5, n))) + '☆'.repeat(Ma
 const fmtMoney = (n, cur) => `${Number(n || 0).toLocaleString('fr-FR', { maximumFractionDigits: 2 })} ${cur || '€'}`;
 const fmtDate = (t) => t ? new Date(t).toLocaleString('fr-FR') : '—';
 const colorOf = (c) => /^#?[0-9a-f]{6}$/i.test(String(c || '').trim()) ? '#' + String(c).trim().replace('#', '') : '#5865F2';
+const channelUrl = (id) => `https://discord.com/channels/${S.gid}/${id}`;
+const discordChannelId = (url) => {
+  const m = /^https?:\/\/(?:www\.)?discord(?:app)?\.com\/channels\/(\d+)\/(\d+)/i.exec(String(url || ''));
+  return m ? m[2] : '';
+};
 const blank = (v) => v === undefined || v === null || v === '';
 
-/* ---------- Images : lien ou import direct depuis le site ---------- */
-function imgField(id, value, label, hint = '') {
+/* ---------- Images : lien, import direct ou bibliothèque ---------- */
+function libraryOptions(selected = '') {
+  const imgs = S.g?.images || [];
+  return '<option value="">📚 Choisir une image enregistrée…</option>' + imgs.map((i) =>
+    `<option value="${esc(i.id)}" ${selected === i.id ? 'selected' : ''}>${esc(i.name)}</option>`).join('');
+}
+function imgField(id, value, label, hint = '', opts = {}) {
   const v = String(value || '');
   if (v.startsWith('data:image/')) S.uploads[id] = v;
+  else if (v) delete S.uploads[id];
   const url = v.startsWith('data:') ? '' : v;
-  return `<label class="field"><span>${esc(label)}</span>${hint ? `<small>${esc(hint)}</small>` : ''}
-    <input id="${id}" maxlength="500" value="${esc(url)}" placeholder="https://…">
+  const simple = opts.simple === true;
+  const max = opts.max || 1600;
+  const lib = simple ? '' : `<div class="row" style="gap:8px;margin-top:6px;align-items:center">
+      <select class="img-lib" id="${id}_lib" onchange="libraryPick(this,'${id}')">${libraryOptions()}</select>
+      <button type="button" class="mini" onclick="librarySaveCurrent('${id}')" title="Enregistrer cette image dans la bibliothèque">＋ Bibliothèque</button>
+    </div>`;
+  return `<div class="field"><span>${esc(label)}</span>${hint ? `<small>${esc(hint)}</small>` : ''}
+    <input id="${id}" maxlength="500" data-md="0" value="${esc(url)}" placeholder="https://…">
     <div class="row" style="gap:8px;margin-top:6px;align-items:center">
-      <input type="file" accept="image/*" style="max-width:220px" onchange="uploadPick(this,'${id}')">
+      <input type="file" accept="image/*" style="max-width:220px" onchange="uploadPick(this,'${id}',${max})">
       <button type="button" class="mini" onclick="uploadClear('${id}')">Retirer</button>
       <span class="muted" id="${id}_state">${S.uploads[id] ? 'Fichier importé ✓' : ''}</span>
-    </div></label>`;
+    </div>
+    ${lib}
+    <img id="${id}_prev" class="img-prev" alt="" ${v ? `src="${esc(v)}"` : 'hidden'}>
+  </div>`;
 }
-function uploadPick(input, id) {
+function setImgPreview(id, src) {
+  const p = document.getElementById(id + '_prev');
+  if (!p) return;
+  if (src) { p.src = src; p.hidden = false; } else { p.removeAttribute?.('src'); p.hidden = true; }
+}
+function readDataUrl(f) {
+  return new Promise((ok, ko) => {
+    const rd = new FileReader();
+    rd.onload = () => ok(String(rd.result));
+    rd.onerror = () => ko(new Error('Lecture du fichier impossible.'));
+    rd.readAsDataURL(f);
+  });
+}
+function loadImage(src) {
+  return new Promise((ok, ko) => {
+    const im = new Image();
+    im.onload = () => ok(im);
+    im.onerror = () => ko(new Error('Image illisible.'));
+    im.src = src;
+  });
+}
+// Compresse une image dans le navigateur : les photos de téléphone passent sans dépasser la limite.
+async function compressDataUrl(src, maxDim = 1600) {
+  const s = String(src || '');
+  if (!s.startsWith('data:image/') || /^data:image\/(gif|svg\+xml)/i.test(s)) return s;
+  try {
+    const im = await loadImage(s);
+    let w = im.width || im.naturalWidth;
+    let h = im.height || im.naturalHeight;
+    if (!w || !h) return s;
+    const scale = Math.min(1, maxDim / Math.max(w, h));
+    w = Math.max(1, Math.round(w * scale));
+    h = Math.max(1, Math.round(h * scale));
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const ctx = c.getContext('2d');
+    ctx.drawImage(im, 0, 0, w, h);
+    let out = c.toDataURL('image/webp', 0.86);
+    if (!out.startsWith('data:image/webp')) {
+      // Repli : PNG pour garder la transparence des logos, JPEG pour les photos.
+      out = c.toDataURL(s.startsWith('data:image/png') ? 'image/png' : 'image/jpeg', 0.86);
+    }
+    return out.length < s.length ? out : s;
+  } catch { return s; }
+}
+async function compressImage(f, maxDim = 1600) {
+  if (/^image\/gif$/i.test(f.type)) return readDataUrl(f);
+  return compressDataUrl(await readDataUrl(f), maxDim);
+}
+async function uploadPick(input, id, maxDim = 1600) {
   const f = input.files && input.files[0];
   if (!f) return;
-  if (!/^image\//.test(f.type)) return toast('Choisis un fichier image.', false);
-  if (f.size > 4 * 1024 * 1024) return toast('Image trop lourde (4 Mo maximum).', false);
-  const rd = new FileReader();
-  rd.onload = () => {
-    S.uploads[id] = String(rd.result);
+  if (!/^image\/(png|jpe?g|gif|webp)$/i.test(f.type)) {
+    input.value = '';
+    return toast('Formats acceptés : PNG, JPG, GIF ou WebP.', false);
+  }
+  const st = document.getElementById(id + '_state');
+  try {
+    if (f.size > 12 * 1024 * 1024) throw new Error('Image trop lourde (12 Mo maximum).');
+    if (/^image\/gif$/i.test(f.type) && f.size > 4 * 1024 * 1024) throw new Error('GIF trop lourd (4 Mo maximum).');
+    if (st) st.textContent = 'Traitement de l’image…';
+    const data = await compressImage(f, maxDim);
+    if (data.length > 7.5e6) throw new Error('Image trop lourde après compression. Choisis une image plus petite.');
+    S.uploads[id] = data;
     const el = document.getElementById(id);
     if (el) el.value = '';
-    const st = document.getElementById(id + '_state');
+    const sel = document.getElementById(id + '_lib');
+    if (sel) sel.value = '';
+    setImgPreview(id, data);
     if (st) st.textContent = 'Fichier importé ✓ (' + f.name + ')';
-  };
-  rd.readAsDataURL(f);
+  } catch (e) {
+    if (st) st.textContent = '';
+    toast(e.message, false);
+  } finally {
+    input.value = '';
+  }
 }
 function uploadClear(id) {
   delete S.uploads[id];
@@ -419,6 +567,49 @@ function uploadClear(id) {
   if (el) el.value = '';
   const st = document.getElementById(id + '_state');
   if (st) st.textContent = '';
+  const sel = document.getElementById(id + '_lib');
+  if (sel) sel.value = '';
+  setImgPreview(id, '');
+}
+async function libraryPick(sel, id) {
+  const imgId = sel.value;
+  if (!imgId) return;
+  try {
+    const img = await api('/api/image-get?guildId=' + encodeURIComponent(S.gid) + '&id=' + encodeURIComponent(imgId));
+    const src = String(img.src || '');
+    const el = document.getElementById(id);
+    if (src.startsWith('data:')) {
+      S.uploads[id] = src;
+      if (el) el.value = '';
+    } else {
+      delete S.uploads[id];
+      if (el) el.value = src;
+    }
+    setImgPreview(id, src);
+    const st = document.getElementById(id + '_state');
+    if (st) st.textContent = 'Bibliothèque : ' + (img.name || 'image');
+  } catch (e) { toast(e.message, false); }
+}
+async function librarySaveCurrent(id) {
+  const v = imgValue(id);
+  const src = v.data || v.url;
+  if (!src) return toast('Ajoute d’abord une image.', false);
+  const name = prompt('Nom de l’image dans la bibliothèque :', 'Image ' + ((S.g.images || []).length + 1));
+  if (name === null) return;
+  try {
+    const small = await compressDataUrl(src, 1400);
+    const r = await api('/api/images', { guildId: S.gid, action: 'add', name, src: small });
+    (S.g.images ||= []).push(r.image);
+    refreshLibrarySelects();
+    toast('Image enregistrée dans la bibliothèque ✅');
+  } catch (e) { toast(e.message, false); }
+}
+function refreshLibrarySelects() {
+  $$('.img-lib').forEach((sel) => {
+    const cur = sel.value;
+    sel.innerHTML = libraryOptions();
+    if (sel.options && [...sel.options].some((o) => o.value === cur)) sel.value = cur;
+  });
 }
 function imgValue(id) {
   const el = document.getElementById(id);
@@ -489,6 +680,9 @@ function pageHome() {
     </div>
     <section class="card"><h2>Actions rapides</h2><div class="row">
       <button class="btn" onclick="go('tickets')">Gérer les tickets</button>
+      <button class="btn ghost" onclick="go('products')">Produits</button>
+      <button class="btn ghost" onclick="go('restock')">Restock</button>
+      <button class="btn ghost" onclick="go('images')">Bibliothèque d’images</button>
       <button class="btn ghost" onclick="go('appearance')">Couleur des panels</button>
       <button class="btn ghost" onclick="go('sales')">Suivi des ventes</button>
       <button class="btn ghost" onclick="go('vouch')">Réglages des vouchs</button>
@@ -530,8 +724,10 @@ function tkCreateCard() {
       <label class="field"><span>Nom <b class="req">*</b></span><small>Lettres minuscules, chiffres et tirets. Ex : support, boutique</small><input id="n_name" maxlength="30" placeholder="support"></label>
       <label class="field"><span>Catégorie Discord <b class="req">*</b></span><small>Où les salons de ticket seront créés</small><select id="n_category">${categoryOptions('')}</select></label>
     </div>
-    <label class="field"><span>Rôles staff <b class="req">*</b></span><small>Maintiens Ctrl pour en choisir plusieurs</small>
+    <label class="field"><span>Rôles staff</span><small>Maintiens Ctrl pour en choisir plusieurs. Vide = aucun rôle staff : seuls les administrateurs (et le membre qui ouvre) voient le ticket.</small>
       <select id="n_staff" multiple size="5">${staffSelect([])}</select></label>
+    <label class="field"><span>Accès staff</span><small>« Tous les rôles » : un membre doit posséder chaque rôle staff de la catégorie pour voir le ticket.</small>
+      <select id="n_staffmode"><option value="any">Au moins un rôle suffit</option><option value="all">Tous les rôles sont requis</option></select></label>
     <div class="grid2">
       <label class="field"><span>Salon des transcripts</span><select id="n_logs">${channelOptions('', [0, 5])}</select></label>
       <label class="field"><span>Couleur propre (optionnel)</span><input id="n_color" placeholder="#5865F2" maxlength="7"></label>
@@ -544,7 +740,7 @@ async function tkCreate() {
   const categoryId = $('#n_category').value;
   const staffRoles = [...$('#n_staff').selectedOptions].map((o) => o.value);
   try {
-    await api('/api/ticket-config', { action: 'create', guildId: S.gid, name, categoryId, staffRoles, logChannelId: $('#n_logs').value, color: $('#n_color').value.trim() });
+    await api('/api/ticket-config', { action: 'create', guildId: S.gid, name, categoryId, staffRoles, staffMode: $('#n_staffmode').value, logChannelId: $('#n_logs').value, color: $('#n_color').value.trim() });
     S.newTk = false; S.tk = name; S.tab = 'config';
     await afterChange('Configuration créée ✅');
   } catch (e) { toast(e.message, false); }
@@ -558,14 +754,16 @@ function tkConfig() {
       <label class="field"><span>Catégorie Discord par défaut <b class="req">*</b></span><select id="c_category">${categoryOptions(t.categoryId)}</select></label>
       <label class="field"><span>Salon des transcripts</span><select id="c_logs">${channelOptions(t.logChannelId, [0, 5], '— aucun —')}</select></label>
     </div>
-    <label class="field"><span>Rôles staff <b class="req">*</b></span><small>Ils voient et répondent aux nouveaux tickets.</small>
+    <label class="field"><span>Rôles staff</span><small>Ils voient et répondent aux nouveaux tickets. Vide = aucun rôle staff (seuls les admins voient).</small>
       <select id="c_staff" multiple size="5">${staffSelect(t.staffRoles)}</select></label>
+    <label class="field"><span>Accès staff</span><small>« Tous les rôles » : un membre doit posséder chaque rôle staff de la catégorie pour voir le ticket. « Au moins un » : un seul rôle suffit.</small>
+      <select id="c_staffmode"><option value="any" ${t.staffMode !== 'all' ? 'selected' : ''}>Au moins un rôle suffit</option><option value="all" ${t.staffMode === 'all' ? 'selected' : ''}>Tous les rôles sont requis</option></select></label>
     <div class="grid2">
       <label class="field"><span>Texte du menu déroulant</span><input id="c_placeholder" maxlength="150" value="${esc(t.placeholder || '')}" placeholder="Choisir une catégorie..."></label>
       <label class="field"><span>Couleur propre à cette configuration</span><small>Vide = couleur globale du serveur</small><input id="c_color" maxlength="7" value="${esc(t.color || '')}" placeholder="#5865F2"></label>
     </div>
     <div class="grid2">
-      ${imgField('c_logo', t.logo, 'Logo propre à cette configuration', 'Lien ou fichier importé. Vide = logo global de la page Apparence.')}
+      ${imgField('c_logo', t.logo, 'Logo propre à cette configuration', 'Lien ou fichier importé. Vide = logo global de la page Apparence.', { max: 512 })}
       <label class="field"><span>Traduction automatique</span><small>Traduit chaque message reçu en français et en anglais, quelle que soit la langue d'origine.</small>
         <select id="c_translate"><option value="false" ${!t.translate ? 'selected' : ''}>Désactivée</option><option value="true" ${t.translate ? 'selected' : ''}>Activée</option></select></label>
     </div>
@@ -586,6 +784,7 @@ async function tkSaveConfig() {
     await api('/api/ticket-config', {
       action: 'update', guildId: S.gid, name: t.name,
       categoryId: $('#c_category').value, staffRoles, logChannelId: $('#c_logs').value,
+      staffMode: $('#c_staffmode').value,
       placeholder: $('#c_placeholder').value, color: $('#c_color').value.trim(),
       logo: cl.data || cl.url, translate: $('#c_translate').value === 'true',
     });
@@ -606,11 +805,12 @@ async function tkDeleteConfig() {
 function tkReasons() {
   const t = TC();
   const r = S.reasonEdit ? t.reasons.find((x) => x.id === S.reasonEdit) : null;
+  const rs = (x) => (Array.isArray(x?.staffRoles) && x.staffRoles.length ? x.staffRoles : (x?.staffRoleId ? [x.staffRoleId] : []));
   return `<section class="card">
     <div class="row" style="justify-content:space-between"><h2>Catégories du menu (${t.reasons.length}/125)</h2><span class="muted">Le menu déroulant du panel</span></div>
     <div class="list">${t.reasons.map((x) => `
       <div class="item"><div class="grow"><b>${esc(x.emoji || '')} ${esc(x.label)}</b>
-        <small>${esc(x.description || 'Sans description')} · ${chName(x.categoryId || t.categoryId)}${x.staffRoleId ? ' · ' + roleName(x.staffRoleId) : ''}</small></div>
+        <small>${esc(x.description || 'Sans description')} · ${chName(x.categoryId || t.categoryId)}${rs(x).length ? ' · ' + rs(x).map((id) => esc(roleName(id))).join(' ') : ''}</small></div>
         <div class="row"><button class="mini" onclick="S.reasonEdit='${x.id}';render()">Modifier</button><button class="mini" onclick="reasonDel('${x.id}')">Supprimer</button></div></div>`).join('') || '<div class="empty">Aucune catégorie. Sans catégorie, le panel utilise un simple bouton.</div>'}
     </div>
   </section>
@@ -624,8 +824,10 @@ function tkReasons() {
     <label class="field"><span>Texte du panel multi-boutons</span><small>Affiché à gauche du bouton dans un panel « plusieurs boutons ». Vide = nom + description.</small><textarea id="r_ptext" maxlength="1000" style="min-height:70px" placeholder="**Have a quick question about our products?**&#10;Press **Questions** to open the matching ticket flow.">${esc(r?.panelText || '')}</textarea></label>
     <div class="grid2">
       <label class="field"><span>Catégorie Discord</span><select id="r_cat">${categoryOptions(r?.categoryId || '', '— catégorie par défaut —')}</select></label>
-      <label class="field"><span>Rôle staff propre</span><select id="r_role">${roleOptions(r?.staffRoleId || '', '— rôles de la configuration —')}</select></label>
+      <label class="field"><span>Rôles staff de cette catégorie</span><small>Maintiens Ctrl pour en choisir plusieurs. Vide = rôles de la configuration.</small><select id="r_staff" multiple size="4">${staffSelect(rs(r))}</select></label>
     </div>
+    <label class="field"><span>Accès staff de cette catégorie</span><small>« Tous les rôles » : le membre doit posséder chaque rôle staff de cette catégorie pour voir le ticket.</small>
+      <select id="r_mode"><option value="" ${!r?.staffMode ? 'selected' : ''}>Hériter de la configuration</option><option value="any" ${r?.staffMode === 'any' ? 'selected' : ''}>Au moins un rôle suffit</option><option value="all" ${r?.staffMode === 'all' ? 'selected' : ''}>Tous les rôles sont requis</option></select></label>
     <div class="row end">${r ? '<button class="btn ghost" onclick="S.reasonEdit=null;render()">Annuler</button>' : ''}<button class="btn" onclick="reasonSave()">${r ? 'Enregistrer' : 'Ajouter la catégorie'}</button></div>
   </section>
   <section class="card"><h2>Importer une liste d’articles</h2>
@@ -637,7 +839,7 @@ function tkReasons() {
     </div>
     <div class="grid2">
       <label class="field"><span>Catégorie Discord</span><select id="bulk_cat">${categoryOptions('', '— celle de la config —')}</select></label>
-      <label class="field"><span>Rôle staff</span><select id="bulk_role">${roleOptions('', '— celle de la config —')}</select></label>
+      <label class="field"><span>Rôles staff</span><small>Maintiens Ctrl pour en choisir plusieurs.</small><select id="bulk_role" multiple size="4">${staffSelect([])}</select></label>
     </div>
     <button class="btn" onclick="bulkImport()">Importer</button>
   </section>`;
@@ -650,7 +852,9 @@ async function reasonSave() {
       action: r ? 'update' : 'add', guildId: S.gid, config: t.name, id: r?.id,
       label: $('#r_label').value, emoji: $('#r_emoji').value, description: $('#r_desc').value,
       panelText: $('#r_ptext').value,
-      categoryId: $('#r_cat').value, staffRoleId: $('#r_role').value,
+      categoryId: $('#r_cat').value,
+      staffRoles: [...$('#r_staff').selectedOptions].map((o) => o.value),
+      staffMode: $('#r_mode').value || null,
     });
     S.reasonEdit = null;
     await afterChange(r ? 'Catégorie modifiée ✅' : 'Catégorie ajoutée ✅');
@@ -682,7 +886,8 @@ async function bulkImport() {
   try {
     const r = await api('/api/bulk-choices', {
       guildId: S.gid, config: t.name, target: 'reasons', items, mode: $('#bulk_mode').value,
-      emoji: $('#bulk_emoji').value, categoryId: $('#bulk_cat').value, staffRoleId: $('#bulk_role').value,
+      emoji: $('#bulk_emoji').value, categoryId: $('#bulk_cat').value,
+      staffRoles: [...$('#bulk_role').selectedOptions].map((o) => o.value),
     });
     await afterChange(`${r.added} ajoutée(s), ${r.updated} mise(s) à jour${r.skipped ? `, ${r.skipped} ignorée(s)` : ''}`);
   } catch (e) { toast(e.message, false); }
@@ -735,7 +940,7 @@ function spForm(sp) {
     </div>
     <div class="grid2">
       ${imgField('sp_img', sp?.image, 'Image (lien ou fichier)')}
-      ${imgField('sp_thumb', sp?.thumbnail, 'Miniature (lien ou fichier)')}
+      ${imgField('sp_thumb', sp?.thumbnail, 'Miniature (lien ou fichier)', '', { max: 512 })}
     </div>
     <label class="field"><span>Pied de page</span><input id="sp_footer" maxlength="2048" value="${esc(sp?.footer || '')}"></label>
     <label class="row" style="margin-bottom:12px"><input type="checkbox" id="sp_payment" ${sp?.payment ? 'checked' : ''}> <span>💳 Ce sous-panel est un mode de paiement (variable <span class="code">{paiement}</span>)</span></label>
@@ -776,10 +981,11 @@ async function spLink(pour, subId) {
 }
 function choiceCard(sp, ch) {
   const others = (TC().subPanels || []).filter((s) => s.id !== sp.id);
+  const cs = (x) => (Array.isArray(x?.staffRoles) && x.staffRoles.length ? x.staffRoles : (x?.staffRoleId ? [x.staffRoleId] : []));
   return `<section class="card"><h2>Choix de « ${esc(sp.name)} » (${sp.choices.length}/125)</h2>
     <div class="list">${sp.choices.map((c) => `
       <div class="item"><div class="grow"><b>${esc(c.emoji || '')} ${esc(c.label)}</b>
-        <small>${esc(c.description || '')}${c.description ? ' · ' : ''}${chName(c.categoryId)}${c.staffRoleId ? ' · ' + roleName(c.staffRoleId) : ''}${c.nextSubId ? ' · ➜ ' + esc((TC().subPanels || []).find((s) => s.id === c.nextSubId)?.name || '?') : ''}</small></div>
+        <small>${esc(c.description || '')}${c.description ? ' · ' : ''}${chName(c.categoryId)}${cs(c).length ? ' · ' + cs(c).map((id) => esc(roleName(id))).join(' ') : ''}${c.nextSubId ? ' · ➜ ' + esc((TC().subPanels || []).find((s) => s.id === c.nextSubId)?.name || '?') : ''}</small></div>
         <div class="row"><button class="mini" onclick="S.choiceEdit='${c.id}';render()">Modifier</button><button class="mini" onclick="choiceDel('${c.id}')">Supprimer</button></div></div>`).join('') || '<div class="empty">Aucun choix : ce sous-panel ne s’affichera pas.</div>'}</div>
     <h3 style="margin-top:18px">${ch ? 'Modifier « ' + esc(ch.label) + ' »' : 'Ajouter un choix'}</h3>
     <div class="grid2">
@@ -789,7 +995,7 @@ function choiceCard(sp, ch) {
     <label class="field"><span>Description courte</span><input id="ch_desc" maxlength="100" value="${esc(ch?.description || '')}" placeholder="Prix ou détail"></label>
     <div class="grid2">
       <label class="field"><span>Catégorie Discord</span><select id="ch_cat">${categoryOptions(ch?.categoryId || '', '— celle du menu / config —')}</select></label>
-      <label class="field"><span>Rôle staff</span><select id="ch_role">${roleOptions(ch?.staffRoleId || '', '— rôles de la config —')}</select></label>
+      <label class="field"><span>Rôles staff</span><small>Maintiens Ctrl pour en choisir plusieurs. Vide = rôles de la config.</small><select id="ch_staff" multiple size="4">${staffSelect(cs(ch))}</select></label>
     </div>
     <label class="field"><span>Sous-panel suivant</span><small>Proposé après ce choix. Vide = le ticket s’ouvre.</small>
       <select id="ch_next"><option value="">— aucun (ticket direct) —</option>${others.map((s) => `<option value="${s.id}" ${ch?.nextSubId === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>
@@ -804,7 +1010,7 @@ async function choiceSave() {
     await api('/api/subpanel-choice', {
       action: ch ? 'update' : 'add', guildId: S.gid, config: S.tk, subId: sp.id, id: ch?.id,
       label: $('#ch_label').value, emoji: $('#ch_emoji').value, description: $('#ch_desc').value,
-      categoryId: $('#ch_cat').value, staffRoleId: $('#ch_role').value, nextSubId: $('#ch_next').value,
+      categoryId: $('#ch_cat').value, staffRoles: [...$('#ch_staff').selectedOptions].map((o) => o.value), nextSubId: $('#ch_next').value,
     });
     S.choiceEdit = null;
     await afterChange(ch ? 'Choix modifié ✅' : 'Choix ajouté ✅');
@@ -844,7 +1050,7 @@ function tkPanels() {
       <label class="field"><span>Couleur</span><input id="p_color" maxlength="7" value="${esc(draft('color', ''))}" placeholder="${esc(S.g.panelColor)}"></label>
     </div>
     <div class="grid2">
-      ${imgField('p_thumb', draft('thumb', ''), 'Logo (lien ou fichier)', 'Vide = logo global de la page Apparence.')}
+      ${imgField('p_thumb', draft('thumb', ''), 'Logo (lien ou fichier)', 'Vide = logo global de la page Apparence.', { max: 512 })}
       <label class="field"><span>Texte du menu</span><input id="p_placeholder" maxlength="150" placeholder="Choisir une catégorie..."></label>
     </div>
     <label class="check"><input type="checkbox" id="p_logo" ${draft('showLogo', true) ? 'checked' : ''}> Afficher le logo du serveur (page Apparence) sur ce panel</label>
@@ -1021,7 +1227,7 @@ function tkMessage() {
     <label class="field"><span>Description</span><textarea id="om_desc" maxlength="4000" style="min-height:130px">${esc(m.description || '')}</textarea></label>
     <div class="grid2">
       ${imgField('om_image', m.image, 'Image (lien ou fichier)')}
-      ${imgField('om_thumb', m.thumbnail, 'Miniature (lien ou fichier)')}
+      ${imgField('om_thumb', m.thumbnail, 'Miniature (lien ou fichier)', '', { max: 512 })}
     </div>
     <label class="field"><span>Pied de page</span><input id="om_footer" maxlength="2048" value="${esc(m.footer || '')}"></label>
     <h3 style="margin-top:18px">Champs personnalisés</h3>
@@ -1119,7 +1325,7 @@ function pageVouch() {
         <label class="field"><span>Commande /vouch</span><select id="v_enabled"><option value="true" ${v.enabled ? 'selected' : ''}>Activée</option><option value="false" ${!v.enabled ? 'selected' : ''}>Désactivée</option></select></label>
       </div>
       <div class="grid2">
-        <label class="field"><span>Logo du vouch (haut à droite)</span><small>URL d'une image affichée en haut à droite de chaque vouch.</small><input id="v_logo" maxlength="500" value="${esc(v.logo || '')}" placeholder="https://…"></label>
+        ${imgField('v_logo', v.logo, 'Logo du vouch (haut à droite)', 'Lien ou fichier importé, affiché en haut à droite de chaque vouch.', { max: 512 })}
         <label class="field"><span>Titre du vouch</span><small>Vide = <span class="code">Customer review</span></small><input id="v_title" maxlength="256" value="${esc(v.title || '')}" placeholder="Customer review"></label>
       </div>
       <label class="field"><span>Bloc sous l'avis</span><small>Mets ce que tu veux : une ligne par information (Service, Support, Prix, Produit…). Laisse vide pour un vouch minimal.</small><textarea id="v_details" maxlength="2000" style="min-height:120px" placeholder="**Service** — {category}&#10;**Support** — {claimed}&#10;**Ticket** — {ticket}">${esc(v.details || '')}</textarea></label>
@@ -1139,9 +1345,10 @@ function pageVouch() {
 }
 async function vouchSave() {
   try {
+    const vl = imgValue('v_logo');
     await api('/api/guild-settings', {
       guildId: S.gid, vouchChannelId: $('#v_channel').value, vouchEnabled: $('#v_enabled').value === 'true',
-      vouchLogo: $('#v_logo').value.trim(), vouchTitle: $('#v_title').value,
+      vouchLogo: vl.data || vl.url, vouchTitle: $('#v_title').value,
       vouchDetails: $('#v_details').value, vouchFooter: $('#v_footer').value,
     });
     await afterChange('Réglages des vouchs enregistrés ✅');
@@ -1168,6 +1375,7 @@ function pageSales() {
       <div class="grid2">
         <label class="field"><span>Salon du panel de suivi</span><select id="s_channel">${channelOptions(s.channelId, [0, 5], '— aucun salon —')}</select></label>
         <label class="field"><span>Devise</span><input id="s_currency" maxlength="8" value="${esc(s.currency)}" placeholder="€"></label>
+        ${imgField('s_logo', s.logo, 'Logo du panel', 'Petit logo en haut à droite du panel de suivi. Vide = aucun logo.', { max: 512 })}
       </div>
       <div class="row"><button class="btn" onclick="salesSave()">Enregistrer</button>
         <button class="btn ghost" onclick="salesPanel()">Créer / rafraîchir le panel</button>
@@ -1183,8 +1391,10 @@ function pageSales() {
 }
 async function salesSave() {
   try {
+    const sl = imgValue('s_logo');
     await api('/api/guild-settings', {
       guildId: S.gid, salesChannelId: $('#s_channel').value, salesCurrency: $('#s_currency').value,
+      salesLogo: sl.data || sl.url,
     });
     await afterChange('Réglages des ventes enregistrés ✅');
   } catch (e) { toast(e.message, false); }
@@ -1206,16 +1416,22 @@ function shopState(kind) {
   if (!S.shop[kind]) S.shop[kind] = {
     id: null, channelId: '', title: '', text: '', footer: '', color: '', logo: true,
     image: '', thumb: '',
-    links: [{ label: '', url: '', emoji: '' }],
+    links: [{ label: '', url: '', emoji: '', channelId: '' }],
     rows: [{ variant: '', price: '', stock: '' }],
   };
   return S.shop[kind];
 }
 function shopLinkRow(kind, l, i) {
+  const eid = `sl_emoji_${kind}_${i}`;
   return `<div class="row shop-link" style="gap:8px;align-items:flex-end;margin-bottom:8px">
-    <label class="field" style="flex:1.2;margin:0"><span>Texte</span><input class="sl-label" maxlength="80" value="${esc(l.label)}" placeholder="Check / Purchase"></label>
-    <label class="field" style="flex:2;margin:0"><span>Lien</span><input class="sl-url" maxlength="500" value="${esc(l.url)}" placeholder="https://…"></label>
-    <label class="field" style="flex:0 0 84px;margin:0"><span>Emoji</span><input class="sl-emoji" maxlength="64" value="${esc(l.emoji)}" placeholder="🛒"></label>
+    <label class="field" style="flex:1.1;margin:0"><span>Texte</span><input class="sl-label" maxlength="80" data-md="0" value="${esc(l.label)}" placeholder="Check / Purchase"></label>
+    <label class="field" style="flex:1.5;margin:0"><span>Lien</span><input class="sl-url" maxlength="500" data-md="0" value="${esc(l.url)}" placeholder="https://…" oninput="this.closest('.shop-link').querySelector('.sl-chan').value=''"></label>
+    <label class="field" style="flex:1.2;margin:0"><span>ou salon (achat direct)</span><select class="sl-chan" onchange="this.closest('.shop-link').querySelector('.sl-url').value=''">${channelOptions(l.channelId || '', [0, 5, 15], '— aucun —')}</select></label>
+    <label class="field" style="flex:0 0 118px;margin:0"><span>Emoji</span>
+      <div class="emoji-wrap"><input class="sl-emoji" id="${eid}" maxlength="64" value="${esc(l.emoji)}" placeholder="🛒" oninput="emojiPrevUpdate(this)">
+        <button type="button" class="emoji-btn" title="Choisir un emoji" onclick="openEmoji('${eid}')">😀</button>
+        <span class="emoji-prev" data-prev="${eid}">${emojiPreview(l.emoji)}</span></div>
+    </label>
     <button type="button" class="mini" onclick="shopLinkDel('${kind}',${i})" title="Retirer">✕</button>
   </div>`;
 }
@@ -1223,11 +1439,11 @@ function renderShopLinks(kind) {
   const box = document.getElementById('shop_links_' + kind);
   if (box) box.innerHTML = shopState(kind).links.map((l, i) => shopLinkRow(kind, l, i)).join('');
 }
-function shopLinkAdd(kind) { shopSync(kind); shopState(kind).links.push({ label: '', url: '', emoji: '' }); renderShopLinks(kind); }
+function shopLinkAdd(kind) { shopSync(kind); shopState(kind).links.push({ label: '', url: '', emoji: '', channelId: '' }); renderShopLinks(kind); }
 function shopLinkDel(kind, i) {
   shopSync(kind);
   shopState(kind).links.splice(i, 1);
-  if (!shopState(kind).links.length) shopState(kind).links.push({ label: '', url: '', emoji: '' });
+  if (!shopState(kind).links.length) shopState(kind).links.push({ label: '', url: '', emoji: '', channelId: '' });
   renderShopLinks(kind);
 }
 function shopStockRow(kind, r, i) {
@@ -1267,13 +1483,21 @@ function shopSync(kind) {
     stock: row.querySelector('.sr-stock').value,
   }));
   const links = $$(`#shop_links_${kind} .shop-link`);
-  if (links.length) st.links = links.map((row) => ({
-    label: row.querySelector('.sl-label').value,
-    url: row.querySelector('.sl-url').value,
-    emoji: row.querySelector('.sl-emoji').value,
-  }));
+  if (links.length) st.links = links.map((row) => {
+    const raw = row.querySelector('.sl-url')?.value.trim() || '';
+    const chan = row.querySelector('.sl-chan')?.value || '';
+    return {
+      label: row.querySelector('.sl-label')?.value || '',
+      // Un salon choisi devient un lien Discord qui ouvre le salon directement.
+      url: raw || (chan ? channelUrl(chan) : ''),
+      channelId: raw ? discordChannelId(raw) : chan,
+      emoji: row.querySelector('.sl-emoji')?.value || '',
+    };
+  });
   const img = imgValue('shop_img_' + kind);
   st.image = img.data || img.url;
+  const th = imgValue('shop_thumb_' + kind);
+  st.thumb = th.data || th.url;
   return st;
 }
 function shopParams(kind) {
@@ -1314,16 +1538,22 @@ async function shopLoad(kind, id) {
       });
     const links = String(pr.links || '').split('\n').filter((l) => l.trim()).map((line) => {
       const [label = '', url = '', emoji = ''] = line.split('|').map((x) => x.trim());
-      return { label, url, emoji };
+      const chan = discordChannelId(url);
+      const name = /^#(.+)$/.exec(url);
+      const byName = name && (S.g.channels || []).find((c) => String(c.name || '').toLowerCase() === name[1].toLowerCase());
+      const known = (chan && (S.g.channels || []).some((c) => c.id === chan)) ? chan : (byName?.id || '');
+      // Un lien de salon connu est rechargé dans le sélecteur « ou salon » (plus lisible qu'une longue URL).
+      return { label, url: known ? '' : url, emoji, channelId: known };
     });
     S.shop[kind] = {
       id: post.id, channelId: post.channelId, title: pr.title || '',
       text: pr.text || '', footer: pr.footer || '', color: pr.color || '', logo: pr.logo !== false,
       image: pr.image || '', thumb: pr.thumb || '',
-      links: links.length ? links : [{ label: '', url: '', emoji: '' }],
+      links: links.length ? links : [{ label: '', url: '', emoji: '', channelId: '' }],
       rows: rows.length ? rows : [{ variant: '', price: '', stock: '' }],
     };
     delete S.uploads['shop_img_' + kind];
+    delete S.uploads['shop_thumb_' + kind];
     render();
     toast('Paramètres chargés : modifie ce que tu veux puis clique sur « Mettre à jour ».');
   } catch (e) { toast(e.message, false); }
@@ -1331,6 +1561,7 @@ async function shopLoad(kind, id) {
 function shopNew(kind) {
   S.shop[kind] = null;
   delete S.uploads['shop_img_' + kind];
+  delete S.uploads['shop_thumb_' + kind];
   render();
 }
 async function shopSend(kind) {
@@ -1374,6 +1605,7 @@ function pageShop(kind) {
   const st = shopState(kind);
   const editing = !!st.id;
   const imgId = 'shop_img_' + kind;
+  const thumbId = 'shop_thumb_' + kind;
   const count = (S.g.shopPosts || []).filter((p) => p.kind === kind).length;
   return head(isP ? 'Produits' : 'Restock',
     isP ? 'Annonce produit : texte libre, image, logo et autant de boutons-liens que tu veux. Modifie ou renvoie un message déjà envoyé sans tout refaire.'
@@ -1387,18 +1619,20 @@ function pageShop(kind) {
         <label class="field"><span>Salon <b class="req">*</b></span><select id="shop_channel">${channelOptions(st.channelId, [0, 5])}</select></label>
         <label class="field"><span>Couleur</span><div class="row" style="gap:8px"><input id="shop_color" maxlength="7" value="${esc(st.color)}" placeholder="${esc(S.g.panelColor)}" style="flex:1"><input type="color" id="shop_picker" value="${colorOf(st.color || S.g.panelColor)}" oninput="$('#shop_color').value=this.value" style="max-width:58px"></div></label>
       </div>
-      <label class="field"><span>Titre</span><input id="shop_title" maxlength="256" value="${esc(st.title)}" placeholder="${isP ? '🎯 NEW PRODUCT: …' : 'Buy Now'}"></label>
+      <label class="field"><span>Titre</span><input id="shop_title" maxlength="256" data-md="0" value="${esc(st.title)}" placeholder="${isP ? '🎯 NEW PRODUCT: …' : 'Buy Now'}"></label>
       ${isP
-        ? `<label class="field"><span>Description</span><small>Markdown accepté : titres, listes, **gras**, @Pseudo, @Rôle, #salon.</small><textarea id="shop_text" style="min-height:220px" maxlength="4000">${esc(st.text)}</textarea></label>`
+        ? `<label class="field"><span>Description</span><small>Markdown accepté : titres, listes, <b>gras</b> (sélectionne du texte puis <b>G</b> en haut), @Pseudo, @Rôle, #salon.</small><textarea id="shop_text" style="min-height:220px" maxlength="4000">${esc(st.text)}</textarea></label>`
         : `<h3>Variantes (8 maximum)</h3><div id="shop_rows">${st.rows.map((r, i) => shopStockRow(kind, r, i)).join('')}</div><button type="button" class="mini" onclick="shopRowAdd('${kind}')">+ Ajouter une variante</button>`}
       <h3>Boutons-liens (25 maximum)</h3>
+      <p class="muted" style="margin:-4px 0 10px">Colle un lien <b>ou</b> choisis un salon : le bouton ouvrira directement ce salon (achat en un clic).</p>
       <div id="shop_links_${kind}">${st.links.map((l, i) => shopLinkRow(kind, l, i)).join('')}</div>
       <button type="button" class="mini" onclick="shopLinkAdd('${kind}')">+ Ajouter un lien</button>
       <div class="grid2" style="margin-top:14px">
         ${imgField(imgId, st.image, 'Image (lien ou fichier)', 'Grande image affichée sous le texte.')}
-        <label class="field"><span>Pied de page</span><input id="shop_footer" maxlength="2048" value="${esc(st.footer)}"></label>
+        ${imgField(thumbId, st.thumb, 'Logo (lien ou fichier)', 'Petit logo en haut à droite. Vide = logo global si la case ci-dessous est cochée.', { max: 512 })}
       </div>
-      <label class="check"><input type="checkbox" id="shop_logo" ${st.logo ? 'checked' : ''}> Afficher le logo du serveur (page Apparence)</label>
+      <label class="field"><span>Pied de page</span><input id="shop_footer" maxlength="2048" data-md="0" value="${esc(st.footer)}"></label>
+      <label class="check"><input type="checkbox" id="shop_logo" ${st.logo ? 'checked' : ''}> Utiliser le logo global (page Apparence) quand aucun logo personnalisé n’est choisi</label>
       <div class="row" style="margin-top:14px">
         <button class="btn" onclick="shopSend('${kind}')">${editing ? 'Mettre à jour le message' : 'Envoyer dans Discord'}</button>
         ${editing
@@ -1407,9 +1641,202 @@ function pageShop(kind) {
           : `<button class="btn ghost" onclick="shopNew('${kind}')">Réinitialiser</button>`}
       </div>
       <div class="alert info" style="margin-top:14px">${isP
-        ? 'Chaque bouton : <b>Texte | https://lien | emoji</b> (emoji optionnel).'
-        : 'Chaque variante : <b>Variante | Prix | Stock</b>. Les boutons-liens s’ajoutent en dessous.'}</div>
+        ? 'Chaque bouton : <b>Texte | lien ou salon | emoji</b>. Le salon choisi ouvre directement le salon d’achat dans Discord.'
+        : 'Chaque variante : <b>Variante | Prix | Stock</b>. Les boutons-liens (lien ou salon) s’ajoutent en dessous.'}</div>
     </section>`;
+}
+
+/* ================================================================== */
+/*  BIBLIOTHÈQUE D'IMAGES                                              */
+/* ================================================================== */
+function imageCard(img) {
+  const src = img.kind === 'file'
+    ? `/api/image-file?guildId=${encodeURIComponent(S.gid)}&id=${encodeURIComponent(img.id)}`
+    : img.url;
+  return `<div class="img-card">
+    <div class="img-thumb">${src ? `<img src="${esc(src)}" alt="" loading="lazy">` : '<span class="muted">Aperçu indisponible</span>'}</div>
+    <input class="img-name" data-img="${esc(img.id)}" maxlength="60" value="${esc(img.name)}">
+    <div class="row">
+      <button class="mini" onclick="imageRename('${esc(img.id)}')">Renommer</button>
+      <button class="mini" onclick="imageDelete('${esc(img.id)}')">🗑️</button>
+      ${img.kind === 'url' ? `<button class="mini" onclick="copyText(${esc(JSON.stringify(img.url))})">Copier le lien</button>` : ''}
+    </div>
+  </div>`;
+}
+function pageImages() {
+  const imgs = S.g.images || [];
+  return head('Images', 'Bibliothèque d’images : importe un fichier ou enregistre un lien, donne-lui un nom, puis réutilise-le partout en un clic.') +
+    `<section class="card"><h2>Ajouter une image</h2>
+      <div class="grid2">
+        <label class="field"><span>Nom</span><small>Ce nom apparaîtra dans les listes « Choisir une image enregistrée ».</small><input id="img_name" maxlength="60" placeholder="Bannière Netflix"></label>
+        ${imgField('img_src', '', 'Image (lien ou fichier)', 'L’image est enregistrée dans la bibliothèque.', { simple: true })}
+      </div>
+      <button class="btn" onclick="imageLibAdd()">Ajouter à la bibliothèque</button>
+      <div class="alert info" style="margin-top:12px">Astuce : dans n’importe quel champ image du dashboard, clique sur <b>＋ Bibliothèque</b> pour enregistrer directement l’image déjà choisie.</div>
+    </section>
+    <section class="card"><h2>Images enregistrées (${imgs.length}/40)</h2>
+      <div class="img-grid">${imgs.map(imageCard).join('') || '<div class="empty">Aucune image enregistrée.</div>'}</div>
+    </section>`;
+}
+async function imageLibAdd() {
+  const v = imgValue('img_src');
+  const src = v.data || v.url;
+  if (!src) return toast('Choisis une image (lien ou fichier).', false);
+  try {
+    const small = await compressDataUrl(src, 1400);
+    await api('/api/images', { guildId: S.gid, action: 'add', name: $('#img_name').value.trim(), src: small });
+    delete S.uploads.img_src;
+    await afterChange('Image ajoutée à la bibliothèque ✅');
+  } catch (e) { toast(e.message, false); }
+}
+async function imageRename(id) {
+  const inp = document.querySelector(`input[data-img="${CSS.escape(id)}"]`);
+  const name = inp ? inp.value.trim() : '';
+  if (!name) return toast('Donne un nom à l’image.', false);
+  try {
+    await api('/api/images', { guildId: S.gid, action: 'rename', id, name });
+    await afterChange('Image renommée ✅');
+  } catch (e) { toast(e.message, false); }
+}
+async function imageDelete(id) {
+  if (!confirm('Supprimer cette image de la bibliothèque ? Les messages déjà envoyés ne changent pas.')) return;
+  try {
+    await api('/api/images', { guildId: S.gid, action: 'delete', id });
+    await afterChange('Image supprimée');
+  } catch (e) { toast(e.message, false); }
+}
+async function copyText(text) {
+  try {
+    if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
+    else {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
+    }
+    toast('Lien copié ✅');
+  } catch { toast('Copie impossible.', false); }
+}
+
+/* ================================================================== */
+/*  ADMIN : accès aux commandes                                        */
+/* ================================================================== */
+function adminPerms() {
+  const p = S.g.perms || {};
+  return {
+    cmdPerms: p.cmdPerms || {}, cmdUsers: p.cmdUsers || {},
+    catPerms: p.catPerms || {}, catUsers: p.catUsers || {},
+    fullRoles: p.fullRoles || [], fullUsers: p.fullUsers || [], modRoles: p.modRoles || [],
+  };
+}
+const adminRoleName = (id) => {
+  const r = (S.g.roles || []).find((x) => x.id === id);
+  return r ? '@' + r.name : 'Rôle ' + id;
+};
+const adminUserName = (id) => (S.g.memberNames || {})[id] || ('Membre ' + id);
+function adminChips(ids, target, scope, key) {
+  if (!ids || !ids.length) return '<span class="muted">Aucun.</span>';
+  const name = target === 'role' ? adminRoleName : adminUserName;
+  return ids.map((id) => `<span class="chip">${esc(name(id))}<button type="button" title="Retirer" onclick="adminPerm('${scope}','${esc(key)}','${target}','${id}','remove')">✕</button></span>`).join('');
+}
+function pageAdmin() {
+  const p = adminPerms();
+  const a = S.admin;
+  const cats = S.schema.categories || {};
+  const cmds = [...(S.schema.commands || [])].sort((x, y) =>
+    String(x.category || '').localeCompare(String(y.category || '')) || x.name.localeCompare(y.name));
+  const isCmd = a.scope === 'command';
+  if (isCmd && !cmds.some((c) => c.name === a.key)) a.key = cmds[0]?.name || '';
+  if (!isCmd && !cats[a.key]) a.key = Object.keys(cats)[0] || '';
+  const key = a.key;
+  const roles = isCmd ? (p.cmdPerms[key] || []) : (p.catPerms[key] || []);
+  const users = isCmd ? (p.cmdUsers[key] || []) : (p.catUsers[key] || []);
+  const cmd = isCmd ? cmds.find((c) => c.name === key) : null;
+  const inherited = cmd ? (p.catPerms[cmd.category] || []) : [];
+  const inheritedUsers = cmd ? (p.catUsers[cmd.category] || []) : [];
+  const cmdOptions = Object.entries(cats).map(([cat, label]) => {
+    const list = cmds.filter((c) => c.category === cat);
+    if (!list.length) return '';
+    return `<optgroup label="${esc(label)}">${list.map((c) =>
+      `<option value="${esc(c.name)}" ${c.name === key && isCmd ? 'selected' : ''}>/${esc(c.name)}${c.flags?.owner ? ' (propriétaire)' : ''}${c.flags?.public ? ' (public)' : ''}</option>`).join('')}</optgroup>`;
+  }).join('');
+  const catOptions = Object.entries(cats).map(([k, label]) =>
+    `<option value="${esc(k)}" ${k === key && !isCmd ? 'selected' : ''}>${esc(label)}</option>`).join('');
+  const members = (a.members || []).map((m) => `<div class="item"><div class="grow"><b>${esc(m.name)}</b> <small>${esc(m.tag)}</small></div>
+    <div class="row"><button class="mini" onclick="adminPerm('${isCmd ? 'command' : 'category'}','${esc(key)}','user','${m.id}','add')">Ajouter</button>
+    <button class="mini" onclick="adminPerm('all','','user','${m.id}','add')">Tout autoriser</button></div></div>`).join('');
+  return head('Admin', 'Choisis qui peut utiliser chaque commande : par rôle ou par personne. « Tout autoriser » donne immédiatement toutes les commandes.') +
+    `<section class="card"><h2>Accès à une commande</h2>
+      <div class="grid2">
+        <label class="field"><span>Type d’accès</span><select onchange="S.admin.scope=this.value;S.admin.key='';render()">
+          <option value="command" ${isCmd ? 'selected' : ''}>Par commande</option>
+          <option value="category" ${!isCmd ? 'selected' : ''}>Par catégorie de commandes</option>
+        </select></label>
+        <label class="field"><span>${isCmd ? 'Commande' : 'Catégorie'}</span><select onchange="S.admin.key=this.value;render()">${isCmd ? cmdOptions : catOptions}</select></label>
+      </div>
+      ${cmd ? `<div class="alert info" style="margin-top:4px">Catégorie : <b>${esc(cats[cmd.category] || cmd.category || 'Autres')}</b>${inherited.length ? ` · hérite des rôles ${inherited.map((id) => esc(adminRoleName(id))).join(', ')}` : ''}${inheritedUsers.length ? ` · membres ${inheritedUsers.map((id) => esc(adminUserName(id))).join(', ')}` : ''}.</div>` : ''}
+      <div class="grid2" style="margin-top:14px">
+        <div><h3>Rôles autorisés</h3>${adminChips(roles, 'role', isCmd ? 'command' : 'category', key)}</div>
+        <div><h3>Membres autorisés</h3>${adminChips(users, 'user', isCmd ? 'command' : 'category', key)}</div>
+      </div>
+      <h3>Ajouter un rôle</h3>
+      <div class="row"><select id="adm_role" style="flex:1;min-width:200px">${roleOptions('')}</select>
+        <button class="btn" onclick="adminAddRole(false)">Ajouter</button>
+        <button class="btn ghost" onclick="adminAddRole(true)">Tout autoriser à ce rôle</button></div>
+      <h3 style="margin-top:18px">Ajouter une personne</h3>
+      <div class="row"><input id="adm_mq" value="${esc(a.memberQ || '')}" placeholder="Pseudo ou ID du membre…" style="flex:1;min-width:200px" onkeydown="if(event.key==='Enter')adminSearch()">
+        <button class="btn" onclick="adminSearch()">Rechercher</button></div>
+      <div class="list" style="margin-top:10px">${members || '<div class="empty">Cherche un membre pour l’autoriser nominativement.</div>'}</div>
+    </section>
+    <section class="card"><h2>Accès total (toutes les commandes)</h2>
+      <p class="muted" style="margin-bottom:10px">Le propriétaire du serveur a toujours tout. Ajoute ici un rôle ou une personne pour lui donner <b>toutes</b> les commandes d’un coup.</p>
+      <div class="grid2">
+        <div><h3>Rôles avec accès total</h3>${adminChips(p.fullRoles, 'role', 'all', '')}</div>
+        <div><h3>Membres avec accès total</h3>${adminChips(p.fullUsers, 'user', 'all', '')}</div>
+      </div>
+      <div class="row" style="margin-top:12px"><select id="adm_full_role" style="flex:1;min-width:200px">${roleOptions('')}</select>
+        <button class="btn" onclick="adminAddFull('role')">Tout autoriser à ce rôle</button></div>
+      <div class="row" style="margin-top:8px"><input id="adm_full_user" placeholder="ID du membre…" style="flex:1;min-width:200px">
+        <button class="btn" onclick="adminAddFull('user')">Tout autoriser à ce membre</button></div>
+      <div class="alert info" style="margin-top:12px">Les commandes publiques (<b>/help</b>, <b>/vouch</b>, <b>/invites</b>…) restent ouvertes à tous. Les commandes réservées au propriétaire ne peuvent pas être déléguées.</div>
+    </section>
+    <section class="card"><h2>Rôles de modération</h2>
+      <p class="muted" style="margin-bottom:10px">Ces rôles peuvent utiliser ban / unban / mute / unmute (réglage via <b>/roles-mod</b> dans Discord).</p>
+      ${adminChips(p.modRoles, 'role', 'mod', '')}
+      <div class="row" style="margin-top:12px"><select id="adm_mod_role" style="flex:1;min-width:200px">${roleOptions('')}</select>
+        <button class="btn" onclick="adminAddMod()">Ajouter le rôle de modération</button></div>
+    </section>`;
+}
+async function adminPerm(scope, key, target, id, action) {
+  if (!id) return toast('Choisis d’abord un rôle ou un membre.', false);
+  try {
+    await api('/api/perms', { guildId: S.gid, scope, key, target, id, action });
+    await afterChange(action === 'remove' ? 'Accès retiré' : 'Accès ajouté ✅');
+  } catch (e) { toast(e.message, false); }
+}
+function adminAddRole(all) {
+  const id = $('#adm_role')?.value;
+  if (!id) return toast('Choisis un rôle.', false);
+  adminPerm(all ? 'all' : S.admin.scope, all ? '' : S.admin.key, 'role', id, 'add');
+}
+function adminAddFull(target) {
+  const id = target === 'role' ? $('#adm_full_role')?.value : $('#adm_full_user')?.value.trim();
+  if (!id) return toast(target === 'role' ? 'Choisis un rôle.' : 'Entre l’ID du membre.', false);
+  adminPerm('all', '', target, id, 'add');
+}
+function adminAddMod() {
+  const id = $('#adm_mod_role')?.value;
+  if (!id) return toast('Choisis un rôle.', false);
+  adminPerm('mod', '', 'role', id, 'add');
+}
+async function adminSearch() {
+  S.admin.memberQ = $('#adm_mq')?.value.trim() || '';
+  try {
+    S.admin.members = await api('/api/members?id=' + encodeURIComponent(S.gid) + '&q=' + encodeURIComponent(S.admin.memberQ));
+    render();
+  } catch (e) { toast(e.message, false); }
 }
 
 /* ================================================================== */
@@ -1427,8 +1854,8 @@ function pageAppearance() {
       <div class="swatches">${presets.map((p) => `<button class="swatch" style="background:${p}" title="${p}" onclick="$('#a_color').value='${p}';$('#a_picker').value='${p}'"></button>`).join('')}</div>
       <h3>Logos (coin haut droit)</h3>
       <div class="grid2">
-        ${imgField('a_panel_logo', S.g.panelLogo, 'Logo des panels de tickets', 'Lien ou fichier importé. Appliqué aux panels existants et aux nouveaux.')}
-        ${imgField('a_vouch_logo', S.g.vouch.logo, 'Logo des vouchs', 'Affiché en haut à droite de chaque vouch.')}
+        ${imgField('a_panel_logo', S.g.panelLogo, 'Logo des panels de tickets', 'Lien ou fichier importé. Appliqué aux panels existants et aux nouveaux.', { max: 512 })}
+        ${imgField('a_vouch_logo', S.g.vouch.logo, 'Logo des vouchs', 'Affiché en haut à droite de chaque vouch.', { max: 512 })}
       </div>
       <div class="row" style="margin-top:16px"><button class="btn" onclick="appearanceSave()">Appliquer</button></div>
       <div class="alert info" style="margin-top:14px">La couleur et les logos sont enregistrés dans Supabase et restaurés après un redéploiement. Les panels déjà envoyés sont mis à jour automatiquement.</div>

@@ -27,7 +27,7 @@ const MODALS = {
 
 module.exports = function startDashboard(ctx) {
   const { client, commands, handlers, autocomplete, getG, refreshPanels, refreshSalesPanel,
-    buildCatalogPayload, buildSinglePanel, buildMultiPanel, multiPanelSig, rich,
+    buildCatalogPayload, buildSinglePanel, buildMultiPanel, multiPanelSig, rich, syncCommandChannel,
     CMD_CATEGORIES, ALWAYS_ON, PUBLIC_COMMANDS, OWNER_ONLY, db, save, DB_FILE } = ctx;
   const PASS = process.env.PANEL_PASSWORD;
   if (!PASS) return console.warn('[panel] PANEL_PASSWORD absent : panel désactivé.');
@@ -153,12 +153,17 @@ module.exports = function startDashboard(ctx) {
   const imgOk = (v) => {
     const t = String(v ?? '').trim();
     if (/^https?:\/\/\S+$/i.test(t)) return t.slice(0, 500);
-    if (/^data:image\/(?:png|jpe?g|gif|webp);base64,/i.test(t) && t.length <= 6e6) return t;
+    if (/^data:image\/(?:png|jpe?g|gif|webp);base64,/i.test(t) && t.length <= 8e6) return t;
     return undefined;
   };
   const colorOk = (v) => { const t = String(v ?? '').trim(); return /^#?[0-9a-f]{6}$/i.test(t) ? '#' + t.replace('#', '') : undefined; };
   // Les images importées (data URL) ne sont pas renvoyées dans la liste : trop lourdes.
   const light = (v) => (String(v ?? '').startsWith('data:') ? '' : (v || null));
+  // Métadonnées d'une image de la bibliothèque (le contenu lourd reste côté serveur).
+  const imgMeta = (i) => ({
+    id: i.id, name: i.name, url: light(i.src),
+    kind: String(i.src || '').startsWith('data:') ? 'file' : 'url', at: i.at || null,
+  });
   const cleanOpenMsg = (m) => {
     const infoLabels = {};
     if (m.infoLabels && typeof m.infoLabels === 'object') {
@@ -213,8 +218,17 @@ module.exports = function startDashboard(ctx) {
     'GET /api/guild': async (_r, q) => {
       const { guild } = await ctxFor(q.get('id'));
       const d = getG(guild.id);
+      const permUserIds = new Set([
+        ...(d.fullUsers || []), ...Object.values(d.cmdUsers || {}).flat(), ...Object.values(d.catUsers || {}).flat(),
+      ]);
+      const memberNames = {};
+      for (const id of permUserIds) {
+        const m = guild.members.cache.get(id);
+        if (m) memberNames[id] = m.displayName;
+      }
       return {
         id: guild.id, name: guild.name, count: guild.memberCount, disabled: d.disabledCommands || [],
+        memberNames,
         welcome: d.welcome,
         panelColor: d.panelColor || '#5865F2',
         panelLogo: d.panelLogo || null,
@@ -234,6 +248,7 @@ module.exports = function startDashboard(ctx) {
         sales: {
           channelId: d.sales?.channelId || null, messageId: d.sales?.messageId || null,
           count: d.sales?.count || 0, total: d.sales?.total || 0, currency: d.sales?.currency || '€',
+          logo: d.sales?.logo || null,
           entries: (d.sales?.entries || []).slice(-15).reverse().map((e) => ({
             ...e,
             name: client.users.cache.get(e.buyerId)?.username || e.buyerName || null,
@@ -246,22 +261,29 @@ module.exports = function startDashboard(ctx) {
           // chargées uniquement au clic sur « Modifier » (voir /api/shop-get).
           params: { ...p.params, image: '', thumb: '' },
         })),
+        // Bibliothèque d'images : uniquement les métadonnées (le contenu est servi par /api/image-file).
+        images: (d.images || []).map(imgMeta),
         invites: {
           total: Object.values(d.invites?.stats || {}).reduce((n, s) => n + (s.joins || 0), 0),
           members: Object.keys(d.invites?.stats || {}).length,
         },
         tickets: Object.values(d.tickets || {}).map((t) => ({
-          name: t.name, categoryId: t.categoryId, staffRoles: t.staffRoles || [], logChannelId: t.logChannelId, counter: t.counter || 0,
+          name: t.name, categoryId: t.categoryId, staffRoles: t.staffRoles || [], staffMode: t.staffMode || 'any', logChannelId: t.logChannelId, counter: t.counter || 0,
           dm: !!t.dm, openMsg: t.openMsg || null, openMsgId: t.openMsgId || null,
           color: t.color || null, placeholder: t.placeholder || null, logo: t.logo || null, translate: !!t.translate,
           openPresets: (t.openPresets || []).map((p) => ({ id: p.id, name: p.name, openMsg: p.openMsg || null })),
           panels: (t.panels || []).map((p) => ({ channelId: p.channelId, messageId: p.messageId, button: !!p.button, multi: !!p.multi, showLogo: p.showLogo !== false, btnLabel: p.btnLabel || null, btnStyle: p.btnStyle || null, openMsg: p.openMsg || null, openMsgId: p.openMsgId || null, translate: !!p.translate, thumb: light(p.thumb), image: light(p.image), hasThumb: !!p.thumb, hasImage: !!p.image })),
-          reasons: (t.reasons || []).map((r) => ({ id: r.id, label: r.label, emoji: r.emoji, description: r.description, panelText: r.panelText || '', categoryId: r.categoryId, staffRoleId: r.staffRoleId, openMsg: r.openMsg || null, openMsgId: r.openMsgId || null })),
+          reasons: (t.reasons || []).map((r) => ({ id: r.id, label: r.label, emoji: r.emoji, description: r.description, panelText: r.panelText || '', categoryId: r.categoryId, staffRoleId: r.staffRoleId, staffRoles: Array.isArray(r.staffRoles) ? r.staffRoles : (r.staffRoleId ? [r.staffRoleId] : []), staffMode: r.staffMode || null, openMsg: r.openMsg || null, openMsgId: r.openMsgId || null })),
           dmChoices: (t.dmChoices || []).map((r) => ({ id: r.id, label: r.label, emoji: r.emoji, openMsg: r.openMsg || null, openMsgId: r.openMsgId || null })),
           subPanels: t.subPanels || [], subLinks: t.subLinks || {}, defaultSub: t.defaultSubPanelId || null,
         })),
         channels: guild.channels.cache.map((c) => ({ id: c.id, name: c.name, type: c.type })),
         roles: guild.roles.cache.filter((r) => r.id !== guild.id).map((r) => ({ id: r.id, name: r.name, color: r.hexColor })),
+        perms: {
+          cmdPerms: d.cmdPerms || {}, cmdUsers: d.cmdUsers || {},
+          catPerms: d.catPerms || {}, catUsers: d.catUsers || {},
+          fullRoles: d.fullRoles || [], fullUsers: d.fullUsers || [], modRoles: d.modRoles || [],
+        },
       };
     },
     // Paramètres complets d'un message produit / restock (images importées incluses).
@@ -271,6 +293,107 @@ module.exports = function startDashboard(ctx) {
       const post = (d.shopPosts || []).find((x) => x.id === q.get('id'));
       if (!post) throw new Error('Message introuvable (il a peut-être été supprimé).');
       return post;
+    },
+    // ---------- Bibliothèque d'images ----------
+    // Contenu complet d'une image (data URL ou lien), chargé seulement quand on l'utilise.
+    'GET /api/image-get': async (_r, q) => {
+      const { guild } = await ctxFor(q.get('guildId'));
+      const d = getG(guild.id);
+      const img = (d.images || []).find((x) => x.id === q.get('id'));
+      if (!img) throw new Error('Image introuvable.');
+      return { id: img.id, name: img.name, src: img.src };
+    },
+    'POST /api/images': async (_r, _q, b) => {
+      const { guild } = await ctxFor(b.guildId);
+      const d = getG(guild.id);
+      d.images ??= [];
+      const action = b.action || 'add';
+      const find = () => d.images.find((x) => x.id === b.id);
+      if (action === 'add') {
+        const src = imgOk(b.src);
+        if (!src) throw new Error('Image invalide : lien http(s) ou fichier importé (6 Mo max).');
+        if (d.images.length >= 40) throw new Error('40 images maximum : supprime-en une avant d’en ajouter une autre.');
+        const img = {
+          id: crypto.randomUUID().slice(0, 8),
+          name: txt(b.name, 60) || `Image ${d.images.length + 1}`,
+          src, at: Date.now(),
+        };
+        d.images.push(img);
+        save();
+        return { ok: true, image: imgMeta(img) };
+      }
+      const img = find();
+      if (!img) throw new Error('Image introuvable.');
+      if (action === 'rename') {
+        img.name = txt(b.name, 60) || img.name;
+        save();
+        return { ok: true, image: imgMeta(img) };
+      }
+      if (action === 'replace') {
+        const src = imgOk(b.src);
+        if (!src) throw new Error('Image invalide.');
+        img.src = src;
+        save();
+        return { ok: true, image: imgMeta(img) };
+      }
+      if (action === 'delete') {
+        d.images = d.images.filter((x) => x !== img);
+        save();
+        // La suppression fait légitimement baisser la taille des données : on autorise
+        // Supabase à enregistrer cette version plus petite (garde-fou anti-écrasement).
+        sb.forceNext(guild.id);
+        return { ok: true };
+      }
+      throw new Error('Action inconnue');
+    },
+    // ---------- Accès aux commandes (onglet Admin) ----------
+    // target: role | user ; scope: command | category | all ; action: add | remove | clear
+    'POST /api/perms': async (_r, _q, b) => {
+      const { guild } = await ctxFor(b.guildId);
+      const d = getG(guild.id);
+      const target = b.target === 'user' ? 'user' : 'role';
+      const id = String(b.id || '');
+      if (!/^[A-Za-z0-9_-]{1,40}$/.test(id)) throw new Error('Identifiant invalide.');
+      if (target === 'role') {
+        if (id === guild.id || !guild.roles.cache.has(id)) throw new Error('Rôle invalide.');
+      } else {
+        const member = guild.members.cache.get(id) || await guild.members.fetch(id).catch(() => null);
+        if (!member) throw new Error('Membre introuvable.');
+      }
+      const scope = String(b.scope || 'command');
+      const key = String(b.key || '');
+      const action = String(b.action || 'add');
+      if (scope === 'all') {
+        const list = target === 'user' ? (d.fullUsers ??= []) : (d.fullRoles ??= []);
+        if (action === 'remove' || action === 'clear') d[target === 'user' ? 'fullUsers' : 'fullRoles'] = list.filter((x) => x !== id);
+        else if (!list.includes(id)) list.push(id);
+      } else if (scope === 'mod') {
+        if (target !== 'role') throw new Error('Les rôles de modération sont des rôles.');
+        const list = (d.modRoles ??= []);
+        if (action === 'remove' || action === 'clear') d.modRoles = list.filter((x) => x !== id);
+        else if (!list.includes(id)) list.push(id);
+      } else if (scope === 'command' || scope === 'category') {
+        const store = target === 'user'
+          ? (scope === 'command' ? (d.cmdUsers ??= {}) : (d.catUsers ??= {}))
+          : (scope === 'command' ? (d.cmdPerms ??= {}) : (d.catPerms ??= {}));
+        if (!key) throw new Error('Commande ou catégorie manquante.');
+        if (scope === 'command' && !commands.some((c) => c.name === key)) throw new Error('Commande inconnue.');
+        if (scope === 'category' && !CMD_CATEGORIES[key]) throw new Error('Catégorie inconnue.');
+        if (action === 'clear') delete store[key];
+        else {
+          const list = (store[key] ??= []);
+          if (action === 'remove') {
+            store[key] = list.filter((x) => x !== id);
+            if (!store[key].length) delete store[key];
+          } else if (!list.includes(id)) list.push(id);
+        }
+      } else throw new Error('Portée invalide.');
+      save();
+      // Un retrait d'accès réduit volontairement la taille des données : on lève le garde-fou Supabase.
+      sb.forceNext(guild.id);
+      // Met à jour les permissions du salon privé des commandes (rôles + membres autorisés).
+      if (typeof syncCommandChannel === 'function') await syncCommandChannel(guild).catch(console.error);
+      return { ok: true };
     },
     // ---------- Configuration d'un ticket (créer / modifier / supprimer) ----------
     'POST /api/ticket-config': async (_r, _q, b) => {
@@ -283,9 +406,9 @@ module.exports = function startDashboard(ctx) {
         const categoryId = b.categoryId && guild.channels.cache.get(b.categoryId)?.type === 4 ? b.categoryId : null;
         if (!categoryId) throw new Error('Choisis une catégorie Discord valide.');
         const staffRoles = (Array.isArray(b.staffRoles) ? b.staffRoles : []).filter((id) => id !== guild.id && guild.roles.cache.has(id));
-        if (!staffRoles.length) throw new Error('Choisis au moins un rôle staff.');
         d.tickets[name] = {
           name, categoryId, staffRoles,
+          staffMode: b.staffMode === 'all' ? 'all' : 'any',
           logChannelId: b.logChannelId && guild.channels.cache.has(b.logChannelId) ? b.logChannelId : null,
           reasons: [], counter: 0, panels: [], placeholder: null, openMsg: null,
           dm: false, dmMigrated: true, dmChoices: [], dmTexts: null, dmImage: null,
@@ -313,9 +436,9 @@ module.exports = function startDashboard(ctx) {
         }
         if ('staffRoles' in b) {
           const ids = (Array.isArray(b.staffRoles) ? b.staffRoles : []).filter((id) => id !== guild.id && guild.roles.cache.has(id));
-          if (!ids.length) throw new Error('Garde au moins un rôle staff.');
           cfg.staffRoles = ids;
         }
+        if ('staffMode' in b) cfg.staffMode = b.staffMode === 'all' ? 'all' : 'any';
         if ('logChannelId' in b) cfg.logChannelId = b.logChannelId && guild.channels.cache.has(b.logChannelId) ? b.logChannelId : null;
         if ('placeholder' in b) cfg.placeholder = txt(b.placeholder, 150) || null;
         if ('color' in b) cfg.color = colorOk(b.color) || null;
@@ -350,6 +473,7 @@ module.exports = function startDashboard(ctx) {
       if ('vouchChannelId' in b) d.vouch.channelId = b.vouchChannelId && guild.channels.cache.has(b.vouchChannelId) ? b.vouchChannelId : null;
       if ('vouchEnabled' in b) d.vouch.enabled = b.vouchEnabled === true || b.vouchEnabled === 'true' || b.vouchEnabled === 1;
       if ('salesCurrency' in b) d.sales.currency = txt(b.salesCurrency, 8) || '€';
+      if ('salesLogo' in b) { d.sales.logo = imgOk(b.salesLogo) || null; d.sales.sig = null; }
       if ('salesChannelId' in b) {
         const id = b.salesChannelId && guild.channels.cache.has(b.salesChannelId) ? b.salesChannelId : null;
         if (id !== d.sales.channelId) {
@@ -371,7 +495,7 @@ module.exports = function startDashboard(ctx) {
       if (recolor) {
         await refreshPanels(guild).catch(console.error);
         await refreshSalesPanel(guild, false).catch(console.error);
-      } else if ('salesCurrency' in b) {
+      } else if ('salesCurrency' in b || 'salesLogo' in b) {
         await refreshSalesPanel(guild, false).catch(console.error);
       }
       return { ok: true };
@@ -407,12 +531,16 @@ module.exports = function startDashboard(ctx) {
         const label = txt(b.label, 100);
         if (!label) throw new Error('Le nom est obligatoire.');
         if (cfg.reasons.some((r) => r.label.toLowerCase() === label.toLowerCase())) throw new Error('Cette catégorie existe déjà.');
+        const staffRoles = (Array.isArray(b.staffRoles) ? b.staffRoles : (b.staffRoleId ? [b.staffRoleId] : []))
+          .filter((id) => id !== guild.id && guild.roles.cache.has(id));
         cfg.reasons.push({
           id: crypto.randomUUID().slice(0, 8), label,
           description: txt(b.description, 100) || '',
           panelText: txt(b.panelText, 1000) || '',
           emoji: txt(b.emoji, 64) || null,
-          staffRoleId: b.staffRoleId && b.staffRoleId !== guild.id && guild.roles.cache.has(b.staffRoleId) ? b.staffRoleId : null,
+          staffRoleId: staffRoles[0] || null,
+          staffRoles,
+          staffMode: ['any', 'all'].includes(b.staffMode) ? b.staffMode : null,
           categoryId: b.categoryId && guild.channels.cache.get(b.categoryId)?.type === 4 ? b.categoryId : null,
         });
       } else {
@@ -432,7 +560,13 @@ module.exports = function startDashboard(ctx) {
           if ('panelText' in b) r.panelText = txt(b.panelText, 1000) || '';
           if ('emoji' in b) r.emoji = txt(b.emoji, 64) || null;
           if ('categoryId' in b) r.categoryId = b.categoryId && guild.channels.cache.get(b.categoryId)?.type === 4 ? b.categoryId : null;
-          if ('staffRoleId' in b) r.staffRoleId = b.staffRoleId && b.staffRoleId !== guild.id && guild.roles.cache.has(b.staffRoleId) ? b.staffRoleId : null;
+          if ('staffRoles' in b || 'staffRoleId' in b) {
+            const ids = (Array.isArray(b.staffRoles) ? b.staffRoles : (b.staffRoleId ? [b.staffRoleId] : []))
+              .filter((id) => id !== guild.id && guild.roles.cache.has(id));
+            r.staffRoles = ids;
+            r.staffRoleId = ids[0] || null;
+          }
+          if ('staffMode' in b) r.staffMode = ['any', 'all'].includes(b.staffMode) ? b.staffMode : null;
         } else throw new Error('Action inconnue');
       }
       save();
@@ -507,12 +641,15 @@ module.exports = function startDashboard(ctx) {
         if (sp.choices.length >= 125) throw new Error('125 choix maximum par menu.');
         const label = txt(b.label, 100);
         if (!label) throw new Error('Le nom du choix est obligatoire.');
+        const staffRoles = (Array.isArray(b.staffRoles) ? b.staffRoles : (b.staffRoleId ? [b.staffRoleId] : []))
+          .filter((id) => id !== guild.id && guild.roles.cache.has(id));
         sp.choices.push({
           id: crypto.randomUUID().slice(0, 8), label,
           description: txt(b.description, 100) || '',
           emoji: txt(b.emoji, 64) || null,
           categoryId: b.categoryId && guild.channels.cache.get(b.categoryId)?.type === 4 ? b.categoryId : null,
-          staffRoleId: b.staffRoleId && b.staffRoleId !== guild.id && guild.roles.cache.has(b.staffRoleId) ? b.staffRoleId : null,
+          staffRoleId: staffRoles[0] || null,
+          staffRoles,
           nextSubId: nextId() ?? null,
         });
         save();
@@ -531,7 +668,12 @@ module.exports = function startDashboard(ctx) {
         if ('description' in b) ch.description = txt(b.description, 100) || '';
         if ('emoji' in b) ch.emoji = txt(b.emoji, 64) || null;
         if ('categoryId' in b) ch.categoryId = b.categoryId && guild.channels.cache.get(b.categoryId)?.type === 4 ? b.categoryId : null;
-        if ('staffRoleId' in b) ch.staffRoleId = b.staffRoleId && b.staffRoleId !== guild.id && guild.roles.cache.has(b.staffRoleId) ? b.staffRoleId : null;
+        if ('staffRoles' in b || 'staffRoleId' in b) {
+          const ids = (Array.isArray(b.staffRoles) ? b.staffRoles : (b.staffRoleId ? [b.staffRoleId] : []))
+            .filter((id) => id !== guild.id && guild.roles.cache.has(id));
+          ch.staffRoles = ids;
+          ch.staffRoleId = ids[0] || null;
+        }
         const n = nextId();
         if (n !== undefined) ch.nextSubId = n;
       } else throw new Error('Action inconnue');
@@ -562,6 +704,7 @@ module.exports = function startDashboard(ctx) {
       }
       cfg.panels = cfg.panels.filter((x) => x !== p);
       save();
+      sb.forceNext(b.guildId);
       return { ok: true };
     },
 
@@ -613,6 +756,7 @@ module.exports = function startDashboard(ctx) {
       await msg.edit(payload);
       p.sig = p.multi ? multiPanelSig(guild, cfg, p) : null;
       save();
+      sb.forceNext(guild.id);
       return { ok: true };
     },
 
@@ -631,6 +775,7 @@ module.exports = function startDashboard(ctx) {
         if (msg) await msg.delete().catch(console.error);
         d.shopPosts = (d.shopPosts || []).filter((x) => x !== post);
         save();
+        sb.forceNext(guild.id);
         return { ok: true };
       }
 
@@ -638,7 +783,7 @@ module.exports = function startDashboard(ctx) {
       const params = {
         title: txt(raw.title, 256) || '',
         footer: txt(raw.footer, 2048) || '',
-        links: txt(raw.links, 2000) || '',
+        links: txt(raw.links, 4000) || '',
         color: colorOk(raw.color) || '',
         logo: raw.logo !== false,
         image: imgOk(raw.image) || '',
@@ -668,6 +813,7 @@ module.exports = function startDashboard(ctx) {
         await msg.edit({ content: '', embeds: payload.embeds, components: payload.components, files: payload.files });
         post.params = params;
         save();
+        sb.forceNext(guild.id);
         return { ok: true, messageId: post.messageId };
       }
 
@@ -757,7 +903,9 @@ module.exports = function startDashboard(ctx) {
       if (!items.length) throw new Error('Aucun article reconnu dans ta liste.');
       const emoji = txt(b.emoji, 64) || null;
       const categoryId = b.categoryId && guild.channels.cache.has(b.categoryId) ? b.categoryId : null;
-      const staffRoleId = b.staffRoleId && b.staffRoleId !== guild.id && guild.roles.cache.has(b.staffRoleId) ? b.staffRoleId : null;
+      const staffRoles = (Array.isArray(b.staffRoles) ? b.staffRoles : (b.staffRoleId ? [b.staffRoleId] : []))
+        .filter((id) => id !== guild.id && guild.roles.cache.has(id));
+      const staffRoleId = staffRoles[0] || null;
       // Sous-panel proposé après chaque article importé (facultatif) : on refuse les boucles
       let nextSubId = null;
       if (!isReasons && b.nextSubId) {
@@ -781,7 +929,7 @@ module.exports = function startDashboard(ctx) {
         const ex = list.find((x) => x.label.toLowerCase() === it.label.toLowerCase());
         if (ex) { if (it.description) ex.description = it.description; if (nextSubId) ex.nextSubId = nextSubId; updated++; continue; } // même nom : on met à jour le prix
         if (list.length >= 125) { skipped++; continue; } // au-delà, plusieurs menus sont utilisés (125 max)
-        list.push({ id: crypto.randomUUID().slice(0, 8), label: it.label, description: it.description, emoji, staffRoleId, categoryId, ...(isReasons ? {} : { nextSubId }) });
+        list.push({ id: crypto.randomUUID().slice(0, 8), label: it.label, description: it.description, emoji, staffRoleId, staffRoles, categoryId, ...(isReasons ? {} : { nextSubId }) });
         added++;
       }
       save();
@@ -890,6 +1038,23 @@ module.exports = function startDashboard(ctx) {
         return res.end(out);
       }
       if (url.pathname === '/api/me') return send(res, 200, { authed: authed(req) });
+      // Miniature d'une image de la bibliothèque (le data URL n'est jamais envoyé dans /api/guild).
+      if (req.method === 'GET' && url.pathname === '/api/image-file') {
+        if (!authed(req)) return send(res, 401, { error: 'Connexion requise' });
+        const guild = client.guilds.cache.get(url.searchParams.get('guildId'));
+        if (!guild) return send(res, 404, { error: 'Serveur introuvable' });
+        const d = getG(guild.id);
+        const img = (d.images || []).find((x) => x.id === url.searchParams.get('id'));
+        if (!img) return send(res, 404, { error: 'Image introuvable' });
+        const m = /^data:(image\/[a-z0-9.+-]+);base64,([\s\S]+)$/i.exec(img.src);
+        if (!m) { res.writeHead(302, { Location: img.src }); return res.end(); }
+        const buf = Buffer.from(m[2], 'base64');
+        res.writeHead(200, {
+          'Content-Type': m[1], 'Content-Length': buf.length,
+          'Cache-Control': 'private, max-age=86400',
+        });
+        return res.end(buf);
+      }
       const fn = routes[`${req.method} ${url.pathname}`];
       if (!fn) return send(res, 404, { error: 'Introuvable' });
       if (!authed(req)) return send(res, 401, { error: 'Connexion requise' });

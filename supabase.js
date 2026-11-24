@@ -21,7 +21,7 @@ const dirty = new Set();          // serveurs à envoyer
 const sent = new Map();           // serveur -> empreinte du dernier contenu envoyé
 const remoteLen = new Map();      // serveur -> taille (caractères) des données connues dans Supabase
 const ALLOW_SHRINK = process.env.SUPABASE_ALLOW_SHRINK === '1';
-let force = false;                // vrai juste après une restauration voulue : le garde-fou est levé
+const forced = new Set();         // serveurs dont le garde-fou est levé (suppression / restauration voulue)
 const isGuildId = (id) => /^\d{5,}$/.test(id);
 const hash = (s) => crypto.createHash('sha1').update(s).digest('hex');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -70,7 +70,7 @@ async function flush() {
           const json = JSON.stringify(g);
           // GARDE-FOU : on refuse d'écraser des données Supabase par une version beaucoup plus petite (squelette vide, config perdue)
           const known = remoteLen.get(id) || 0;
-          if (!ALLOW_SHRINK && !force && known > 1500 && json.length < known * 0.5) {
+          if (!ALLOW_SHRINK && !forced.has(id) && !forced.has('*') && known > 1500 && json.length < known * 0.5) {
             console.error(`[supabase] ENVOI BLOQUÉ pour ${id} : ${json.length} caractères en local contre ${known} dans Supabase. Rien n'est écrasé. Vérifie les données, ou mets SUPABASE_ALLOW_SHRINK=1 si c'est voulu.`);
             st.lastError = `envoi bloqué pour ${id} (données locales bien plus petites que Supabase)`;
             continue;
@@ -92,7 +92,7 @@ async function flush() {
       scheduleRetry();
     } finally {
       st.pending = dirty.size; st.guilds = sent.size; running = null;
-      if (!dirty.size) force = false;
+      if (!dirty.size) forced.clear();
       if (dirty.size && st.ok) scheduleRetry(500); // modifications arrivées pendant l'envoi
     }
   })();
@@ -169,4 +169,4 @@ for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, async () => {
   try { clearTimeout(timer); if (dbRef) queue(dbRef); await Promise.race([flush(), sleep(8000)]); } finally { process.exit(0); }
 });
 
-module.exports = { init, queue, pushNow, forceNext: () => { force = true; }, status: () => ({ ...st, pending: dirty.size, guilds: sent.size }) };
+module.exports = { init, queue, pushNow, forceNext: (id) => { forced.add(id ? String(id) : '*'); }, status: () => ({ ...st, pending: dirty.size, guilds: sent.size }) };
