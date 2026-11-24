@@ -1,151 +1,189 @@
 # ZNK Bot
 
-Bot Discord de tickets, ventes, vouchs, invitations et modération, avec un dashboard web.
+Discord bot for tickets, sales, vouches, invites and moderation, with a web dashboard.
 
-## Nouveautés
+## Highlights
 
-- **Ajouter / retirer un membre d'un ticket** : `/add` et `/remove` (ou `/ticket ajouter` et `/ticket retirer`) dans le ticket, avec la mention du membre.
-- **Vouch vérifié** : `/vouch` dans un ticket → note de 1 à 5 étoiles → message → publication dans un salon dédié. Le message est épuré (photo de profil, titre, note, citation) et tu peux mettre **ce que tu veux en dessous** (Service, Support, Prix…) : une ligne par information, avec des variables. Titre, pied de page et logo configurables depuis le dashboard.
-- **Panel multi-boutons** : un panel avec une bannière, un texte et **un bouton par catégorie** (7 à 9 selon la bannière, limite Discord). Chaque bouton ouvre sa catégorie et, si un sous-panel y est relié, le premier menu du parcours (puis les sous-panels suivants). Rendu avec les composants Discord récents (bouton à droite de chaque texte) et repli automatique en embed + boutons sur les anciennes versions de discord.js.
-- **Champs personnalisés des tickets** : dans le message d'ouverture, ajoute autant de champs que tu veux (nom + valeur, 10 maximum) sous la description : prix, service, délai… Chaque champ s'affiche sur deux lignes (nom au-dessus, valeur en dessous). Les variables `{prix}`, `{paiement}`, `{order}`, `{category}`… sont disponibles. Les champs remplacent automatiquement les deux lignes de texte par défaut, et une case permet de retirer ces lignes même sans champ.
-- **Traduction automatique** : dans les tickets, chaque message reçu est traduit en français et en anglais, quelle que soit la langue d'origine. Un message français reçoit sa traduction anglaise (🇬🇧), un message anglais sa traduction française (🇫🇷), et un message dans une autre langue reçoit les deux. Les mentions, liens et emojis sont conservés. Activable par configuration ou par panel.
-- **Suivi des ventes** : à la fermeture d'un ticket, le bot demande si la vente a été réalisée. Le staff saisit le montant, l'acheteur et le produit. Un panel dédié affiche le nombre de ventes, l'argent généré, le panier moyen et les dernières ventes.
-- **Couleur globale** : une seule couleur pour tous les panels (tickets, vouchs, ventes), réglable depuis le dashboard ou `/ticket couleur`.
-- **Dashboard simplifié** : navigation par sections (Accueil, Tickets, Vouches, Ventes, Produits, Restock, Images, Admin, Apparence, Invitations, Commandes, Sauvegarde).
-- **Tickets réorganisés** : onglets Réglages, Catégories, Sous-panels, Panels, Message d'ouverture.
-- **Sauvegarde Supabase complète** : `supabase.sql` contient la table principale, l'historique et des vues pour lire les invitations, panels, vouchs et ventes.
+- **Add / remove a member from a ticket**: `/add` and `/remove` (or `/ticket ajouter` and `/ticket retirer`) inside the ticket, with the member mention.
+- **Vouch button (no slash command)**: enable it per ticket configuration. The ticket opening message then shows a **⭐ Vouch** button. Clicking it opens a 1–5 star picker, then a form for the message. The review is published in a dedicated channel.
+- **Vouch moderation**: in the vouch channel, staff can open the **ticket logs** and delete any vouch that is not legit. Deleting a vouch also removes its Discord message.
+- **Ticket stats button**: add a **📊 Stats** button to any ticket panel. It shows tickets opened, currently open tickets, number of vouches and the average rating.
+- **Vouch-gated closing**: a customer cannot close their ticket without leaving a vouch. They can instead click **Ask a staff member**, which mentions the ticket role; staff can close without a vouch.
+- **Multi-button panel**: a banner, a text and **one button per category** (7 to 9 depending on the banner, Discord limit). Each button opens its category and, if a sub-panel is linked, the first menu of the flow. Rendered with the recent Discord components (button on the right of each text) and automatic fallback to embed + buttons on older discord.js versions.
+- **Custom ticket fields**: in the opening message, add as many fields as you want (name + value, 10 maximum) under the description: price, service, delay… Each field is displayed on two lines (name above, value below). Variables `{prix}`, `{paiement}`, `{order}`, `{category}`… are available. Fields automatically replace the two default text lines, and a checkbox removes those lines even without fields.
+- **Automatic translation**: in tickets, every received message is translated to French and English, whatever the source language. A French message gets its English translation (🇬🇧), an English message its French translation (🇫🇷), and a message in another language gets both. Mentions, links and emojis are preserved. Can be enabled per configuration or per panel.
+- **Sales tracking**: when a ticket is closed, the bot asks whether the sale was completed. Staff enters the amount, buyer and product. A dedicated panel shows the number of sales, money generated, average basket and latest sales.
+- **Global color**: one color for every panel (tickets, vouches, sales), configurable from the dashboard or `/ticket couleur`.
+- **Live dashboard preview**: the right side of the dashboard shows an **exact preview** of the message that will be sent. It updates as you type, and you can **click a title, description, footer or button to edit its text directly** in the preview.
+- **Reusable panels**: in **Tickets → Panels**, **📋 Duplicate** copies an already-sent panel into the form so you can change a few things and send a new message, without touching the original.
+- **Member backup / restore**: save every member (name + roles). If the server is banned or recreated, the bot creates a permanent invite and DMs every saved member; roles are restored by name when they join.
+- **Simplified dashboard**: sections for Home, Tickets, Vouches, Sales, Products, Restock, Images, Admin, Appearance, Invites, Commands, Backup.
+- **Complete Supabase backup**: `supabase.sql` contains the main table, the history and views to read invites, panels, vouches and sales.
 
-## Variables d'environnement
+## Environment variables
 
-| Variable | Obligatoire | Description |
+| Variable | Required | Description |
 |---|---|---|
-| `TOKEN` | Oui | Token du bot Discord. |
-| `PANEL_PASSWORD` | Oui | Mot de passe du dashboard web. |
-| `PORT` | Non | Port du dashboard (Railway le fournit automatiquement). |
-| `DB_FILE` | Recommandé | Chemin du fichier JSON, ex. `/data/data.json` sur Railway. |
-| `RAILWAY_VOLUME_MOUNT_PATH` | Non | Renseigné automatiquement par Railway si un volume est monté. |
-| `SUPABASE_URL` | Oui (recommandé) | URL du projet Supabase (`https://xxxx.supabase.co`). |
-| `SUPABASE_KEY` | Oui (recommandé) | Clé **service_role** Supabase (jamais la clé anon). |
-| `SUPABASE_SERVICE_KEY` | Non | Alias accepté à la place de `SUPABASE_KEY`. |
-| `SUPABASE_ALLOW_SHRINK` | Non | `1` pour autoriser l'écrasement par des données plus petites (garde-fou désactivé). |
+| `TOKEN` | Yes | Discord bot token. |
+| `PANEL_PASSWORD` | Yes | Web dashboard password. |
+| `PORT` | No | Dashboard port (Railway provides it automatically). |
+| `DB_FILE` | Recommended | JSON file path, e.g. `/data/data.json` on Railway. |
+| `RAILWAY_VOLUME_MOUNT_PATH` | No | Filled automatically by Railway when a volume is mounted. |
+| `SUPABASE_URL` | Yes (recommended) | Supabase project URL (`https://xxxx.supabase.co`). |
+| `SUPABASE_KEY` | Yes (recommended) | Supabase **service_role** key (never the anon key). |
+| `SUPABASE_SERVICE_KEY` | No | Alias accepted instead of `SUPABASE_KEY`. |
+| `SUPABASE_ALLOW_SHRINK` | No | `1` to allow overwriting with smaller data (safety guard disabled). |
 
-Exemple complet : voir `.env.example`.
+Full example: see `.env.example`.
 
-## Installation Supabase
+## Supabase setup
 
-1. Crée un projet sur [supabase.com](https://supabase.com).
-2. Ouvre **SQL Editor → New query**, colle tout le contenu de `supabase.sql`, puis **Run**.
-3. Récupère l'URL du projet et la clé **service_role** dans **Project Settings → API**.
-4. Ajoute `SUPABASE_URL` et `SUPABASE_KEY` dans Railway (ou dans `.env`).
+1. Create a project on [supabase.com](https://supabase.com).
+2. Open **SQL Editor → New query**, paste the whole content of `supabase.sql`, then **Run**.
+3. Get the project URL and the **service_role** key from **Project Settings → API**.
+4. Add `SUPABASE_URL` and `SUPABASE_KEY` in Railway (or in `.env`).
 
-Le bot recharge Supabase au démarrage : les panels, catégories, invitations, vouchs et ventes sont restaurés après un redéploiement.
+The bot reloads Supabase on startup: panels, categories, invites, vouches and sales are restored after a redeploy.
 
-## Intents Discord
+## Discord intents
 
-Dans le portail développeur Discord → ton application → Bot :
+In the Discord developer portal → your application → Bot:
 
-- **Server Members Intent** : activé.
-- **Message Content Intent** : activé (transcripts de tickets).
+- **Server Members Intent**: enabled.
+- **Message Content Intent**: enabled (ticket transcripts).
 
-Permissions du bot : Gérer les salons, Gérer les rôles, Gérer les messages, Voir les salons, Envoyer des messages, Joindre des fichiers, Intégrer des liens. Le rôle du bot doit être au-dessus des rôles staff.
+Bot permissions: Manage Channels, Manage Roles, Manage Messages, View Channels, Send Messages, Attach Files, Embed Links. The bot role must be above the staff roles.
 
-## Commandes utiles
+## Useful commands
 
 ### Tickets
 
 - `/ticket config-creer`, `config-liste`, `config-supprimer`
 - `/ticket staff-ajouter`, `staff-retirer`
-- `/ticket ajouter`, `/ticket retirer` (dans un ticket)
-- `/add`, `/remove` — versions rapides, utilisables par le créateur du ticket et le staff (dans le ticket)
+- `/ticket ajouter`, `/ticket retirer` (inside a ticket)
+- `/add`, `/remove` — quick versions, usable by the ticket creator and staff (inside the ticket)
 - `/ticket raison-ajouter`, `raison-modifier`, `raison-retirer`
 - `/ticket panel`, `/ticket message`, `/ticket bouton`
-- `/ticket couleur` (couleur globale ou par configuration)
-- `/ticket vouch-salon`, `vouch-activer`, `vouch-desactiver`
-- `/ticket traduction-activer`, `traduction-desactiver` (traduction automatique toute langue → français + anglais)
+- `/ticket couleur` (global or per-configuration color)
+- `/ticket vouch-salon`, `vouch-activer`, `vouch-desactiver` (vouch channel and Vouch button availability)
+- `/ticket traduction-activer`, `traduction-desactiver` (automatic translation any language → French + English)
 - `/ticket ventes-salon`, `ventes-panel`, `ventes-devise`
 
-### Produits & Restock
+### Products & Restock
 
-Deux annonces de boutique entièrement personnalisables, disponibles en commande et depuis le dashboard (pages **Produits** et **Restock**) :
+Two fully customizable shop posts, available as commands and from the dashboard (**Products** and **Restock** pages):
 
-- `/product creer` — **annonce produit** : titre, description libre en Markdown, image, logo, pied de page et **autant de boutons-liens que tu veux** (25 maximum, limite Discord). Chaque bouton s'écrit `Texte | lien ou salon | emoji` (emoji optionnel).
-- `/restock creer` — **tableau de restock** : lignes `Variante | Prix | Stock`, image, logo, pied de page et boutons-liens.
+- `/product creer` — **product post**: title, free Markdown description, image, logo, footer and **as many link buttons as you want** (25 maximum, Discord limit). Each button is written `Text | link or channel | emoji` (emoji optional).
+- `/restock creer` — **restock table**: `Variant | Price | Stock` rows, image, logo, footer and link buttons.
 
-Options communes : `salon`, `couleur`, `logo` (coché par défaut, décochable pour masquer le logo) et mentions (`mention`, `ping`). Depuis le dashboard, les lignes, les liens et les images se saisissent directement (boutons d'ajout/suppression) sans passer par une commande.
+Common options: `salon`, `couleur`, `logo` (checked by default, uncheck to hide the logo) and mentions (`mention`, `ping`). From the dashboard, rows, links and images are entered directly (add/remove buttons) without a command.
 
-Un bouton peut pointer vers un site **ou vers un salon Discord** : dans le dashboard, choisis le salon dans « ou salon (achat direct) », ou écris `#nom-du-salon` / `<#ID>` / l'ID du salon dans la commande. Le bouton ouvre alors directement le salon d'achat, sans lien intermédiaire. Les emojis Unicode des boutons sont placés dans le libellé pour être parfaitement alignés avec le texte.
+A button can point to a website **or a Discord channel**: in the dashboard, choose the channel in “ou salon (achat direct)”, or write `#channel-name` / `<#ID>` / the channel ID in the command. The button then opens the purchase channel directly, without an intermediate link. Unicode emojis on buttons are placed in the label so they align perfectly with the text.
 
-Pour mettre **n'importe quel texte en gras**, sélectionne-le dans un champ Markdown puis clique sur **G** dans la barre de mise en forme en haut de page (ou `Ctrl+B`). Le gras fonctionne dans les descriptions, les variantes, les prix, le stock, les textes de panels, etc.
+To put **any text in bold**, select it in a Markdown field and click **G** in the formatting bar at the top of the page (or `Ctrl+B`). Bold works in descriptions, variants, prices, stock, panel texts, etc.
 
-Chaque envoi est **mémorisé** dans la page **Produits** / **Restock** :
+Every post is **remembered** in the **Products** / **Restock** page:
 
-- **✏️ Modifier** recharge tous les paramètres dans le formulaire (titre, texte, liens, image, logo, couleur, pied de page…). Change ce que tu veux puis clique sur **Mettre à jour le message** : le message Discord est modifié directement, sans en créer un nouveau.
-- **📤 Renvoyer** publie une copie avec les mêmes paramètres (ou les paramètres actuellement affichés depuis le formulaire).
-- **🗑️** supprime le message Discord et l'entrée de la liste.
+- **✏️ Edit** reloads all parameters into the form (title, text, links, image, logo, color, footer…). Change what you want then click **Update the message**: the Discord message is edited directly, without creating a new one.
+- **📤 Resend** publishes a copy with the same parameters (or the parameters currently shown in the form).
+- **🗑️** deletes the Discord message and the list entry.
 
-Plus besoin de tout refaire : un message envoyé reste modifiable et réutilisable.
+No need to start over: a sent message stays editable and reusable.
 
-### Images : lien, import et bibliothèque
+### Images: link, upload and library
 
-Partout où une image est demandée (panels de tickets, sous-panels, message d'ouverture, produits, restock, logos du serveur, vouch), tu peux :
+Everywhere an image is requested (ticket panels, sub-panels, opening message, products, restock, server logos, vouch), you can:
 
-- coller un **lien** (`https://…`) ;
-- **importer un fichier** depuis le dashboard. L'image est automatiquement redimensionnée et compressée dans le navigateur (photos de téléphone acceptées), puis envoyée avec le message Discord en pièce jointe : elle ne dépend d'aucun hébergement externe ;
-- choisir une image déjà enregistrée dans la **bibliothèque** (liste déroulante sous chaque champ image).
+- paste a **link** (`https://…`);
+- **upload a file** from the dashboard. The image is automatically resized and compressed in the browser (phone photos accepted), then sent with the Discord message as an attachment: it does not depend on any external hosting;
+- choose an image already saved in the **library** (dropdown under each image field).
 
-La page **Images** permet de gérer la bibliothèque : ajouter un fichier ou un lien, lui donner un **nom** simple, le renommer, le supprimer et copier son lien. Les images sont stockées dans Supabase avec le serveur (40 maximum) et réutilisables partout en un clic. Le bouton **＋ Bibliothèque** sous un champ image enregistre directement l'image déjà choisie.
+The **Images** page manages the library: add a file or link, give it a simple **name**, rename it, delete it and copy its link. Images are stored in Supabase with the server (40 maximum) and reusable everywhere in one click. The **＋ Library** button under an image field saves the image already selected.
 
-Le **logo global** se règle dans **Apparence** et s'applique à tous les panels, messages et annonces. Chaque annonce **Produits** / **Restock**, chaque panel de tickets, chaque sous-panel, le message d'ouverture, les vouchs et le panel des ventes ont aussi leur **propre logo** : choisis-le dans le champ « Logo » (lien, fichier importé ou image de la bibliothèque), il s'affiche en haut à droite. Vide = logo global (si la case correspondante est cochée).
+The **global logo** is set in **Appearance** and applies to all panels, messages and posts. Each **Products** / **Restock** post, each ticket panel, each sub-panel, the opening message, vouches and the sales panel also have their **own logo**: choose it in the “Logo” field (link, uploaded file or library image), it appears in the top right. Empty = global logo (if the corresponding checkbox is checked).
 
-### Accès aux commandes (onglet Admin)
+### Command access (Admin tab)
 
-L'onglet **Admin** permet de choisir précisément qui peut utiliser chaque commande :
+The **Admin** tab lets you choose precisely who can use each command:
 
-- **Par commande** ou **par catégorie de commandes** (Boutique, Tickets, Modération…).
-- Pour un **rôle** ou une **personne** (recherche par pseudo), avec la liste des accès actuels et un bouton pour retirer chacun.
-- **Tout autoriser** donne immédiatement **toutes les commandes** à un rôle ou à une personne (accès total).
-- Les commandes publiques (`/help`, `/vouch`, `/invites`, `/message-mp`) restent ouvertes à tous ; les commandes réservées au propriétaire ne peuvent pas être déléguées.
-- Le salon privé des commandes est mis à jour automatiquement avec les rôles et les personnes autorisés.
+- **Per command** or **per command category** (Shop, Tickets, Moderation…).
+- For a **role** or a **person** (search by name), with the list of current accesses and a button to remove each one.
+- **Allow everything** immediately gives **all commands** to a role or a person (full access).
+- The public commands are limited to **`/help` and `/invites`**: a member with no permission only has these two. Owner-only commands cannot be delegated.
+- The private command channel is updated automatically with the allowed roles and people.
 
-Les mêmes réglages existent côté Discord avec `/permissions` et `/permissions-categorie` (rôles) ; le dashboard ajoute les autorisations nominatives et le bouton « tout autoriser ».
+The same settings exist on the Discord side with `/permissions` and `/permissions-categorie` (roles); the dashboard adds per-person authorizations and the “allow everything” button.
 
-### Rôles staff des tickets
+### Ticket staff roles
 
-Dans **Tickets → Réglages** :
+In **Tickets → Settings**:
 
-- Ajoute **autant de rôles staff que tu veux** (Ctrl + clic), ou **aucun rôle** (seuls les administrateurs et le membre qui ouvre voient alors le ticket).
-- **Accès staff** : « Au moins un rôle suffit » (comportement classique) ou « **Tous les rôles sont requis** » : un membre doit posséder chaque rôle staff de la catégorie pour voir le ticket. En mode « tous les rôles », l'accès est recalculé automatiquement quand les rôles d'un membre changent.
-- Chaque **catégorie du menu** et chaque **choix de sous-panel** peut avoir ses **propres rôles staff** (plusieurs) et son propre mode d'accès. Un ticket de cette catégorie utilise ces rôles à la place de ceux de la configuration.
+- Add **as many staff roles as you want** (Ctrl + click), or **no role** (then only administrators and the member who opens the ticket can see it).
+- **Staff access**: “At least one role is enough” (classic behavior) or “**All roles are required**”: a member must have every staff role of the category to see the ticket. In “all roles” mode, access is recalculated automatically when a member's roles change.
+- Each **menu category** and each **sub-panel choice** can have its **own staff roles** (several) and its own access mode. A ticket from that category uses these roles instead of the configuration ones.
 
-### Panels de tickets
+### Ticket panels
 
-Tout se règle depuis le dashboard, onglet **Tickets** :
+Everything is configured from the dashboard, **Tickets** tab:
 
-- **Catégories** : chaque catégorie a un nom, un emoji, une description courte et un **texte de panel** (affiché à gauche du bouton dans un panel multi-boutons).
-- **Sous-panels** : un sous-panel est une liste de choix ; chaque choix peut mener à un autre sous-panel (`Suivant`) ou ouvrir le ticket. Un sous-panel peut être relié à une catégorie (ou servi par défaut).
-- **Panels** → **Type** :
-  - **Bouton** : un seul bouton « Ouvrir un ticket ».
-  - **Plusieurs boutons** : une bannière + un bouton par catégorie. Un clic sur un bouton ouvre la catégorie et enchaîne les sous-panels reliés (le ticket n'est créé qu'à la fin du parcours).
-  - **Menu déroulant** : un menu listant les catégories.
-- Les panels déjà envoyés se mettent à jour automatiquement quand tu modifies les catégories, la couleur ou le logo.
-- Dans la liste **Panels envoyés**, **✏️ Modifier** recharge le panel dans le formulaire : change le titre, la description, l'image, le logo, la couleur, le pied de page ou le bouton, puis clique sur **Mettre à jour ce panel**. Le message Discord existant est modifié directement (pas de doublon).
+- **Categories**: each category has a name, an emoji, a short description and a **panel text** (shown to the left of the button in a multi-button panel).
+- **Sub-panels**: a sub-panel is a list of choices; each choice can lead to another sub-panel (`Next`) or open the ticket. A sub-panel can be linked to a category (or served by default).
+- **Panels** → **Type**:
+  - **Button**: a single “Open a ticket” button.
+  - **Several buttons**: a banner + one button per category. Clicking a button opens the category and chains the linked sub-panels (the ticket is only created at the end of the flow).
+  - **Dropdown**: a menu listing the categories.
+- Already-sent panels update automatically when you change categories, color or logo.
+- **📊 Stats button**: check the option to add a stats button showing tickets, vouches and the average rating.
+- In the **Sent panels** list:
+  - **✏️ Edit** reloads the panel into the form; change the title, description, image, logo, color, footer or button, then click **Update this panel**. The existing Discord message is edited directly (no duplicate).
+  - **📋 Duplicate** copies the panel into the form as a **new** panel: change a few things and click **Send the panel** to publish a new message. The original stays untouched.
+  - **Delete** removes the panel (and optionally the Discord message).
 
-### Nom du ticket et prix
+### Ticket name and price
 
-- **Nom du salon du ticket** : dans **Tickets → Réglages**, le champ **Nom du salon du ticket** définit le nom donné à l'ouverture. Variables disponibles : `{user}`, `{username}`, `{displayname}`, `{category}`, `{sub}`, `{config}`, `{number}` et **`[prix]`**. Vide = « ❌-catégorie » (comportement historique). Exemple : `ticket-{username}` ou `[prix]-{category}`.
-- **Prix par catégorie** : chaque catégorie a un champ **Prix**. La variable **`[prix]`** (ou `{prix}`) est remplacée par ce prix dans la description, le nom du ticket et le message d'ouverture.
-- **Description = prix** : le bouton **Mettre le prix en description** remplit la description avec `[prix]`, qui affiche donc directement le prix de la catégorie. Il suffit ensuite d'enregistrer.
-- Chaque catégorie peut aussi avoir son **propre nom de ticket**, qui remplace le nom global de la configuration.
+- **Ticket channel name**: in **Tickets → Settings**, the **Ticket channel name** field defines the name given at opening. Available variables: `{user}`, `{username}`, `{displayname}`, `{category}`, `{sub}`, `{config}`, `{number}` and **`[prix]`**. Empty = “❌-category” (historical behavior). Example: `ticket-{username}` or `[prix]-{category}`.
+- **Price per category**: each category has a **Price** field. The **`[prix]`** (or `{prix}`) variable is replaced by this price in the description, the ticket name and the opening message.
+- **Description = price**: the **Put the price in the description** button fills the description with `[prix]`, which directly shows the category price. Then just save.
+- Each category can also have its **own ticket name**, which replaces the configuration's global name.
 
 ### Vouch
 
-- `/vouch` : dans un ticket, ouvre le mini-panel de notation sur 5 étoiles.
+- Enable the **Vouch button** in **Tickets → Settings** (a vouch channel must be configured in **Vouches**).
+- The **⭐ Vouch** button appears in the ticket opening message. Only the ticket creator or the member who claimed it can use it.
+- The member chooses **1 to 5 stars**, then writes a message. The vouch is published in the dedicated channel with the profile picture, rating, message and the block you defined (Service, Support, Price…).
+- **Ticket logs**: in the vouch channel, the **📜 View ticket logs** button downloads the ticket transcript. It is reserved for staff (ticket staff roles, moderation roles or full access).
+- **Delete a vouch**: the **🗑️ Delete vouch** button removes the vouch and its Discord message. Reserved for staff.
+- From the dashboard **Vouches** page, you can also **delete any vouch** from the full list, not only the last 12.
 
-### Fermeture d'un ticket
+### Closing a ticket
 
-Le bouton **Fermer** est réservé au staff. Il ouvre une confirmation :
+- **Staff** clicking **Close** gets a confirmation:
+  - **Yes, sale completed** → amount / buyer / product form → sales panel updated → ticket closed.
+  - **No, no sale** → ticket closed without a sale.
+- **Customer** (ticket creator):
+  - if the Vouch button is enabled and they have not vouched yet, the close is **blocked**. They see **Vouch now** and **Ask a staff member**.
+  - **Ask a staff member** mentions the ticket role(s) so a staff member can come and close the ticket without a vouch.
+  - once they have vouched (or if the Vouch button is disabled), the customer can close the ticket themselves. A customer can never register a sale.
 
-- **Oui, vente réalisée** → formulaire montant / acheteur / produit → panel des ventes mis à jour → ticket fermé.
-- **Non, pas de vente** → ticket fermé sans vente.
+### Member backup (server ban / migration)
 
-Le membre qui a ouvert le ticket ne peut pas le fermer.
+The **Backup** page has a **Member backup** section:
+
+- **💾 Save members**: stores every non-bot member with their name and roles.
+- **📨 Reinvite members**: creates a permanent invite and sends it by DM to every saved member who is not already on the server.
+- **Backup to use**: if the old server was banned and you restore on a **new** server, pick the old server's backup in the dropdown. The invite still points to the new server.
+- When a saved member joins, their roles are restored automatically **by name** (roles that no longer exist or cannot be assigned are skipped).
+
+Discord does not allow a bot to force-add a member: the bot can only send an invite by DM. The backup is also stored in Supabase with the rest of the server data.
+
+## Live preview
+
+On the right side of the dashboard, the **Live preview** reproduces the exact Discord message that will be sent:
+
+- **Tickets → Panels**: embed, image, logo, footer, buttons, dropdown, stats button.
+- **Tickets → Opening message**: text, embed, custom fields, claim/close buttons and the Vouch button when enabled.
+- **Products / Restock**: title, description or variant table, image, logo, footer and link buttons.
+- **Vouches**: review embed and the staff buttons.
+- **Sales**: tracking panel.
+
+The preview updates while you type. **Click a title, description, footer or button label** in the preview to edit it directly: the corresponding form field is updated when you press Enter or click elsewhere.

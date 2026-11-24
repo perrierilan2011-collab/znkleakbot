@@ -115,6 +115,42 @@ input[type=checkbox]{width:auto;accent-color:var(--accent)}
 .img-card .img-thumb img{max-width:100%;max-height:100%;object-fit:contain}
 .img-card .img-name{font-size:12px;padding:6px 8px}
 .img-card .row{gap:6px}
+/* ---------- Aperçu en direct (colonne de droite) ---------- */
+#previewPane{width:430px;flex-shrink:0;border-left:1px solid var(--line);background:#0a0b0e;padding:22px 16px 60px;position:sticky;top:0;height:100vh;overflow:auto}
+.pv-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:14px}
+.pv-head b{font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+.pv-hint{font-size:11px;color:var(--muted)}
+.pv-chat{background:#313338;border-radius:12px;padding:14px 12px;box-shadow:0 10px 30px #0007}
+.pv-line{display:flex;gap:10px;align-items:flex-start}
+.pv-av{width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#5865F2,#8b5cf6);display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;flex-shrink:0}
+.pv-body{min-width:0;flex:1}
+.pv-name{color:#f2f3f5;font-weight:600;font-size:14px}.pv-app{background:#5865F2;color:#fff;font-size:9px;font-weight:700;border-radius:3px;padding:1px 4px;margin-left:5px;vertical-align:middle}
+.pv-time{color:#949ba4;font-size:11px;margin-left:6px}
+.pv-content{color:#dbdee1;font-size:14px;white-space:pre-wrap;word-break:break-word;margin-top:2px}
+.pv-embed{border-left:4px solid #5865F2;background:#2b2d31;border-radius:5px;padding:12px 14px;margin-top:8px;overflow:hidden}
+.pv-e-title{color:#f2f3f5;font-weight:600;font-size:15px;margin-bottom:6px;outline:0;word-break:break-word}
+.pv-e-desc{color:#dbdee1;font-size:13px;line-height:1.45;white-space:pre-wrap;word-break:break-word;outline:0}
+.pv-e-desc code{background:#1e1f22;padding:1px 4px;border-radius:3px;font-size:12px}
+.pv-thumb{float:right;max-width:80px;max-height:80px;border-radius:5px;margin:0 0 8px 10px;object-fit:cover}
+.pv-img{max-width:100%;border-radius:5px;margin-top:10px;display:block}
+.pv-fields{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.pv-fields.three{grid-template-columns:1fr 1fr 1fr}
+.pv-field b{display:block;color:#f2f3f5;font-size:12px;margin-bottom:1px}
+.pv-field span{color:#dbdee1;font-size:12px;white-space:pre-wrap;word-break:break-word}
+.pv-field.full{grid-column:1/-1}
+.pv-foot{color:#b5bac1;font-size:11px;margin-top:10px;display:flex;align-items:center;gap:6px;outline:0}
+.pv-foot .pv-dot{width:14px;height:14px;border-radius:50%;background:#5865F2;display:inline-block;flex-shrink:0}
+.pv-btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.pv-btn{background:#4e5058;color:#fff;border:0;border-radius:4px;padding:7px 12px;font-size:13px;font-weight:500;cursor:pointer;white-space:nowrap;outline:0}
+.pv-btn.primary{background:#5865F2}.pv-btn.success{background:#248046}.pv-btn.danger{background:#da373c}.pv-btn.secondary{background:#4e5058}
+.pv-btn[contenteditable="true"],.pv-e-title[contenteditable="true"],.pv-e-desc[contenteditable="true"],.pv-foot[contenteditable="true"]{outline:2px solid #00a8fc;outline-offset:2px;border-radius:4px;cursor:text}
+.pv-select{background:#2b2d31;border:1px solid #1e1f22;border-radius:4px;color:#dbdee1;padding:9px 11px;margin-top:10px;display:flex;justify-content:space-between;align-items:center;font-size:13px}
+.pv-sections{display:flex;flex-direction:column;gap:10px;margin-top:10px}
+.pv-section{display:flex;justify-content:space-between;align-items:center;gap:10px;background:#2b2d31;border-radius:6px;padding:10px 12px}
+.pv-section .pv-sec-txt{color:#dbdee1;font-size:12.5px;white-space:pre-wrap;flex:1;min-width:0;word-break:break-word}
+.pv-empty{color:var(--muted);font-size:12px;text-align:center;padding:30px 10px}
+@media(max-width:1500px){#previewPane{width:370px}}
+@media(max-width:1250px){#previewPane{display:none}}
 @media(max-width:1000px){.stats{grid-template-columns:1fr 1fr}.cols,.grid2{grid-template-columns:1fr}}
 @media(max-width:760px){#app{flex-direction:column}aside{width:100%;height:auto;position:static}nav{display:flex;flex-wrap:wrap}main{padding:18px}.stats{grid-template-columns:1fr 1fr}}
 </style></head><body>
@@ -136,6 +172,7 @@ input[type=checkbox]{width:auto;accent-color:var(--accent)}
     <div class="side-foot" id="sbStatus">Connexion…</div>
   </aside>
   <main id="main"></main>
+  <div id="previewPane" hidden></div>
 </div>
 <div id="errBanner" class="error-banner" hidden></div>
 <div id="emojiPicker" hidden>
@@ -436,10 +473,310 @@ function render() {
     $('#main').innerHTML = (mdPages.includes(S.page) ? mdBar() : '') + (pages[S.page] || pageHome)();
     if (S.page === 'advanced' || (S.page === 'tickets' && S.tab === 'commands')) fillMembers();
     if (S.page === 'backup') refreshBackupBoxes();
+    pvLock = false;
+    renderPreview();
   } catch (e) {
     showError(e);
   }
 }
+
+/* ================================================================== */
+/*  APERÇU EN DIRECT — le message exact qui sera envoyé, à droite      */
+/* ================================================================== */
+let pvLock = false, pvTimer = null;
+
+function pvVal(sel) { const el = $(sel); return el ? String(el.value ?? '') : ''; }
+function pvChecked(sel) { const el = $(sel); return el ? !!el.checked : false; }
+function pvImg(id) { const v = imgValue(id); return v.data || v.url; }
+function pvVars(text) {
+  const t = TC();
+  const reason = t ? (t.reasons.find((r) => r.id === S.pvReason) || t.reasons[0]) : null;
+  const price = String(reason?.price || '').trim() || '9,99 €';
+  return String(text ?? '')
+    .replace(/\{user\}/gi, '@Customer')
+    .replace(/\{username\}/gi, 'customer')
+    .replace(/\{displayname\}/gi, 'Customer')
+    .replace(/\{server\}/gi, S.g?.name || 'Serveur')
+    .replace(/\{category\}/gi, reason?.label || 'Support')
+    .replace(/\{sub\d*\}/gi, '—')
+    .replace(/\{config\}/gi, t?.name || 'support')
+    .replace(/\{staff\}/gi, '@Staff')
+    .replace(/\{number\}/gi, String(t?.counter || 42).padStart(4, '0'))
+    .replace(/\{paiement\}/gi, 'PayPal').replace(/\{payement\}/gi, 'PayPal').replace(/\{payment\}/gi, 'PayPal')
+    .replace(/\{prix\}/gi, price).replace(/\{price\}/gi, price)
+    .replace(/\[prix\]/gi, price).replace(/\[price\]/gi, price)
+    .replace(/\{order\}/gi, reason?.label || 'Produit')
+    .replace(/\{commande\}/gi, reason?.label || 'Produit')
+    .replace(/\{article\}/gi, reason?.label || 'Produit')
+    .replace(/\{stars\}/gi, '⭐⭐⭐⭐⭐')
+    .replace(/\{ticket\}/gi, 'ticket-0042')
+    .replace(/\{claimed\}/gi, '@Staff')
+    .replace(/\{date\}/gi, new Date().toLocaleDateString('fr-FR'));
+}
+function pvMd(text) {
+  let s = esc(text);
+  s = s.replace(/^### (.+)$/gm, '<b>$1</b>')
+    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<i>$2</i>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\n/g, '<br>');
+  return s;
+}
+function pvButtonHtml(label, style, edit) {
+  const cls = { Primary: 'primary', Secondary: 'secondary', Success: 'success', Danger: 'danger' }[style] || 'secondary';
+  return `<button type="button" class="pv-btn ${cls}" ${edit ? `data-edit="${edit}" title="Cliquer pour modifier"` : ''}>${esc(label || 'Bouton')}</button>`;
+}
+function pvMessageHtml({ content = '', embed = null, buttons = [], select = null, sections = null }) {
+  const gname = S.g?.name || 'Serveur';
+  const initial = esc((gname[0] || 'Z').toUpperCase());
+  const time = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  let inner = '';
+  if (content) inner += `<div class="pv-content">${pvMd(content)}</div>`;
+  if (embed) {
+    const color = colorOf(embed.color || S.g?.panelColor);
+    inner += `<div class="pv-embed" style="border-left-color:${color}">`;
+    if (embed.thumb) inner += `<img class="pv-thumb" src="${esc(embed.thumb)}" alt="">`;
+    if (embed.title) inner += `<div class="pv-e-title" ${embed.editTitle ? `data-edit="${embed.editTitle}" title="Cliquer pour modifier"` : ''}>${pvMd(embed.title)}</div>`;
+    if (embed.desc) inner += `<div class="pv-e-desc" ${embed.editDesc ? `data-edit="${embed.editDesc}" title="Cliquer pour modifier"` : ''}>${pvMd(embed.desc)}</div>`;
+    if (embed.fields?.length) {
+      const three = embed.fields.some((f) => f.three);
+      inner += `<div class="pv-fields${three ? ' three' : ''}">` + embed.fields.map((f) =>
+        `<div class="pv-field ${f.inline === false ? 'full' : ''}"><b>${esc(f.name)}</b><span>${pvMd(f.value)}</span></div>`).join('') + '</div>';
+    }
+    if (embed.image) inner += `<img class="pv-img" src="${esc(embed.image)}" alt="">`;
+    if (embed.footer) inner += `<div class="pv-foot" ${embed.editFooter ? `data-edit="${embed.editFooter}" title="Cliquer pour modifier"` : ''}><span class="pv-dot"></span>${pvMd(embed.footer)}</div>`;
+    inner += '</div>';
+  }
+  if (sections?.length) {
+    inner += '<div class="pv-sections">' + sections.map((s) =>
+      `<div class="pv-section"><div class="pv-sec-txt">${pvMd(s.text)}</div>${s.button || ''}</div>`).join('') + '</div>';
+  }
+  if (select) inner += `<div class="pv-select"><span>${esc(select.placeholder)}</span><span>▾</span></div>`;
+  if (buttons?.length) inner += `<div class="pv-btns">${buttons.join('')}</div>`;
+  return `<div class="pv-chat"><div class="pv-line"><div class="pv-av">${initial}</div><div class="pv-body">
+    <div><span class="pv-name">${esc(gname)}</span><span class="pv-app">APP</span><span class="pv-time">Aujourd’hui à ${time}</span></div>
+    ${inner}</div></div></div>`;
+}
+
+/* ---- Panels de tickets ---- */
+function pvPanelSpec() {
+  const t = TC();
+  if (!t || !$('#p_type')) return null;
+  const type = pvVal('#p_type') || 'bouton';
+  const noText = pvChecked('#p_notext');
+  const style = pvVal('#p_style') || 'Primary';
+  const color = pvVal('#p_color') || S.g.panelColor || '#5865F2';
+  const thumb = pvImg('p_thumb') || (pvChecked('#p_logo') ? (S.g.panelLogo || '') : '');
+  const embed = {
+    color,
+    title: noText ? '' : pvVars(pvVal('#p_title')),
+    desc: noText ? '' : pvVars(pvVal('#p_desc')),
+    thumb, image: pvImg('p_image'), footer: pvVars(pvVal('#p_footer')),
+    editTitle: '#p_title', editDesc: '#p_desc', editFooter: '#p_footer',
+  };
+  let buttons = [], sections = null, select = null;
+  if (type === 'bouton') {
+    buttons = [pvButtonHtml(pvVal('#p_btn') || 'Ouvrir un ticket', style, '#p_btn')];
+  } else if (type === 'boutons') {
+    sections = (t.reasons || []).slice(0, 5).map((r) => ({
+      text: pvVars(r.panelText || `**${r.label}**${r.description ? '\n' + r.description : ''}`),
+      button: pvButtonHtml((r.emoji ? r.emoji + ' ' : '') + r.label, style),
+    }));
+  } else {
+    select = { placeholder: pvVal('#p_placeholder') || 'Choisir une catégorie…' };
+  }
+  if (pvChecked('#p_stats')) buttons.push(pvButtonHtml('📊 Stats', 'Secondary'));
+  return pvMessageHtml({ embed, buttons, sections, select });
+}
+
+/* ---- Message d'ouverture d'un ticket ---- */
+function pvOpenSpec() {
+  const t = TC();
+  if (!t || !$('#om_content')) return null;
+  const showInfo = pvChecked('#om_showinfo');
+  const info = [];
+  if (showInfo) {
+    info.push({ name: pvVal('#om_l_config') || 'Configuration', value: t.name, inline: true });
+    info.push({ name: pvVal('#om_l_category') || 'Category', value: t.reasons[0]?.label || 'Not specified', inline: true });
+  }
+  const fields = [];
+  $$('#om_fields .om-field').forEach((row) => {
+    const n = row.querySelector('.om-f-name')?.value || '';
+    const v = row.querySelector('.om-f-value')?.value || '';
+    if (n && v) fields.push({ name: pvVars(n), value: pvVars(v), inline: false });
+  });
+  const buttons = [
+    pvButtonHtml((pvVal('#om_claim_e') || '🙋') + ' ' + (pvVal('#om_claim') || 'Prendre en charge'), 'Primary', '#om_claim'),
+    pvButtonHtml((pvVal('#om_close_e') || '🔒') + ' ' + (pvVal('#om_close') || 'Fermer'), 'Danger', '#om_close'),
+  ];
+  if (t.vouchButton) buttons.push(pvButtonHtml('⭐ Vouch', 'Success'));
+  return pvMessageHtml({
+    content: pvVars(pvVal('#om_content')),
+    embed: {
+      color: pvVal('#om_color') || t.color || S.g.panelColor,
+      title: pvVars(pvVal('#om_title')) || `🎫 Ticket — ${t.reasons[0]?.label || t.name}`,
+      desc: pvVars(pvVal('#om_desc')) || 'Hello @Customer, a member of the staff will respond to you soon.\nExplain your request to us in as much detail as possible.',
+      thumb: pvImg('om_thumb'), image: pvImg('om_image'), footer: pvVars(pvVal('#om_footer')),
+      fields: [...info, ...fields],
+      editTitle: '#om_title', editDesc: '#om_desc', editFooter: '#om_footer',
+    },
+    buttons,
+  });
+}
+
+/* ---- Produits / Restock ---- */
+function pvShopSpec(kind) {
+  if (!$('#shop_title')) return null;
+  const st = shopSync(kind);
+  const isP = kind === 'product';
+  const fields = [];
+  if (!isP) {
+    (st.rows || []).filter((r) => r.variant || r.price || r.stock).forEach((r) => {
+      fields.push({ name: 'Variant', value: r.variant || '-', inline: true, three: true });
+      fields.push({ name: 'Price', value: r.price || '-', inline: true, three: true });
+      fields.push({ name: 'Stock', value: r.stock || '-', inline: true, three: true });
+    });
+  }
+  const buttons = [];
+  (st.links || []).forEach((l, i) => {
+    if (!l.label && !l.url) return;
+    buttons.push(pvButtonHtml((l.emoji ? l.emoji + ' ' : '') + (l.label || 'Lien'), 'Secondary',
+      `#shop_links_${kind} .shop-link:nth-child(${i + 1}) .sl-label`));
+  });
+  return pvMessageHtml({
+    embed: {
+      color: st.color || S.g.panelColor,
+      title: st.title || (isP ? '🎯 NEW PRODUCT' : 'Buy Now'),
+      desc: isP ? st.text : '',
+      thumb: st.thumb || (st.logo ? (S.g.panelLogo || '') : ''),
+      image: st.image, footer: st.footer, fields,
+      editTitle: '#shop_title', editDesc: isP ? '#shop_text' : null, editFooter: '#shop_footer',
+    },
+    buttons,
+  });
+}
+
+/* ---- Vouch ---- */
+function pvVouchSpec() {
+  const v = S.g?.vouch || {};
+  if (!$('#v_title')) return null;
+  const details = pvVars(pvVal('#v_details'));
+  const desc = '⭐⭐⭐⭐⭐ **5/5**\n“Excellent service, fast and reliable!”' + (details ? '\n\n' + details : '');
+  return pvMessageHtml({
+    embed: {
+      color: S.g.panelColor,
+      title: pvVars(pvVal('#v_title')) || 'Customer review',
+      desc,
+      thumb: pvImg('v_logo') || v.logo || '',
+      footer: pvVars(pvVal('#v_footer')) || `${S.g.name} • Customer feedback • ${new Date().toLocaleDateString('fr-FR')}`,
+      editTitle: '#v_title', editFooter: '#v_footer',
+    },
+    buttons: [pvButtonHtml('📜 View ticket logs', 'Secondary'), pvButtonHtml('🗑️ Delete vouch', 'Danger')],
+  });
+}
+
+/* ---- Ventes ---- */
+function pvSalesSpec() {
+  const s = S.g?.sales;
+  if (!s || !$('#s_currency')) return null;
+  const cur = pvVal('#s_currency') || s.currency || '€';
+  const avg = s.count ? s.total / s.count : 0;
+  const lines = [
+    `**Sales completed:** ${s.count}`,
+    `**Money generated:** ${fmtMoney(s.total, cur)}`,
+    `**Panier moyen :** ${fmtMoney(avg, cur)}`,
+    '',
+    '**🧾 Latest sales**',
+    ...(s.entries || []).slice(-5).reverse().map((e) =>
+      `• ${fmtDate(e.at)} — **${fmtMoney(e.amount, cur)}** — ${e.name || e.buyerName || 'Acheteur'}${e.product ? ' — ' + e.product : ''}`),
+  ];
+  if (!(s.entries || []).length) lines.push('No sales recorded yet.');
+  return pvMessageHtml({
+    embed: {
+      color: S.g.panelColor,
+      title: '📈 Sales Tracking',
+      desc: lines.join('\n'),
+      thumb: pvImg('s_logo') || s.logo || '',
+      footer: S.g.name,
+    },
+  });
+}
+
+function previewSpec() {
+  if (!S.g) return null;
+  if (S.page === 'tickets' && S.tab === 'panels') return pvPanelSpec();
+  if (S.page === 'tickets' && S.tab === 'message') return pvOpenSpec();
+  if (S.page === 'products') return pvShopSpec('product');
+  if (S.page === 'restock') return pvShopSpec('restock');
+  if (S.page === 'vouch') return pvVouchSpec();
+  if (S.page === 'sales') return pvSalesSpec();
+  return null;
+}
+function pvTextOf(el) {
+  const clone = el.cloneNode(true);
+  clone.querySelectorAll('br').forEach((b) => b.replaceWith('\n'));
+  return clone.textContent.replace(/\u00a0/g, ' ').trim();
+}
+function wirePreview() {
+  const pane = $('#previewPane');
+  if (!pane) return;
+  pane.querySelectorAll('[data-edit]').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      if (el.getAttribute('contenteditable') === 'true') return;
+      e.preventDefault();
+      e.stopPropagation();
+      el.setAttribute('contenteditable', 'true');
+      pvLock = true;
+      el.focus();
+      const r = document.createRange();
+      r.selectNodeContents(el);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(r);
+    });
+    const commit = () => {
+      if (el.getAttribute('contenteditable') !== 'true') return;
+      el.removeAttribute('contenteditable');
+      pvLock = false;
+      const target = document.querySelector(el.dataset.edit);
+      if (target) {
+        target.value = pvTextOf(el).replace(/\s+/g, ' ');
+        target.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      renderPreview();
+    };
+    el.addEventListener('blur', commit);
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); el.blur(); }
+      if (e.key === 'Escape') {
+        pvLock = false;
+        el.removeAttribute('contenteditable');
+        renderPreview();
+      }
+    });
+  });
+}
+function renderPreview() {
+  const pane = $('#previewPane');
+  if (!pane) return;
+  if (pvLock) return;
+  let html = null;
+  try { html = previewSpec(); } catch { html = null; }
+  if (!html) { pane.hidden = true; pane.innerHTML = ''; return; }
+  pane.hidden = false;
+  pane.innerHTML = `<div class="pv-head"><b>👁 Aperçu en direct</b><span class="pv-hint">Clique sur un texte pour le modifier</span></div>${html}`;
+  wirePreview();
+}
+function schedulePreview() {
+  clearTimeout(pvTimer);
+  pvTimer = setTimeout(() => { if (!pvLock) renderPreview(); }, 90);
+}
+document.addEventListener('input', (e) => {
+  if (e.target.closest && e.target.closest('#main')) schedulePreview();
+}, true);
+document.addEventListener('change', (e) => {
+  if (e.target.closest && e.target.closest('#main')) schedulePreview();
+}, true);
 
 /* ---------- Helpers ---------- */
 const TC = () => S.g?.tickets.find((t) => t.name === S.tk) || null;
@@ -764,6 +1101,7 @@ function tkConfig() {
     </div>
     <label class="field"><span>Nom du salon du ticket</span><small>Variables : <b>{user}</b> {username} {category} {sub} {config} {number} <b>[prix]</b>. Vide = « ❌-catégorie ». Ex : <b>ticket-{username}</b> ou <b>[prix]-{category}</b>.</small>
       <input id="c_nametemplate" maxlength="100" value="${esc(t.nameTemplate || '')}" placeholder="❌-{category}"></label>
+    <label class="check"><input type="checkbox" id="c_vouch" ${t.vouchButton ? 'checked' : ''}> Ajouter un bouton <b>⭐ Vouch</b> dans le message d’ouverture du ticket (nécessite un salon des vouchs configuré)</label>
     <div class="grid2">
       ${imgField('c_logo', t.logo, 'Logo propre à cette configuration', 'Lien ou fichier importé. Vide = logo global de la page Apparence.', { max: 512 })}
       <label class="field"><span>Traduction automatique</span><small>Traduit chaque message reçu en français et en anglais, quelle que soit la langue d'origine.</small>
@@ -789,6 +1127,7 @@ async function tkSaveConfig() {
       staffMode: $('#c_staffmode').value,
       placeholder: $('#c_placeholder').value, color: $('#c_color').value.trim(),
       nameTemplate: $('#c_nametemplate').value,
+      vouchButton: $('#c_vouch').checked,
       logo: cl.data || cl.url, translate: $('#c_translate').value === 'true',
     });
     await afterChange('Configuration enregistrée ✅');
@@ -1052,6 +1391,7 @@ function tkPanels() {
       <div class="item"><div class="grow"><b>Panel ${n + 1} — ${chName(p.channelId)}</b>
         <small>${p.multi ? 'Plusieurs boutons' : p.button ? 'Bouton' : 'Menu déroulant'}${p.btnLabel ? ' · ' + esc(p.btnLabel) : ''} · message ${p.messageId}${p.translate ? ' · 🌐 traduction' : ''}${p.showLogo !== false && (p.hasThumb || S.g.panelLogo) ? ' · 🖼️ logo' : ' · sans logo'}</small></div>
         <div class="row"><button class="mini" onclick="panelLoad('${p.messageId}')">✏️ Modifier</button>
+        <button class="mini" onclick="panelDuplicate('${p.messageId}')">📋 Dupliquer</button>
         <button class="mini" onclick="panelDelete('${p.messageId}')">Supprimer</button></div></div>`).join('') || '<div class="empty">Aucun panel envoyé.</div>'}</div>
   </section>
   <section class="card"><h2>${editing ? 'Modifier le panel sélectionné' : 'Envoyer un panel'}</h2>
@@ -1071,6 +1411,7 @@ function tkPanels() {
       <label class="field"><span>Texte du menu</span><input id="p_placeholder" maxlength="150" placeholder="Choisir une catégorie..."></label>
     </div>
     <label class="check"><input type="checkbox" id="p_logo" ${draft('showLogo', true) ? 'checked' : ''}> Afficher le logo du serveur (page Apparence) sur ce panel</label>
+    <label class="check"><input type="checkbox" id="p_stats" ${draft('statsButton', false) ? 'checked' : ''}> Ajouter un bouton <b>📊 Stats</b> (nombre de tickets, vouchs et note moyenne)</label>
     <div class="grid2">
       <label class="field"><span>Texte du bouton</span><input id="p_btn" maxlength="80" value="${esc(draft('btnLabel', ''))}" placeholder="Ouvrir un ticket"></label>
       <label class="field"><span>Couleur du bouton</span><select id="p_style">${[['Primary', 'Bleu'], ['Secondary', 'Gris'], ['Success', 'Vert'], ['Danger', 'Rouge']].map(([v, l]) => `<option value="${v}" ${draft('btnStyle', 'Primary') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
@@ -1101,6 +1442,7 @@ async function panelLoad(messageId) {
       btnStyle: p.btnStyle || 'Primary',
       btnLabel: p.btnLabel || '',
       showLogo: p.showLogo !== false,
+      statsButton: !!p.statsButton,
       noText: !!p.noText,
       translate: p.translate !== false,
     };
@@ -1116,6 +1458,35 @@ function panelNew() {
   delete S.uploads.p_image;
   delete S.uploads.p_thumb;
   render();
+}
+// Reprend un panel déjà envoyé pour en créer un NOUVEAU (copie modifiable), sans toucher à l'original.
+async function panelDuplicate(messageId) {
+  const t = TC();
+  try {
+    const p = await api('/api/panel-get?guildId=' + encodeURIComponent(S.gid) + '&config=' + encodeURIComponent(t.name) + '&messageId=' + encodeURIComponent(messageId));
+    S.panelEdit = null;
+    S.panelDraft = {
+      channelId: p.channelId,
+      type: p.multi ? 'boutons' : (p.button ? 'bouton' : 'menu'),
+      title: p.title || `🎫 Support — ${t.name}`,
+      desc: p.desc || '',
+      image: p.image || '',
+      thumb: p.thumb || '',
+      footer: p.footer || '',
+      color: p.color || '',
+      btnStyle: p.btnStyle || 'Primary',
+      btnLabel: p.btnLabel || '',
+      showLogo: p.showLogo !== false,
+      statsButton: !!p.statsButton,
+      noText: !!p.noText,
+      translate: p.translate !== false,
+    };
+    delete S.uploads.p_image;
+    delete S.uploads.p_thumb;
+    S.tab = 'panels';
+    render();
+    toast('Panel copié ✅ Modifie-le puis clique sur « Envoyer le panel » pour créer un nouveau message.');
+  } catch (e) { toast(e.message, false); }
 }
 async function panelSend() {
   const t = TC();
@@ -1139,7 +1510,7 @@ async function panelSend() {
           image: imgV.data || imgV.url, thumb: thumbV.data || thumbV.url,
           footer: $('#p_footer').value, color: $('#p_color').value,
           btnLabel: $('#p_btn').value, btnStyle: $('#p_style').value,
-          showLogo: $('#p_logo').checked, noText, translate: $('#p_translate').checked,
+          showLogo: $('#p_logo').checked, statsButton: $('#p_stats').checked, noText, translate: $('#p_translate').checked,
         },
       });
       toast('Panel mis à jour ✅');
@@ -1153,6 +1524,7 @@ async function panelSend() {
     couleur: $('#p_color').value, 'image-url': imgV.url,
     'miniature-url': thumbV.url, logo: $('#p_logo').checked,
     'sans-texte': noText, traduction: $('#p_translate').checked,
+    stats: $('#p_stats').checked,
     placeholder: $('#p_placeholder').value, footer: $('#p_footer').value,
     type: $('#p_type').value, 'bouton-texte': $('#p_btn').value, 'couleur-bouton': $('#p_style').value,
   };
@@ -1328,18 +1700,20 @@ function pageVouch() {
       <div class="grow"><b>${esc(x.name || 'Membre')}</b> <span class="stars">${stars(x.stars)}</span> <span class="pill">${x.stars}/5</span>
         <small>${fmtDate(x.at)}${x.ticketName ? ' · #' + esc(x.ticketName) : ''}${x.config ? ' · ' + esc(x.config) : ''}</small>
         <div>${esc(x.message || '')}</div>
-      </div></div>`).join('');
+      </div>
+      <div class="row"><button class="mini danger" onclick="vouchDelete('${x.id}')">🗑️ Supprimer</button></div>
+    </div>`).join('');
   return head('Vouches', 'Des avis vérifiés, publiés automatiquement dans un salon dédié.') +
     `<div class="grid stats">
       ${stat('⭐', v.count, 'vouch(s) reçu(s)')}
       ${stat('📊', v.average ? v.average.toFixed(2) + '/5' : '—', 'note moyenne')}
       ${stat('💬', g.openTickets, 'ticket(s) ouvert(s)')}
-      ${stat('📨', v.enabled ? 'Activé' : 'Désactivé', 'commande /vouch')}
+      ${stat('📨', v.enabled ? 'Activé' : 'Désactivé', 'bouton Vouch')}
     </div>
     <section class="card"><h2>Réglages</h2>
       <div class="grid2">
-        <label class="field"><span>Salon des vouchs</span><small>Les avis <span class="code">/vouch</span> y sont publiés.</small><select id="v_channel">${channelOptions(v.channelId, [0, 5], '— aucun salon —')}</select></label>
-        <label class="field"><span>Commande /vouch</span><select id="v_enabled"><option value="true" ${v.enabled ? 'selected' : ''}>Activée</option><option value="false" ${!v.enabled ? 'selected' : ''}>Désactivée</option></select></label>
+        <label class="field"><span>Salon des vouchs</span><small>Les avis laissés avec le bouton <b>Vouch</b> y sont publiés.</small><select id="v_channel">${channelOptions(v.channelId, [0, 5], '— aucun salon —')}</select></label>
+        <label class="field"><span>Bouton Vouch</span><small>Active/désactive le système de vouch (le bouton s'ajoute par configuration dans <b>Tickets → Réglages</b>).</small><select id="v_enabled"><option value="true" ${v.enabled ? 'selected' : ''}>Activé</option><option value="false" ${!v.enabled ? 'selected' : ''}>Désactivé</option></select></label>
       </div>
       <div class="grid2">
         ${imgField('v_logo', v.logo, 'Logo du vouch (haut à droite)', 'Lien ou fichier importé, affiché en haut à droite de chaque vouch.', { max: 512 })}
@@ -1352,13 +1726,19 @@ function pageVouch() {
     </section>
     <section class="card"><h2>Comment ça marche ?</h2>
       <ol style="padding-left:20px;color:#c3c8d3;line-height:1.8">
-        <li>Le membre qui a <b>ouvert</b> le ticket (ou qui l’a <b>pris en charge</b>) tape <span class="code">/vouch</span> dans le ticket.</li>
-        <li>Un mini-panel s’ouvre : il choisit une note de <b>1 à 5 étoiles</b>.</li>
-        <li>Un formulaire s’ouvre : il écrit son message.</li>
-        <li>Le vouch est publié dans le salon dédié avec sa <b>photo de profil</b>, sa note, son message et le <b>bloc que tu as défini</b> juste au-dessus.</li>
+        <li>Active le <b>bouton Vouch</b> dans <b>Tickets → Réglages</b>.</li>
+        <li>Le membre qui a <b>ouvert</b> le ticket (ou qui l’a <b>pris en charge</b>) clique sur le bouton <b>⭐ Vouch</b> dans le ticket.</li>
+        <li>Il choisit une note de <b>1 à 5 étoiles</b>, puis écrit son message.</li>
+        <li>Le vouch est publié dans le salon dédié avec sa <b>photo de profil</b>, sa note, son message et le <b>bloc que tu as défini</b>.</li>
+        <li>Dans le salon des vouchs, le staff peut afficher les <b>logs du ticket</b> ou <b>supprimer</b> un vouch non légitime.</li>
       </ol>
     </section>
-    <section class="card"><h2>Derniers vouchs</h2><div class="list">${list || '<div class="empty">Aucun vouch pour l’instant.</div>'}</div></section>`;
+    <section class="card"><h2>Vouchs (${(g.vouches || []).length})</h2><div class="list">${list || '<div class="empty">Aucun vouch pour l’instant.</div>'}</div></section>`;
+}
+async function vouchDelete(id) {
+  if (!confirm('Supprimer ce vouch ? Le message sera aussi supprimé dans le salon des vouchs.')) return;
+  try { await api('/api/vouch-delete', { guildId: S.gid, id }); await afterChange('Vouch supprimé'); }
+  catch (e) { toast(e.message, false); }
 }
 async function vouchSave() {
   try {
@@ -2066,7 +2446,17 @@ function pageBackup() {
         <small>Remet les données du fichier. Les autres serveurs ne sont pas touchés.</small>
         <input type="file" accept=".json" onchange="bkRestore(this)"></label>
     </section>
-    <section class="card" id="backupsCard"><h2>Copies automatiques</h2><div id="backupsBox" class="muted">Chargement…</div></section>`;
+    <section class="card" id="backupsCard"><h2>Copies automatiques</h2><div id="backupsBox" class="muted">Chargement…</div></section>
+    <section class="card"><h2>Sauvegarde des membres</h2>
+      <p class="muted" style="margin-bottom:10px">Enregistre tous les membres (pseudo + rôles). Si le serveur est banni ou recréé, tu peux <b>réinviter tout le monde</b> et les rôles sont restaurés par nom à l’arrivée.</p>
+      <div class="row">
+        <button class="btn" onclick="membersBackupSave()">💾 Sauvegarder les membres</button>
+        <button class="btn ghost" onclick="membersBackupRestore()">📨 Réinviter les membres</button>
+      </div>
+      <label class="field" style="margin-top:14px"><span>Sauvegarde à utiliser</span><small>Si le serveur a été banni et que tu restaures sur un <b>nouveau</b> serveur, choisis ici la sauvegarde de l’ancien serveur.</small><select id="mb_source"><option value="">Ce serveur</option></select></label>
+      <div id="membersBackupBox" class="muted" style="margin-top:12px">Chargement…</div>
+      <div class="alert info" style="margin-top:12px">Discord ne permet pas à un bot d’ajouter un membre de force : le bot crée une invitation permanente et l’envoie en MP à chaque membre sauvegardé.</div>
+    </section>`;
 }
 async function sbPush() {
   try { await api('/api/supabase-push', {}); toast('Envoyé vers Supabase ✅'); refreshBackupBoxes(); }
@@ -2088,6 +2478,7 @@ async function refreshBackupBoxes() {
         <div class="row"><a class="mini" href="/api/backup?file=${encodeURIComponent(x.name)}">Télécharger</a>
         <button class="mini" onclick="bkFile('${esc(x.name)}')">Restaurer</button></div></div>`).join('')}</div>` : '<div class="empty">Aucune copie pour le moment.</div>';
   } catch { /* rien */ }
+  refreshMembersBackup();
 }
 async function bkNow() { try { const r = await api('/api/backup-now', {}); toast(r.name ? 'Copie créée ✅' : 'Rien à sauvegarder'); refreshBackupBoxes(); } catch (e) { toast(e.message, false); } }
 async function bkRestore(input) {
@@ -2108,6 +2499,39 @@ async function bkDo(data, label) {
     const r = await api('/api/restore', { data });
     toast('Restauré ✅' + (r.warn ? ' (Supabase : ' + r.warn + ')' : ''), !r.warn);
     await loadGuild(S.gid); refreshBackupBoxes();
+  } catch (e) { toast(e.message, false); }
+}
+
+/* ---------- Sauvegarde des membres ---------- */
+function refreshMembersBackup() {
+  const box = $('#membersBackupBox');
+  if (!box) return;
+  const b = S.g?.memberBackup;
+  box.innerHTML = b
+    ? `👥 <b>${b.count}</b> membre(s) sauvegardé(s) · ${fmtDate(b.at)}${b.guildName ? ' · ' + esc(b.guildName) : ''}`
+    : 'Aucune sauvegarde des membres pour ce serveur. Choisis une sauvegarde d’un autre serveur ci-dessus si besoin.';
+  const sel = $('#mb_source');
+  if (!sel) return;
+  api('/api/members-backup', { guildId: S.gid, action: 'list' }).then((r) => {
+    const list = r.backups || [];
+    sel.innerHTML = `<option value="">Ce serveur${b ? ` (${b.count})` : ''}</option>` +
+      list.map((x) => `<option value="${esc(x.guildId)}">${esc(x.guildName)} — ${x.count} membre(s) · ${fmtDate(x.at)}</option>`).join('');
+  }).catch(() => {});
+}
+async function membersBackupSave() {
+  try {
+    const r = await api('/api/members-backup', { guildId: S.gid, action: 'save' });
+    toast(`${r.count} membre(s) sauvegardé(s) ✅`);
+    await loadGuild(S.gid);
+    refreshMembersBackup();
+  } catch (e) { toast(e.message, false); }
+}
+async function membersBackupRestore() {
+  const fromGuildId = $('#mb_source')?.value || undefined;
+  if (!confirm('Créer une invitation permanente et l’envoyer en MP à tous les membres sauvegardés qui ne sont pas encore sur ce serveur ?')) return;
+  try {
+    const r = await api('/api/members-backup', { guildId: S.gid, action: 'restore', dm: true, fromGuildId });
+    toast(`Déjà présents : ${r.present} · Invités en MP : ${r.dmed} · Échecs : ${r.failed}${r.inviteUrl ? ' · ' + r.inviteUrl : ''}`, true);
   } catch (e) { toast(e.message, false); }
 }
 

@@ -28,6 +28,7 @@ const MODALS = {
 module.exports = function startDashboard(ctx) {
   const { client, commands, handlers, autocomplete, getG, refreshPanels, refreshSalesPanel,
     buildCatalogPayload, buildSinglePanel, buildMultiPanel, multiPanelSig, rich, syncCommandChannel,
+    backupMembers, restoreMembers,
     CMD_CATEGORIES, ALWAYS_ON, PUBLIC_COMMANDS, OWNER_ONLY, db, save, DB_FILE } = ctx;
   const PASS = process.env.PANEL_PASSWORD;
   if (!PASS) return console.warn('[panel] PANEL_PASSWORD absent : panel désactivé.');
@@ -239,9 +240,10 @@ module.exports = function startDashboard(ctx) {
           title: d.vouch?.title || null, footer: d.vouch?.footer || null,
           details: d.vouch?.details || '',
         },
-        vouches: (d.vouches || []).slice(-12).reverse().map((v) => ({
+        vouches: (d.vouches || []).slice().reverse().map((v) => ({
           id: v.id, from: v.from, stars: v.stars, message: v.message, image: v.image || null,
-          at: v.at, ticketName: v.ticketName || null, config: v.config || null,
+          at: v.at, ticketName: v.ticketName || null, ticketId: v.ticketId || null, config: v.config || null,
+          hasTranscript: !!v.transcript,
           name: client.users.cache.get(v.from)?.globalName || client.users.cache.get(v.from)?.username || null,
           avatar: client.users.cache.get(v.from)?.displayAvatarURL({ size: 64 }) || null,
         })),
@@ -255,6 +257,7 @@ module.exports = function startDashboard(ctx) {
           })),
         },
         openTickets: Object.keys(d.open || {}).length,
+        memberBackup: d.memberBackup ? { at: d.memberBackup.at, count: (d.memberBackup.members || []).length, guildName: d.memberBackup.guildName || null } : null,
         shopPosts: (d.shopPosts || []).slice(-8).reverse().map((p) => ({
           ...p,
           // Les images importées (data URL) ne sont pas renvoyées dans la liste : elles sont
@@ -269,11 +272,11 @@ module.exports = function startDashboard(ctx) {
         },
         tickets: Object.values(d.tickets || {}).map((t) => ({
           name: t.name, categoryId: t.categoryId, staffRoles: t.staffRoles || [], staffMode: t.staffMode || 'any', logChannelId: t.logChannelId, counter: t.counter || 0,
-          nameTemplate: t.nameTemplate || null,
+          nameTemplate: t.nameTemplate || null, vouchButton: !!t.vouchButton,
           dm: !!t.dm, openMsg: t.openMsg || null, openMsgId: t.openMsgId || null,
           color: t.color || null, placeholder: t.placeholder || null, logo: t.logo || null, translate: !!t.translate,
           openPresets: (t.openPresets || []).map((p) => ({ id: p.id, name: p.name, openMsg: p.openMsg || null })),
-          panels: (t.panels || []).map((p) => ({ channelId: p.channelId, messageId: p.messageId, button: !!p.button, multi: !!p.multi, showLogo: p.showLogo !== false, btnLabel: p.btnLabel || null, btnStyle: p.btnStyle || null, openMsg: p.openMsg || null, openMsgId: p.openMsgId || null, translate: !!p.translate, thumb: light(p.thumb), image: light(p.image), hasThumb: !!p.thumb, hasImage: !!p.image })),
+          panels: (t.panels || []).map((p) => ({ channelId: p.channelId, messageId: p.messageId, button: !!p.button, multi: !!p.multi, showLogo: p.showLogo !== false, statsButton: !!p.statsButton, btnLabel: p.btnLabel || null, btnStyle: p.btnStyle || null, openMsg: p.openMsg || null, openMsgId: p.openMsgId || null, translate: !!p.translate, thumb: light(p.thumb), image: light(p.image), hasThumb: !!p.thumb, hasImage: !!p.image })),
           reasons: (t.reasons || []).map((r) => ({ id: r.id, label: r.label, emoji: r.emoji, description: r.description, panelText: r.panelText || '', price: r.price || '', nameTemplate: r.nameTemplate || null, categoryId: r.categoryId, staffRoleId: r.staffRoleId, staffRoles: Array.isArray(r.staffRoles) ? r.staffRoles : (r.staffRoleId ? [r.staffRoleId] : []), staffMode: r.staffMode || null, openMsg: r.openMsg || null, openMsgId: r.openMsgId || null })),
           dmChoices: (t.dmChoices || []).map((r) => ({ id: r.id, label: r.label, emoji: r.emoji, openMsg: r.openMsg || null, openMsgId: r.openMsgId || null })),
           subPanels: t.subPanels || [], subLinks: t.subLinks || {}, defaultSub: t.defaultSubPanelId || null,
@@ -413,6 +416,7 @@ module.exports = function startDashboard(ctx) {
           logChannelId: b.logChannelId && guild.channels.cache.has(b.logChannelId) ? b.logChannelId : null,
           reasons: [], counter: 0, panels: [], placeholder: null, openMsg: null,
           nameTemplate: txt(b.nameTemplate, 100) || null,
+          vouchButton: !!b.vouchButton,
           dm: false, dmMigrated: true, dmChoices: [], dmTexts: null, dmImage: null,
           subPanels: [], subLinks: {}, defaultSubPanelId: null, openPresets: [],
           color: colorOk(b.color) || null,
@@ -444,6 +448,7 @@ module.exports = function startDashboard(ctx) {
         if ('logChannelId' in b) cfg.logChannelId = b.logChannelId && guild.channels.cache.has(b.logChannelId) ? b.logChannelId : null;
         if ('placeholder' in b) cfg.placeholder = txt(b.placeholder, 150) || null;
         if ('nameTemplate' in b) cfg.nameTemplate = txt(b.nameTemplate, 100) || null;
+        if ('vouchButton' in b) cfg.vouchButton = !!b.vouchButton;
         if ('color' in b) cfg.color = colorOk(b.color) || null;
         if ('logo' in b) cfg.logo = imgOk(b.logo) || null;
         if ('translate' in b) cfg.translate = b.translate === true || b.translate === 'true';
@@ -747,6 +752,7 @@ module.exports = function startDashboard(ctx) {
       if ('color' in f) p.color = colorOk(f.color) || null;
       if ('translate' in f) p.translate = !!f.translate;
       if ('showLogo' in f) p.showLogo = !!f.showLogo;
+      if ('statsButton' in f) p.statsButton = !!f.statsButton;
       if ('noText' in f) p.noText = !!f.noText;
       if ('image' in f) p.image = imgOk(f.image) || null;
       if ('thumb' in f) p.thumb = imgOk(f.thumb) || null;
@@ -765,6 +771,51 @@ module.exports = function startDashboard(ctx) {
       save();
       sb.forceNext(guild.id);
       return { ok: true };
+    },
+
+    // ---------- Vouch : suppression depuis le dashboard ----------
+    'POST /api/vouch-delete': async (_r, _q, b) => {
+      const { guild } = await ctxFor(b.guildId);
+      const d = getG(guild.id);
+      const v = (d.vouches || []).find((x) => x.id === b.id);
+      if (!v) throw new Error('Vouch introuvable');
+      if (v.channelId && v.messageId) {
+        const ch = await guild.channels.fetch(v.channelId).catch(() => null);
+        const msg = ch && await ch.messages.fetch(v.messageId).catch(() => null);
+        if (msg) await msg.delete().catch(console.error);
+      }
+      d.vouches = d.vouches.filter((x) => x !== v);
+      save();
+      sb.forceNext(guild.id);
+      return { ok: true };
+    },
+
+    // ---------- Sauvegarde des membres (changement de serveur) ----------
+    'POST /api/members-backup': async (_r, _q, b) => {
+      const { guild } = await ctxFor(b.guildId);
+      if (b.action === 'save') {
+        const r = await backupMembers(guild);
+        sb.forceNext(guild.id);
+        return r;
+      }
+      if (b.action === 'restore') {
+        const src = b.fromGuildId && db[b.fromGuildId] ? db[b.fromGuildId] : null;
+        const backup = src?.memberBackup || null;
+        return await restoreMembers(guild, { dm: b.dm !== false, backup });
+      }
+      if (b.action === 'list') {
+        return {
+          backups: Object.entries(db)
+            .filter(([, v]) => v?.memberBackup?.members?.length)
+            .map(([id, v]) => ({
+              guildId: id, guildName: v.memberBackup.guildName || id,
+              count: v.memberBackup.members.length, at: v.memberBackup.at,
+            }))
+            .sort((a, b2) => (b2.at || 0) - (a.at || 0)),
+        };
+      }
+      const d = getG(guild.id);
+      return { backup: d.memberBackup ? { at: d.memberBackup.at, count: (d.memberBackup.members || []).length, guildName: d.memberBackup.guildName || null } : null };
     },
 
     // ---------- Boutique : envoyer / modifier / renvoyer / supprimer un produit ou un restock ----------
