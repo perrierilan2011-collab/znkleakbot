@@ -186,9 +186,11 @@ module.exports = function startDashboard(ctx) {
         id: guild.id, name: guild.name, count: guild.memberCount, disabled: d.disabledCommands || [],
         welcome: d.welcome,
         panelColor: d.panelColor || '#5865F2',
+        panelLogo: d.panelLogo || null,
         vouch: {
           channelId: d.vouch?.channelId || null, enabled: d.vouch?.enabled !== false, count: (d.vouches || []).length,
           average: (d.vouches || []).length ? (d.vouches.reduce((n, v) => n + (v.stars || 0), 0) / d.vouches.length) : 0,
+          logo: d.vouch?.logo || null,
         },
         vouches: (d.vouches || []).slice(-12).reverse().map((v) => ({
           id: v.id, from: v.from, stars: v.stars, message: v.message, image: v.image || null,
@@ -212,9 +214,9 @@ module.exports = function startDashboard(ctx) {
         tickets: Object.values(d.tickets || {}).map((t) => ({
           name: t.name, categoryId: t.categoryId, staffRoles: t.staffRoles || [], logChannelId: t.logChannelId, counter: t.counter || 0,
           dm: !!t.dm, openMsg: t.openMsg || null, openMsgId: t.openMsgId || null,
-          color: t.color || null, placeholder: t.placeholder || null,
+          color: t.color || null, placeholder: t.placeholder || null, logo: t.logo || null, translate: !!t.translate,
           openPresets: (t.openPresets || []).map((p) => ({ id: p.id, name: p.name, openMsg: p.openMsg || null })),
-          panels: (t.panels || []).map((p) => ({ channelId: p.channelId, messageId: p.messageId, button: !!p.button, btnLabel: p.btnLabel || null, btnStyle: p.btnStyle || null, openMsg: p.openMsg || null, openMsgId: p.openMsgId || null })),
+          panels: (t.panels || []).map((p) => ({ channelId: p.channelId, messageId: p.messageId, button: !!p.button, btnLabel: p.btnLabel || null, btnStyle: p.btnStyle || null, openMsg: p.openMsg || null, openMsgId: p.openMsgId || null, translate: !!p.translate, thumb: p.thumb || null })),
           reasons: (t.reasons || []).map((r) => ({ id: r.id, label: r.label, emoji: r.emoji, description: r.description, categoryId: r.categoryId, staffRoleId: r.staffRoleId, openMsg: r.openMsg || null, openMsgId: r.openMsgId || null })),
           dmChoices: (t.dmChoices || []).map((r) => ({ id: r.id, label: r.label, emoji: r.emoji, openMsg: r.openMsg || null, openMsgId: r.openMsgId || null })),
           subPanels: t.subPanels || [], subLinks: t.subLinks || {}, defaultSub: t.defaultSubPanelId || null,
@@ -242,6 +244,8 @@ module.exports = function startDashboard(ctx) {
           dm: false, dmMigrated: true, dmChoices: [], dmTexts: null, dmImage: null,
           subPanels: [], subLinks: {}, defaultSubPanelId: null, openPresets: [],
           color: colorOk(b.color) || null,
+          logo: urlOk(b.logo) || null,
+          translate: b.translate === true || b.translate === 'true',
         };
         save();
         return { ok: true, name };
@@ -267,6 +271,8 @@ module.exports = function startDashboard(ctx) {
         if ('logChannelId' in b) cfg.logChannelId = b.logChannelId && guild.channels.cache.has(b.logChannelId) ? b.logChannelId : null;
         if ('placeholder' in b) cfg.placeholder = txt(b.placeholder, 150) || null;
         if ('color' in b) cfg.color = colorOk(b.color) || null;
+        if ('logo' in b) cfg.logo = urlOk(b.logo) || null;
+        if ('translate' in b) cfg.translate = b.translate === true || b.translate === 'true';
         save();
         if (b.refresh !== false) await refreshPanels(guild, name).catch(console.error);
         return { ok: true };
@@ -285,6 +291,11 @@ module.exports = function startDashboard(ctx) {
         d.panelColor = c;
         recolor = true;
       }
+      if ('panelLogo' in b) {
+        d.panelLogo = urlOk(b.panelLogo) || null;
+        recolor = true; // le logo est appliqué aux panels existants
+      }
+      if ('vouchLogo' in b) d.vouch.logo = urlOk(b.vouchLogo) || null;
       if ('vouchChannelId' in b) d.vouch.channelId = b.vouchChannelId && guild.channels.cache.has(b.vouchChannelId) ? b.vouchChannelId : null;
       if ('vouchEnabled' in b) d.vouch.enabled = b.vouchEnabled === true || b.vouchEnabled === 'true' || b.vouchEnabled === 1;
       if ('salesCurrency' in b) d.sales.currency = txt(b.salesCurrency, 8) || '€';
@@ -341,7 +352,7 @@ module.exports = function startDashboard(ctx) {
       const guild = client.guilds.cache.get(b.guildId);
       cfg.reasons ??= [];
       if (b.action === 'add') {
-        if (cfg.reasons.length >= 25) throw new Error('25 catégories maximum.');
+        if (cfg.reasons.length >= 125) throw new Error('125 catégories maximum.');
         const label = txt(b.label, 100);
         if (!label) throw new Error('Le nom est obligatoire.');
         if (cfg.reasons.some((r) => r.label.toLowerCase() === label.toLowerCase())) throw new Error('Cette catégorie existe déjà.');
@@ -440,7 +451,7 @@ module.exports = function startDashboard(ctx) {
         return b.nextSubId;
       };
       if (b.action === 'add') {
-        if (sp.choices.length >= 25) throw new Error('25 choix maximum par menu.');
+        if (sp.choices.length >= 125) throw new Error('125 choix maximum par menu.');
         const label = txt(b.label, 100);
         if (!label) throw new Error('Le nom du choix est obligatoire.');
         sp.choices.push({
@@ -601,7 +612,7 @@ module.exports = function startDashboard(ctx) {
       for (const it of items) {
         const ex = list.find((x) => x.label.toLowerCase() === it.label.toLowerCase());
         if (ex) { if (it.description) ex.description = it.description; if (nextSubId) ex.nextSubId = nextSubId; updated++; continue; } // même nom : on met à jour le prix
-        if (list.length >= 25) { skipped++; continue; } // limite Discord : 25 choix par menu
+        if (list.length >= 125) { skipped++; continue; } // au-delà, plusieurs menus sont utilisés (125 max)
         list.push({ id: crypto.randomUUID().slice(0, 8), label: it.label, description: it.description, emoji, staffRoleId, categoryId, ...(isReasons ? {} : { nextSubId }) });
         added++;
       }

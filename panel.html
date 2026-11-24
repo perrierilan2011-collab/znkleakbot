@@ -81,6 +81,25 @@ input[type=checkbox]{width:auto;accent-color:var(--accent)}
 #login{position:fixed;inset:0;background:var(--bg);display:grid;place-items:center;z-index:200;padding:20px}
 #login .card{width:340px;max-width:100%}
 .result{margin-top:14px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:12px;white-space:pre-wrap;word-break:break-word;font-size:13px}
+.emoji-wrap{display:flex;align-items:center;gap:6px}
+.emoji-wrap input{flex:1;min-width:0}
+.emoji-btn{flex-shrink:0;width:40px;height:40px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);cursor:pointer;font-size:18px;line-height:1}
+.emoji-btn:hover{border-color:var(--accent)}
+.emoji-prev{flex-shrink:0;width:30px;text-align:center;font-size:18px}
+.emoji-prev img{width:24px;height:24px;vertical-align:middle}
+#emojiPicker{position:fixed;inset:0;z-index:300;display:flex;align-items:center;justify-content:center;background:#0008;padding:16px}
+#emojiPicker .ep{background:var(--panel);border:1px solid var(--line);border-radius:14px;width:520px;max-width:100%;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 20px 60px #000a}
+#emojiPicker .ep-head{display:flex;gap:8px;align-items:center;padding:12px;border-bottom:1px solid var(--line)}
+#emojiPicker .ep-head b{white-space:nowrap}
+#emojiPicker .ep-head input{flex:1;min-width:0}
+#emojiPicker .ep-tabs{display:flex;gap:6px;padding:10px 12px 0}
+#emojiPicker .ep-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(42px,1fr));gap:4px;padding:12px;overflow:auto}
+#emojiPicker .ep-emoji{background:var(--panel2);border:1px solid transparent;border-radius:8px;height:40px;cursor:pointer;font-size:20px;display:flex;align-items:center;justify-content:center;padding:0}
+#emojiPicker .ep-emoji:hover{border-color:var(--accent);background:#20242d}
+#emojiPicker .ep-emoji img{width:26px;height:26px;object-fit:contain}
+.error-banner{position:fixed;left:50%;top:12px;transform:translateX(-50%);z-index:400;max-width:92vw;background:#3a1218;border:1px solid #7a2c38;color:#ffb9c4;border-radius:9px;padding:10px 14px;font-size:13px;box-shadow:0 10px 30px #000a;white-space:pre-wrap}
+.check{display:flex;align-items:center;gap:8px;margin:10px 0;font-size:13px;font-weight:500}
+.check input{width:auto}
 @media(max-width:1000px){.stats{grid-template-columns:1fr 1fr}.cols,.grid2{grid-template-columns:1fr}}
 @media(max-width:760px){#app{flex-direction:column}aside{width:100%;height:auto;position:static}nav{display:flex;flex-wrap:wrap}main{padding:18px}.stats{grid-template-columns:1fr 1fr}}
 </style></head><body>
@@ -103,6 +122,21 @@ input[type=checkbox]{width:auto;accent-color:var(--accent)}
   </aside>
   <main id="main"></main>
 </div>
+<div id="errBanner" class="error-banner" hidden></div>
+<div id="emojiPicker" hidden>
+  <div class="ep">
+    <div class="ep-head">
+      <b>Emojis</b>
+      <input id="ep_search" placeholder="Rechercher un emoji…" oninput="renderEmojiList()">
+      <button class="mini" onclick="closeEmoji()" title="Fermer">✕</button>
+    </div>
+    <div class="ep-tabs">
+      <button class="tab on" data-ep="server" onclick="setEmojiTab('server')">Serveur</button>
+      <button class="tab" data-ep="unicode" onclick="setEmojiTab('unicode')">Unicode</button>
+    </div>
+    <div id="ep_list" class="ep-list"></div>
+  </div>
+</div>
 <div id="toasts"></div>
 
 <script>
@@ -114,6 +148,7 @@ const S = {
   guilds: [], schema: null, gid: null, g: null, page: 'home', tab: 'config', tk: null,
   newTk: false, reasonEdit: null, sp: null, spEdit: false, choiceEdit: null,
   omScope: 'config:', advCmd: null, advSub: null, advResult: null,
+  emojiTarget: null, emojiTab: 'server', serverEmojis: null,
 };
 
 /* ---------- API ---------- */
@@ -130,6 +165,142 @@ function toast(msg, ok = true) {
   t.textContent = msg;
   $('#toasts').append(t);
   setTimeout(() => t.remove(), 5000);
+}
+function showError(e) {
+  const el = $('#errBanner');
+  if (!el) return;
+  el.hidden = false;
+  el.textContent = 'Erreur : ' + (e && (e.message || e)) ;
+  console.error(e);
+}
+window.addEventListener('error', (e) => showError(e.error || e.message));
+window.addEventListener('unhandledrejection', (e) => showError(e.reason || 'Erreur inconnue'));
+
+/* ---------- Emoji picker (server emojis + unicode) ---------- */
+const EMOJI_UNICODE = [
+  ['😀', 'sourire happy smile'], ['😁', 'sourire beam'], ['😂', 'rire joie laugh'], ['🤣', 'rire rofl'],
+  ['😃', 'sourire happy'], ['😄', 'sourire happy'], ['😅', 'sueur sweat'], ['😆', 'rire laugh'],
+  ['😉', 'clin oeil wink'], ['😊', 'sourire blush'], ['😋', 'miam yum'], ['😎', 'cool lunettes'],
+  ['😍', 'amour love coeur'], ['😘', 'bisou kiss'], ['🥰', 'amour love'], ['😗', 'bisou kiss'],
+  ['🙂', 'sourire slight'], ['🤗', 'calin hug'], ['🤩', 'star etoile'], ['🤔', 'pense think'],
+  ['🤨', 'sourcil raised'], ['😐', 'neutre neutral'], ['😑', 'neutre expressionless'], ['🙄', 'yeux au ciel'],
+  ['😏', 'sourire narquois smirk'], ['😣', 'persevere'], ['😥', 'decu sad'], ['😮', 'surpris wow'],
+  ['🤐', 'bouche fermee'], ['😯', 'surpris hushed'], ['😪', 'fatigue sleepy'], ['😫', 'fatigue tired'],
+  ['🥱', 'bailler yawn'], ['😴', 'dormir sleep'], ['😌', 'soulage relief'], ['😛', 'langue tongue'],
+  ['😜', 'langue wink'], ['😝', 'langue'], ['🤤', 'bave drool'], ['😒', 'blase unamused'],
+  ['😓', 'sueur sweat'], ['😔', 'pense sad'], ['😕', 'confus confused'], ['🙃', 'inverse upside down'],
+  ['🤑', 'argent money'], ['😲', 'choc astonished'], ['🙁', 'triste frown'], ['😖', 'confus confounded'],
+  ['😞', 'decu disappointed'], ['😟', 'inquiet worried'], ['😤', 'fier triumph'], ['😢', 'pleure cry'],
+  ['😭', 'pleure fort sob'], ['😦', 'choc frown'], ['😧', 'angoisse anguished'], ['😨', 'peur fearful'],
+  ['😩', 'fatigue weary'], ['🤯', 'tete explose mind blown'], ['😬', 'gené grimace'], ['😰', 'anxieux anxious'],
+  ['😱', 'peur scream'], ['🥵', 'chaud hot'], ['🥶', 'froid cold'], ['😳', 'rouge flush'],
+  ['🤪', 'fou zany'], ['😵', 'etourdi dizzy'], ['🥴', 'ivre woozy'], ['😠', 'colere angry'],
+  ['😡', 'colere rage'], ['🤬', 'jure curse'], ['😷', 'masque mask'], ['🤒', 'malade sick'],
+  ['🤕', 'blesse hurt'], ['🤢', 'nausee nausea'], ['🤮', 'vomi vomit'], ['🤧', 'eternue sneeze'],
+  ['😇', 'ange angel'], ['🥳', 'fete party'], ['🥺', 'supplie pleading'], ['🤠', 'cowboy'],
+  ['🤡', 'clown'], ['🤥', 'menteur liar'], ['🤫', 'chut shush'], ['🤭', 'rire giggle'],
+  ['🧐', 'monocle'], ['🤓', 'nerd'], ['😈', 'diable devil'], ['👿', 'diable angry'],
+  ['👻', 'fantome ghost'], ['💀', 'crane skull'], ['☠️', 'crane skull'], ['👽', 'alien'],
+  ['🤖', 'robot'], ['💩', 'caca poop'], ['😺', 'chat happy'], ['😸', 'chat rire'],
+  ['😹', 'chat larmes'], ['😻', 'chat amour'], ['😼', 'chat narquois'], ['😽', 'chat bisou'],
+  ['🙀', 'chat peur'], ['😿', 'chat triste'], ['😾', 'chat colere'],
+  ['❤️', 'coeur rouge love'], ['🧡', 'coeur orange'], ['💛', 'coeur jaune'], ['💚', 'coeur vert'],
+  ['💙', 'coeur bleu'], ['💜', 'coeur violet'], ['🖤', 'coeur noir'], ['🤍', 'coeur blanc'],
+  ['🤎', 'coeur marron'], ['💔', 'coeur brise'], ['❣️', 'coeur exclamation'], ['💕', 'coeurs'],
+  ['💞', 'coeurs'], ['💓', 'coeur battant'], ['💗', 'coeur'], ['💖', 'coeur etincelant'],
+  ['💘', 'coeur fleche'], ['💝', 'coeur cadeau'], ['💟', 'coeur decoration'],
+  ['👍', 'pouce haut like ok'], ['👎', 'pouce bas dislike'], ['👌', 'ok parfait'], ['✌️', 'victoire peace'],
+  ['🤞', 'doigts croises'], ['🤟', 'love'], ['🤘', 'rock'], ['🤙', 'appel call'],
+  ['👈', 'gauche'], ['👉', 'droite'], ['👆', 'haut'], ['👇', 'bas'], ['☝️', 'index haut'],
+  ['✋', 'main stop'], ['🤚', 'main levee'], ['🖐️', 'main'], ['🖖', 'vulcain'],
+  ['👋', 'salut wave'], ['🤝', 'poignee main deal'], ['🙏', 'priere merci please'], ['💪', 'muscle force'],
+  ['👏', 'applaudit clap'], ['🙌', 'bravo hands'], ['👐', 'mains ouvertes'], ['🤲', 'paumes'],
+  ['✍️', 'ecrit write'], ['💅', 'ongles'], ['👀', 'yeux regarde'], ['👁️', 'oeil'],
+  ['🧠', 'cerveau brain'], ['🔥', 'feu fire chaud'], ['⭐', 'etoile star'], ['🌟', 'etoile brillante'],
+  ['✨', 'etincelles sparkles'], ['⚡', 'eclair lightning'], ['💥', 'explosion boom'], ['💫', 'etincelle'],
+  ['✅', 'check oui valide'], ['☑️', 'check'], ['✔️', 'check'], ['❌', 'croix non'],
+  ['❎', 'croix'], ['⚠️', 'attention warning'], ['🚫', 'interdit'], ['⛔', 'stop'],
+  ['❗', 'exclamation'], ['❓', 'question'], ['❔', 'question'], ['💯', '100 parfait'],
+  ['🎉', 'fete party'], ['🎊', 'confettis'], ['🎁', 'cadeau gift'], ['🏆', 'trophee trophy'],
+  ['🥇', 'or gold'], ['🥈', 'argent silver'], ['🥉', 'bronze'], ['🎯', 'cible target'],
+  ['💰', 'argent money'], ['💸', 'argent billet'], ['💳', 'carte paiement'], ['🪙', 'piece coin'],
+  ['🏦', 'banque'], ['💎', 'diamant'], ['🛒', 'panier shop'], ['🛍️', 'shopping'],
+  ['📦', 'colis box'], ['📈', 'hausse stats'], ['📉', 'baisse'], ['📊', 'stats'],
+  ['🧾', 'recu facture'], ['🔗', 'lien link'], ['📩', 'message recu'], ['📨', 'message'],
+  ['📬', 'mail'], ['💬', 'message chat'], ['🗨️', 'bulle'], ['🔔', 'cloche notification'],
+  ['🔒', 'ferme lock'], ['🔓', 'ouvert unlock'], ['🔑', 'cle key'], ['🛡️', 'bouclier shield'],
+  ['⚙️', 'engrenage config'], ['🔧', 'outil'], ['🔨', 'marteau'], ['🧰', 'boite outils'],
+  ['🎫', 'ticket'], ['🎟️', 'ticket'], ['🏷️', 'etiquette tag'], ['📌', 'epingle pin'],
+  ['📢', 'annonce megaphone'], ['📣', 'annonce'], ['🗣️', 'parle'], ['🔊', 'son'],
+  ['🎮', 'jeu game'], ['🕹️', 'joystick'], ['🎲', 'de dice'], ['🃏', 'carte joker'],
+  ['🎵', 'musique'], ['🎶', 'musique'], ['🎤', 'micro'], ['🎧', 'casque'],
+  ['📱', 'telephone'], ['💻', 'ordinateur'], ['🖥️', 'ecran'], ['⌨️', 'clavier'],
+  ['🌍', 'monde earth'], ['🌎', 'monde'], ['🌐', 'globe web'], ['🇫🇷', 'france francais'],
+  ['🇬🇧', 'anglais uk english'], ['🇺🇸', 'usa english'], ['🏳️', 'drapeau'], ['🏴', 'drapeau'],
+  ['☀️', 'soleil'], ['🌙', 'lune'], ['🌧️', 'pluie'], ['❄️', 'neige'],
+  ['🍀', 'trefle chance'], ['🎃', 'halloween'], ['🎄', 'noel'], ['🎆', 'feu artifice'],
+  ['🚀', 'fusee rocket'], ['🛸', 'ovni'], ['⏰', 'reveil temps'], ['⏳', 'sablier'],
+  ['🕒', 'heure'], ['📅', 'calendrier'], ['📍', 'position'], ['🧭', 'boussole'],
+];
+function emojiPreview(v) {
+  const s = String(v || '').trim();
+  if (!s) return '';
+  const m = /^<(a?):([\w~]+):(\d+)>$/.exec(s);
+  if (m) return `<img src="https://cdn.discordapp.com/emojis/${m[3]}.${m[1] ? 'gif' : 'png'}?size=24" alt="">`;
+  return esc(s);
+}
+function emojiField(id, value, placeholder) {
+  return `<div class="emoji-wrap"><input id="${id}" maxlength="64" value="${esc(value)}" placeholder="${esc(placeholder)}" oninput="emojiPrevUpdate(this)">` +
+    `<button type="button" class="emoji-btn" title="Choisir un emoji" onclick="openEmoji('${id}')">😀</button>` +
+    `<span class="emoji-prev" data-prev="${id}">${emojiPreview(value)}</span></div>`;
+}
+function emojiPrevUpdate(inp) {
+  const prev = document.querySelector(`[data-prev="${inp.id}"]`);
+  if (prev) prev.innerHTML = emojiPreview(inp.value);
+}
+async function openEmoji(id) {
+  S.emojiTarget = id;
+  const box = $('#emojiPicker');
+  if (!box) return;
+  box.hidden = false;
+  if (S.serverEmojis === null) {
+    try {
+      const groups = await api('/api/emojis');
+      S.serverEmojis = (groups || []).flatMap((g) => (g.emojis || []).map((e) => ({
+        name: e.name,
+        tag: `<${e.animated ? 'a' : ''}:${e.name}:${e.id}>`,
+        url: `https://cdn.discordapp.com/emojis/${e.id}.${e.animated ? 'gif' : 'png'}?size=32`,
+      })));
+    } catch { S.serverEmojis = []; }
+  }
+  setEmojiTab(S.serverEmojis.length ? 'server' : 'unicode');
+}
+function closeEmoji() { const b = $('#emojiPicker'); if (b) b.hidden = true; }
+function setEmojiTab(tab) {
+  S.emojiTab = tab;
+  $$('#emojiPicker [data-ep]').forEach((b) => b.classList.toggle('on', b.dataset.ep === tab));
+  renderEmojiList();
+}
+function renderEmojiList() {
+  const box = $('#ep_list');
+  if (!box) return;
+  const q = ($('#ep_search')?.value || '').toLowerCase().trim();
+  if (S.emojiTab === 'server') {
+    const items = (S.serverEmojis || []).filter((e) => !q || e.name.toLowerCase().includes(q));
+    box.innerHTML = items.length
+      ? items.map((e) => `<button type="button" class="ep-emoji" title=":${esc(e.name)}:" onclick="insertEmoji('${e.tag}')"><img src="${e.url}" alt=""></button>`).join('')
+      : '<div class="empty" style="grid-column:1/-1">Aucun emoji du serveur.</div>';
+    return;
+  }
+  const items = EMOJI_UNICODE.filter(([c, n]) => !q || n.includes(q) || c === q);
+  box.innerHTML = items.length
+    ? items.map(([c, n]) => `<button type="button" class="ep-emoji" title="${esc(n)}" onclick="insertEmoji('${c}')">${c}</button>`).join('')
+    : '<div class="empty" style="grid-column:1/-1">Aucun résultat.</div>';
+}
+function insertEmoji(v) {
+  const inp = document.getElementById(S.emojiTarget);
+  if (inp) { inp.value = v; emojiPrevUpdate(inp); }
+  closeEmoji();
 }
 async function login(e) {
   e.preventDefault();
@@ -188,11 +359,17 @@ function renderNav() {
     `<button class="nav-item ${S.page === id ? 'on' : ''}" onclick="go('${id}')"><span>${ico}</span>${esc(label)}</button>`).join('');
 }
 function render() {
-  renderNav();
-  const pages = { home: pageHome, tickets: pageTickets, vouch: pageVouch, sales: pageSales, appearance: pageAppearance, invites: pageInvites, advanced: pageAdvanced, backup: pageBackup };
-  $('#main').innerHTML = (pages[S.page] || pageHome)();
-  if (S.page === 'advanced') fillMembers();
-  if (S.page === 'backup') refreshBackupBoxes();
+  try {
+    const err = $('#errBanner');
+    if (err) err.hidden = true;
+    renderNav();
+    const pages = { home: pageHome, tickets: pageTickets, vouch: pageVouch, sales: pageSales, appearance: pageAppearance, invites: pageInvites, advanced: pageAdvanced, backup: pageBackup };
+    $('#main').innerHTML = (pages[S.page] || pageHome)();
+    if (S.page === 'advanced' || (S.page === 'tickets' && S.tab === 'commands')) fillMembers();
+    if (S.page === 'backup') refreshBackupBoxes();
+  } catch (e) {
+    showError(e);
+  }
 }
 
 /* ---------- Helpers ---------- */
@@ -287,14 +464,14 @@ function pageTickets() {
         ${g.tickets.map((x) => `<option value="${esc(x.name)}" ${x.name === t.name ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}
       </select></label>
     <span class="pill">${t.counter} ticket(s) créé(s)</span>
-    <span class="pill">${t.reasons.length}/25 catégories</span>
+    <span class="pill">${t.reasons.length}/125 catégories</span>
     <span class="pill">${(t.subPanels || []).length} sous-panel(s)</span>
   </section>
   <div class="tabs">
-    ${[['config', '⚙️ Réglages'], ['raisons', '📋 Catégories'], ['sous', '🗂️ Sous-panels'], ['panels', '📨 Panels'], ['message', '💬 Message d’ouverture']]
+    ${[['config', '⚙️ Réglages'], ['raisons', '📋 Catégories'], ['sous', '🗂️ Sous-panels'], ['panels', '📨 Panels'], ['message', '💬 Message d’ouverture'], ['commands', '⌨️ Autres commandes']]
       .map(([k, l]) => `<button class="tab ${S.tab === k ? 'on' : ''}" onclick="S.tab='${k}';render()">${l}</button>`).join('')}
   </div>`;
-  const body = { config: tkConfig, raisons: tkReasons, sous: tkSubs, panels: tkPanels, message: tkMessage }[S.tab] || tkConfig;
+  const body = { config: tkConfig, raisons: tkReasons, sous: tkSubs, panels: tkPanels, message: tkMessage, commands: advancedBody }[S.tab] || tkConfig;
   return out + body();
 }
 
@@ -338,6 +515,11 @@ function tkConfig() {
       <label class="field"><span>Texte du menu déroulant</span><input id="c_placeholder" maxlength="150" value="${esc(t.placeholder || '')}" placeholder="Choisir une catégorie..."></label>
       <label class="field"><span>Couleur propre à cette configuration</span><small>Vide = couleur globale du serveur</small><input id="c_color" maxlength="7" value="${esc(t.color || '')}" placeholder="#5865F2"></label>
     </div>
+    <div class="grid2">
+      <label class="field"><span>Logo propre à cette configuration</span><small>Vide = logo global (page Apparence)</small><input id="c_logo" maxlength="500" value="${esc(t.logo || '')}" placeholder="https://…"></label>
+      <label class="field"><span>Traduction automatique</span><small>Traduit FR ⇄ EN dans les tickets de cette configuration</small>
+        <select id="c_translate"><option value="false" ${!t.translate ? 'selected' : ''}>Désactivée</option><option value="true" ${t.translate ? 'selected' : ''}>Activée</option></select></label>
+    </div>
     <div class="row end"><button class="btn danger ghost" onclick="tkDeleteConfig()">Supprimer la configuration</button><button class="btn" onclick="tkSaveConfig()">Enregistrer</button></div>
   </section>
   <section class="card"><h2>Raccourcis</h2><div class="row">
@@ -355,6 +537,7 @@ async function tkSaveConfig() {
       action: 'update', guildId: S.gid, name: t.name,
       categoryId: $('#c_category').value, staffRoles, logChannelId: $('#c_logs').value,
       placeholder: $('#c_placeholder').value, color: $('#c_color').value.trim(),
+      logo: $('#c_logo').value.trim(), translate: $('#c_translate').value === 'true',
     });
     await afterChange('Configuration enregistrée ✅');
   } catch (e) { toast(e.message, false); }
@@ -374,7 +557,7 @@ function tkReasons() {
   const t = TC();
   const r = S.reasonEdit ? t.reasons.find((x) => x.id === S.reasonEdit) : null;
   return `<section class="card">
-    <div class="row" style="justify-content:space-between"><h2>Catégories du menu (${t.reasons.length}/25)</h2><span class="muted">Le menu déroulant du panel</span></div>
+    <div class="row" style="justify-content:space-between"><h2>Catégories du menu (${t.reasons.length}/125)</h2><span class="muted">Le menu déroulant du panel</span></div>
     <div class="list">${t.reasons.map((x) => `
       <div class="item"><div class="grow"><b>${esc(x.emoji || '')} ${esc(x.label)}</b>
         <small>${esc(x.description || 'Sans description')} · ${chName(x.categoryId || t.categoryId)}${x.staffRoleId ? ' · ' + roleName(x.staffRoleId) : ''}</small></div>
@@ -385,7 +568,7 @@ function tkReasons() {
     <h2>${r ? 'Modifier « ' + esc(r.label) + ' »' : 'Ajouter une catégorie'}</h2>
     <div class="grid2">
       <label class="field"><span>Nom <b class="req">*</b></span><input id="r_label" maxlength="100" value="${esc(r?.label || '')}" placeholder="Nitro"></label>
-      <label class="field"><span>Emoji</span><input id="r_emoji" maxlength="64" value="${esc(r?.emoji || '')}" placeholder="🎮 ou <:nom:id>"></label>
+      <label class="field"><span>Emoji</span>${emojiField('r_emoji', r?.emoji || '', '🎮 ou <:nom:id>')}</label>
     </div>
     <label class="field"><span>Description courte</span><input id="r_desc" maxlength="100" value="${esc(r?.description || '')}" placeholder="Comptes Nitro, boost…"></label>
     <div class="grid2">
@@ -398,7 +581,7 @@ function tkReasons() {
     <p class="muted" style="margin-bottom:8px">Un article par ligne au format <b>Nom : prix</b>. Chaque article devient un choix du menu, avec le prix en description.</p>
     <textarea id="bulk_text" style="min-height:140px" placeholder="Disney+ Premium : 2€&#10;Netflix Premium : 5€"></textarea>
     <div class="grid2" style="margin-top:12px">
-      <label class="field"><span>Emoji commun (optionnel)</span><input id="bulk_emoji" maxlength="64" placeholder="🛒"></label>
+      <label class="field"><span>Emoji commun (optionnel)</span>${emojiField('bulk_emoji', '', '🛒')}</label>
       <label class="field"><span>Mode</span><select id="bulk_mode"><option value="append">Ajouter / mettre à jour</option><option value="replace">Tout remplacer</option></select></label>
     </div>
     <div class="grid2">
@@ -540,7 +723,7 @@ async function spLink(pour, subId) {
 }
 function choiceCard(sp, ch) {
   const others = (TC().subPanels || []).filter((s) => s.id !== sp.id);
-  return `<section class="card"><h2>Choix de « ${esc(sp.name)} » (${sp.choices.length}/25)</h2>
+  return `<section class="card"><h2>Choix de « ${esc(sp.name)} » (${sp.choices.length}/125)</h2>
     <div class="list">${sp.choices.map((c) => `
       <div class="item"><div class="grow"><b>${esc(c.emoji || '')} ${esc(c.label)}</b>
         <small>${esc(c.description || '')}${c.description ? ' · ' : ''}${chName(c.categoryId)}${c.staffRoleId ? ' · ' + roleName(c.staffRoleId) : ''}${c.nextSubId ? ' · ➜ ' + esc((TC().subPanels || []).find((s) => s.id === c.nextSubId)?.name || '?') : ''}</small></div>
@@ -548,7 +731,7 @@ function choiceCard(sp, ch) {
     <h3 style="margin-top:18px">${ch ? 'Modifier « ' + esc(ch.label) + ' »' : 'Ajouter un choix'}</h3>
     <div class="grid2">
       <label class="field"><span>Nom <b class="req">*</b></span><input id="ch_label" maxlength="100" value="${esc(ch?.label || '')}"></label>
-      <label class="field"><span>Emoji</span><input id="ch_emoji" maxlength="64" value="${esc(ch?.emoji || '')}" placeholder="🎮"></label>
+      <label class="field"><span>Emoji</span>${emojiField('ch_emoji', ch?.emoji || '', '🎮')}</label>
     </div>
     <label class="field"><span>Description courte</span><input id="ch_desc" maxlength="100" value="${esc(ch?.description || '')}" placeholder="Prix ou détail"></label>
     <div class="grid2">
@@ -588,7 +771,7 @@ function tkPanels() {
   return `<section class="card"><h2>Panels envoyés (${t.panels.length})</h2>
     <div class="list">${t.panels.map((p, n) => `
       <div class="item"><div class="grow"><b>Panel ${n + 1} — ${chName(p.channelId)}</b>
-        <small>${p.button ? 'Bouton' : 'Menu déroulant'}${p.btnLabel ? ' · ' + esc(p.btnLabel) : ''} · message ${p.messageId}</small></div>
+        <small>${p.button ? 'Bouton' : 'Menu déroulant'}${p.btnLabel ? ' · ' + esc(p.btnLabel) : ''} · message ${p.messageId}${p.translate ? ' · 🌐 traduction' : ''}${p.thumb ? ' · 🖼️ logo' : ''}</small></div>
         <button class="mini" onclick="panelDelete('${p.messageId}')">Supprimer</button></div>`).join('') || '<div class="empty">Aucun panel envoyé.</div>'}</div>
   </section>
   <section class="card"><h2>Envoyer un panel</h2>
@@ -603,13 +786,16 @@ function tkPanels() {
       <label class="field"><span>Couleur</span><input id="p_color" maxlength="7" placeholder="${esc(S.g.panelColor)}"></label>
     </div>
     <div class="grid2">
+      <label class="field"><span>Logo en haut à droite (URL)</span><small>Vide = logo global (page Apparence)</small><input id="p_thumb" maxlength="500" placeholder="https://…"></label>
+      <label class="field"><span>Texte du menu</span><input id="p_placeholder" maxlength="150" placeholder="Choisir une catégorie..."></label>
+    </div>
+    <div class="grid2">
       <label class="field"><span>Texte du bouton</span><input id="p_btn" maxlength="80" placeholder="Ouvrir un ticket"></label>
       <label class="field"><span>Couleur du bouton</span><select id="p_style"><option value="Primary">Bleu</option><option value="Secondary">Gris</option><option value="Success">Vert</option><option value="Danger">Rouge</option></select></label>
     </div>
-    <div class="grid2">
-      <label class="field"><span>Texte du menu</span><input id="p_placeholder" maxlength="150" placeholder="Choisir une catégorie..."></label>
-      <label class="field"><span>Pied de page</span><input id="p_footer" maxlength="200"></label>
-    </div>
+    <label class="field"><span>Pied de page</span><input id="p_footer" maxlength="200"></label>
+    <label class="check"><input type="checkbox" id="p_notext"> Panel sans texte (image seule, image obligatoire)</label>
+    <label class="check"><input type="checkbox" id="p_translate"> Traduction automatique FR ⇄ EN dans les tickets ouverts depuis ce panel</label>
     <button class="btn" onclick="panelSend()">Envoyer le panel</button>
   </section>`;
 }
@@ -618,9 +804,13 @@ async function panelSend() {
   const ch = $('#p_channel').value;
   if (!ch) return toast('Choisis un salon.', false);
   if ($('#p_type').value === 'menu' && !t.reasons.length) return toast('Ajoute d’abord des catégories pour un menu.', false);
+  const noText = $('#p_notext').checked;
+  if (noText && !$('#p_image').value.trim()) return toast('Pour un panel sans texte, ajoute une image (URL).', false);
   const options = {
     config: t.name, salon: ch, titre: $('#p_title').value, description: $('#p_desc').value,
     couleur: $('#p_color').value, 'image-url': $('#p_image').value,
+    'miniature-url': $('#p_thumb').value,
+    'sans-texte': noText, traduction: $('#p_translate').checked,
     placeholder: $('#p_placeholder').value, footer: $('#p_footer').value,
     type: $('#p_type').value, 'bouton-texte': $('#p_btn').value, 'couleur-bouton': $('#p_style').value,
   };
@@ -744,7 +934,6 @@ function pageVouch() {
       <div class="grow"><b>${esc(x.name || 'Membre')}</b> <span class="stars">${stars(x.stars)}</span> <span class="pill">${x.stars}/5</span>
         <small>${fmtDate(x.at)}${x.ticketName ? ' · #' + esc(x.ticketName) : ''}${x.config ? ' · ' + esc(x.config) : ''}</small>
         <div>${esc(x.message || '')}</div>
-        ${x.image ? `<a href="${esc(x.image)}" target="_blank" rel="noopener">Voir l’image</a>` : ''}
       </div></div>`).join('');
   return head('Vouches', 'Des avis vérifiés, publiés automatiquement dans un salon dédié.') +
     `<div class="grid stats">
@@ -755,17 +944,18 @@ function pageVouch() {
     </div>
     <section class="card"><h2>Réglages</h2>
       <div class="grid2">
-        <label class="field"><span>Salon des vouchs</span><small>Les avis `/vouch` y sont publiés.</small><select id="v_channel">${channelOptions(v.channelId, [0, 5], '— aucun salon —')}</select></label>
+        <label class="field"><span>Salon des vouchs</span><small>Les avis <span class="code">/vouch</span> y sont publiés.</small><select id="v_channel">${channelOptions(v.channelId, [0, 5], '— aucun salon —')}</select></label>
         <label class="field"><span>Commande /vouch</span><select id="v_enabled"><option value="true" ${v.enabled ? 'selected' : ''}>Activée</option><option value="false" ${!v.enabled ? 'selected' : ''}>Désactivée</option></select></label>
       </div>
+      <label class="field"><span>Logo du vouch (haut à droite)</span><small>URL d'une image affichée en haut à droite de chaque vouch.</small><input id="v_logo" maxlength="500" value="${esc(v.logo || '')}" placeholder="https://…"></label>
       <button class="btn" onclick="vouchSave()">Enregistrer</button>
     </section>
     <section class="card"><h2>Comment ça marche ?</h2>
       <ol style="padding-left:20px;color:#c3c8d3;line-height:1.8">
         <li>Le membre qui a <b>ouvert</b> le ticket (ou qui l’a <b>pris en charge</b>) tape <span class="code">/vouch</span> dans le ticket.</li>
         <li>Un mini-panel s’ouvre : il choisit une note de <b>1 à 5 étoiles</b>.</li>
-        <li>Un formulaire s’ouvre : il écrit son message et peut ajouter une image.</li>
-        <li>Le vouch est publié dans le salon dédié avec sa <b>photo de profil</b>, sa note, son message et son image.</li>
+        <li>Un formulaire s’ouvre : il écrit son message.</li>
+        <li>Le vouch est publié dans le salon dédié avec sa <b>photo de profil</b>, sa note et son message.</li>
       </ol>
     </section>
     <section class="card"><h2>Derniers vouchs</h2><div class="list">${list || '<div class="empty">Aucun vouch pour l’instant.</div>'}</div></section>`;
@@ -774,6 +964,7 @@ async function vouchSave() {
   try {
     await api('/api/guild-settings', {
       guildId: S.gid, vouchChannelId: $('#v_channel').value, vouchEnabled: $('#v_enabled').value === 'true',
+      vouchLogo: $('#v_logo').value.trim(),
     });
     await afterChange('Réglages des vouchs enregistrés ✅');
   } catch (e) { toast(e.message, false); }
@@ -843,8 +1034,13 @@ function pageAppearance() {
         <label class="field"><span>Aperçu</span><input type="color" id="a_picker" value="${colorOf(c)}" oninput="$('#a_color').value=this.value"></label>
       </div>
       <div class="swatches">${presets.map((p) => `<button class="swatch" style="background:${p}" title="${p}" onclick="$('#a_color').value='${p}';$('#a_picker').value='${p}'"></button>`).join('')}</div>
-      <div class="row" style="margin-top:16px"><button class="btn" onclick="appearanceSave()">Appliquer à tous les panels</button></div>
-      <div class="alert info" style="margin-top:14px">La couleur est enregistrée dans Supabase et restaurée après un redéploiement. Les panels déjà envoyés sont recolorés automatiquement.</div>
+      <h3>Logos (coin haut droit)</h3>
+      <div class="grid2">
+        <label class="field"><span>Logo des panels de tickets</span><small>Appliqué aux panels existants et aux nouveaux</small><input id="a_panel_logo" maxlength="500" value="${esc(S.g.panelLogo || '')}" placeholder="https://…"></label>
+        <label class="field"><span>Logo des vouchs</span><small>Affiché en haut à droite de chaque vouch</small><input id="a_vouch_logo" maxlength="500" value="${esc(S.g.vouch.logo || '')}" placeholder="https://…"></label>
+      </div>
+      <div class="row" style="margin-top:16px"><button class="btn" onclick="appearanceSave()">Appliquer</button></div>
+      <div class="alert info" style="margin-top:14px">La couleur et les logos sont enregistrés dans Supabase et restaurés après un redéploiement. Les panels déjà envoyés sont mis à jour automatiquement.</div>
     </section>
     <section class="card"><h2>Couleurs par configuration</h2>
       <p class="muted" style="margin-bottom:10px">Une configuration peut avoir sa propre couleur (elle remplace la couleur globale).</p>
@@ -857,8 +1053,11 @@ function pageAppearance() {
 }
 async function appearanceSave() {
   try {
-    await api('/api/guild-settings', { guildId: S.gid, panelColor: $('#a_color').value.trim() });
-    await afterChange('Couleur globale appliquée ✅');
+    await api('/api/guild-settings', {
+      guildId: S.gid, panelColor: $('#a_color').value.trim(),
+      panelLogo: $('#a_panel_logo').value.trim(), vouchLogo: $('#a_vouch_logo').value.trim(),
+    });
+    await afterChange('Apparence appliquée ✅');
   } catch (e) { toast(e.message, false); }
 }
 async function configColor(name) {
@@ -894,9 +1093,9 @@ function pageInvites() {
 /* ================================================================== */
 /*  COMMANDES (avancé)                                                 */
 /* ================================================================== */
-function pageAdvanced() {
+function advancedBody() {
   const cats = S.schema.categories;
-  let h = head('Commandes', 'Toutes les commandes du bot, y compris celles qui n’ont pas encore de page dédiée.');
+  let h = '';
   if (!S.advCmd) {
     h += `<section class="card"><h2>Choisir une commande</h2>`;
     for (const [key, label] of Object.entries(cats)) {
@@ -908,7 +1107,7 @@ function pageAdvanced() {
     return h;
   }
   const c = S.schema.commands.find((x) => x.name === S.advCmd);
-  if (!c) { S.advCmd = null; return pageAdvanced(); }
+  if (!c) { S.advCmd = null; return advancedBody(); }
   const subs = (c.options || []).filter((o) => o.type === 1);
   const def = S.advSub ? subs.find((s) => s.name === S.advSub) : c;
   const key = c.name + (S.advSub ? '/' + S.advSub : '');
@@ -925,6 +1124,9 @@ function pageAdvanced() {
     ${S.advResult || ''}
   </section>`;
   return h;
+}
+function pageAdvanced() {
+  return head('Commandes', 'Toutes les commandes du bot, y compris celles qui n’ont pas encore de page dédiée.') + advancedBody();
 }
 function advField(o) {
   const name = o.name;
@@ -950,7 +1152,11 @@ function advField(o) {
   }
   return `<label class="field"><span>${esc(o.description || name)}${req}</span><small>${esc(name)}</small>${input}</label>`;
 }
-function advPick(name) { S.advCmd = name; S.advSub = null; S.advResult = null; if (S.page !== 'advanced') S.page = 'advanced'; render(); }
+function advPick(name) {
+  S.advCmd = name; S.advSub = null; S.advResult = null;
+  if (!(S.page === 'tickets' && S.tab === 'commands')) S.page = 'advanced';
+  render();
+}
 function advSub(name) { S.advSub = S.advSub === name ? null : name; S.advResult = null; render(); }
 async function fillMembers() {
   const selects = $$('select[data-pick]');
