@@ -105,6 +105,12 @@ function getG(id) {
   g.reactionRoles ??= {};   // messageId -> { channelId, roleId, emoji, label }
   g.joinRoles ??= [];       // rôles donnés automatiquement à l'arrivée d'un membre (/role-arrivee)
   g.sanctionChannel ??= null; // salon par défaut où annoncer les ban / mute
+  // Textes des annonces giveaway / sanctions modifiables depuis le dashboard.
+  // giveaway : { host: '@pseudo / <@id> / id', line: 'ligne « Organized by » ({host}…)' }
+  // sanction : { by: '@pseudo / <@id> / id', ban: 'texte ({member} {moderator} {reason})', mute: '…' }
+  g.announce ??= {};
+  g.announce.giveaway ??= {};
+  g.announce.sanction ??= {};
   g.fullRoles ??= [];       // rôles qui ont accès à TOUTES les commandes
   g.history ??= {};         // userId -> [{ type, by, reason, duration, at }]
   g.commandChannelId ??= null; // salon privé où utiliser les commandes
@@ -323,6 +329,33 @@ async function rich(guild, input) {
     if (c.kind === 'role') roles.add(c.id);
   }
   return out();
+}
+
+// Résout « @pseudo », « <@123> » ou « 123 » en ID de membre (null si introuvable).
+async function resolveMemberId(guild, value) {
+  const v = String(value ?? '').trim();
+  if (!v) return null;
+  const m = /^<@!?(\d{15,25})>$/.exec(v) || /^(\d{15,25})$/.exec(v);
+  if (m) return m[1];
+  const name = v.replace(/^@/, '').toLowerCase();
+  if (!name) return null;
+  const find = () => [...guild.members.cache.values()].find((x) =>
+    x.user.username.toLowerCase() === name ||
+    String(x.displayName || '').toLowerCase() === name ||
+    x.user.tag.toLowerCase() === name);
+  let member = find();
+  if (!member) {
+    await guild.members.fetch().catch(() => {});
+    member = find();
+  }
+  return member?.id || null;
+}
+
+// Applique des variables à un texte d'annonce puis résout les @pseudo / #salon.
+async function announceText(guild, template, vars = {}) {
+  let text = String(template ?? '');
+  for (const [k, v] of Object.entries(vars)) text = text.split(`{${k}}`).join(String(v ?? ''));
+  return (await rich(guild, text)).text;
 }
 
 function field(id, label, style, { required = false, value, max, placeholder } = {}) {
@@ -3319,7 +3352,7 @@ function gwDescription(gw) {
   lines.push(
     `⏰ **Fin :** <t:${ts}:R> (<t:${ts}:f>)`,
     `🏆 **Gagnant${gw.winners > 1 ? 's' : ''} :** ${gw.winners}`,
-    `👤 **Organized by:** <@${gw.hostId}>`);
+    gw.hostLine || `👤 **Organized by:** <@${gw.hostId}>`);
   if (gw.requiredRole) lines.push(`🔒 **Required role:** <@&${gw.requiredRole}>`);
   if (gw.minInvites) lines.push(`📨 **Invitations minimum :** ${gw.minInvites}`);
   lines.push('', 'Click on the button below to participate!');
@@ -3355,7 +3388,7 @@ async function editEndedMessage(msg, gw) {
   const desc =
     `${gw.description ? gw.description + '\n\n' : ''}` +
     `🏆 **Gagnant${gw.winnerIds.length > 1 ? 's' : ''} :** ${winnersTxt}\n` +
-    `👤 **Organized by:** <@${gw.hostId}>\n` +
+    `${gw.hostLine || `👤 **Organized by:** <@${gw.hostId}>`}\n` +
     `👥 **Participants valides :** ${gw.validCount ?? gw.entrants.length}`;
   const make = (withImage) => {
     const e = msg.embeds[0] ? EmbedBuilder.from(msg.embeds[0]) : new EmbedBuilder();
@@ -3865,9 +3898,11 @@ const handlers = {
       }
 
       await i.deferReply({ flags: EPH });
+      const gwa = getG(i.guildId).announce?.giveaway || {};
+      const hostId = await resolveMemberId(i.guild, gwa.host) || i.user.id;
       const gw = {
         channelId: salon.id, prize, description, winners,
-        endAt: Date.now() + duration, hostId: i.user.id,
+        endAt: Date.now() + duration, hostId,
         requiredRole: role?.id || null,
         minInvites,
         entrants: [], ended: false, winnerIds: [],
@@ -3876,6 +3911,8 @@ const handlers = {
         // @Pseudo / @Rôle / #salon dans la description -> mentions cliquables
         const rd = await rich(i.guild, description);
         gw.description = rd.text.slice(0, 1500);
+        // Ligne « Organized by » personnalisée depuis le dashboard (le @ peut être n'importe qui).
+        if (gwa.line) gw.hostLine = (await announceText(i.guild, gwa.line, { host: `<@${hostId}>`, prize, winners })).slice(0, 1024);
 
         const embed = new EmbedBuilder()
           .setColor('#F1C40F')
@@ -4362,15 +4399,19 @@ const handlers = {
 
     // Historique + annonce dans le salon choisi (option "salon") ou le salon par défaut (/salon-sanctions)
     logSanction(d, user.id, { type: 'ban', by: i.user.id, reason, duration: 'final' });
+    const sa = d.announce?.sanction || {};
+    const byId = await resolveMemberId(i.guild, sa.by) || i.user.id;
+    const byMention = `<@${byId}>`;
     await announceSanction(i, i.options.getChannel('salon'),
-      `<@${user.id}> has been banned (permanently) by <@${i.user.id}>`);
+      await announceText(i.guild, sa.ban || '{member} has been banned (permanently) by {moderator}',
+        { member: `<@${user.id}>`, moderator: byMention, reason, duration: 'permanent' }));
 
     const embed = new EmbedBuilder()
       .setColor('#ED4245')
       .setTitle('🔨 Member banned')
       .addFields(
         { name: 'Membre', value: `${user.tag} (${user.id})` },
-        { name: 'Moderator', value: `<@${i.user.id}>` },
+        { name: 'Moderator', value: byMention },
         { name: 'Raison', value: reason },
       )
       .setTimestamp();
@@ -4457,9 +4498,14 @@ const handlers = {
     }
 
     // Historique + annonce dans le salon choisi (option "salon") ou le salon par défaut (/salon-sanctions)
-    logSanction(getG(i.guildId), user.id, { type: 'mute', by: i.user.id, reason, duration: `${amount} ${unit}` });
+    const d = getG(i.guildId);
+    logSanction(d, user.id, { type: 'mute', by: i.user.id, reason, duration: `${amount} ${unit}` });
+    const sa = d.announce?.sanction || {};
+    const byId = await resolveMemberId(i.guild, sa.by) || i.user.id;
+    const byMention = `<@${byId}>`;
     await announceSanction(i, i.options.getChannel('salon'),
-      `<@${user.id}> was muted for ${amount} ${unit} by <@${i.user.id}>`);
+      await announceText(i.guild, sa.mute || '{member} was muted for {duration} by {moderator}',
+        { member: `<@${user.id}>`, moderator: byMention, reason, duration: `${amount} ${unit}` }));
 
     const ts = Math.floor(until / 1000);
     await user.send(
@@ -4470,7 +4516,7 @@ const handlers = {
       .setTitle('🔇 Mute Member')
       .addFields(
         { name: 'Membre', value: `<@${user.id}> (${user.id})` },
-        { name: 'Moderator', value: `<@${i.user.id}>`, inline: true },
+        { name: 'Moderator', value: byMention, inline: true },
         { name: 'Duration', value: `${amount} ${unit}`, inline: true },
         { name: 'Nice you mute', value: `<t:${ts}:F> (<t:${ts}:R>)` },
         { name: 'Raison', value: reason },

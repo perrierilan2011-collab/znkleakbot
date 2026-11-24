@@ -257,6 +257,7 @@ module.exports = function startDashboard(ctx) {
           })),
         },
         openTickets: Object.keys(d.open || {}).length,
+        announce: d.announce || {},
         memberBackup: d.memberBackup ? { at: d.memberBackup.at, count: (d.memberBackup.members || []).length, guildName: d.memberBackup.guildName || null } : null,
         shopPosts: (d.shopPosts || []).slice(-8).reverse().map((p) => ({
           ...p,
@@ -947,6 +948,25 @@ module.exports = function startDashboard(ctx) {
       }
       save();
       return { ok: true, empty };
+    },
+    // ---------- Textes des annonces giveaway / sanctions ----------
+    'POST /api/announce': async (_r, _q, b) => {
+      const d = getG(b.guildId);
+      d.announce ??= {};
+      if (b.target === 'giveaway') {
+        d.announce.giveaway = {
+          host: txt(b.host, 100) || '',   // @pseudo, <@id> ou id (vide = auteur de la commande)
+          line: txt(b.line, 500) || '',   // ligne « Organized by » ({host}, {prize}…)
+        };
+      } else if (b.target === 'sanction') {
+        d.announce.sanction = {
+          by: txt(b.by, 100) || '',       // @pseudo, <@id> ou id (vide = auteur de la commande)
+          ban: txt(b.ban, 500) || '',     // texte de l'annonce de ban
+          mute: txt(b.mute, 500) || '',   // texte de l'annonce de mute
+        };
+      } else throw new Error('Cible inconnue');
+      save();
+      return { ok: true };
     },
     // Modèles de message d'ouverture : créer / renommer / supprimer
     'POST /api/open-preset': async (_r, _q, b) => {

@@ -452,6 +452,7 @@ const NAV = [
   ['restock', '📦', 'Restock'],
   ['images', '🖼️', 'Images'],
   ['admin', '🛡️', 'Admin'],
+  ['announce', '📣', 'Annonces'],
   ['appearance', '🎨', 'Apparence'],
   ['invites', '📨', 'Invitations'],
   ['advanced', '⌨️', 'Commandes'],
@@ -468,7 +469,7 @@ function render() {
     if (err) err.hidden = true;
     mdTarget = null;
     renderNav();
-    const pages = { home: pageHome, tickets: pageTickets, vouch: pageVouch, sales: pageSales, products: () => pageShop('product'), restock: () => pageShop('restock'), images: pageImages, admin: pageAdmin, appearance: pageAppearance, invites: pageInvites, advanced: pageAdvanced, backup: pageBackup };
+    const pages = { home: pageHome, tickets: pageTickets, vouch: pageVouch, sales: pageSales, products: () => pageShop('product'), restock: () => pageShop('restock'), images: pageImages, admin: pageAdmin, announce: pageAnnounce, appearance: pageAppearance, invites: pageInvites, advanced: pageAdvanced, backup: pageBackup };
     const mdPages = ['tickets', 'vouch', 'products', 'restock', 'advanced'];
     $('#main').innerHTML = (mdPages.includes(S.page) ? mdBar() : '') + (pages[S.page] || pageHome)();
     if (S.page === 'advanced' || (S.page === 'tickets' && S.tab === 'commands')) fillMembers();
@@ -625,6 +626,31 @@ function pvOpenSpec() {
   });
 }
 
+/* ---- Annonces giveaway / sanctions ---- */
+function pvAnnounceSpec() {
+  if (!$('#an_gw_line')) return null;
+  const host = pvVal('#an_gw_host').trim() || '@Customer';
+  const line = (pvVal('#an_gw_line').trim() || '👤 **Organized by:** {host}')
+    .replaceAll('{host}', host).replaceAll('{prize}', 'Nitro Premium').replaceAll('{winners}', '1');
+  const gw = pvMessageHtml({
+    embed: {
+      color: '#F1C40F',
+      title: '🎉 Nitro Premium',
+      desc: `⏰ **Fin :** dans 2 jours\n🏆 **Gagnant :** 1\n${line}\n\nClique sur le bouton ci-dessous pour participer !`,
+    },
+    buttons: [pvButtonHtml('🎉 Participer', 'Success')],
+  });
+  const by = pvVal('#an_sa_by').trim() || '@Staff';
+  const fill = (s) => s
+    .replaceAll('{member}', '@Customer').replaceAll('{moderator}', by)
+    .replaceAll('{reason}', 'Raison indiquée').replaceAll('{duration}', '1 jour');
+  const ban = fill(pvVal('#an_sa_ban').trim() || '{member} has been banned (permanently) by {moderator}');
+  const mute = fill(pvVal('#an_sa_mute').trim() || '{member} was muted for {duration} by {moderator}');
+  const san = pvMessageHtml({ content: `${ban}\n${mute}` });
+  const label = (t) => `<div class="muted" style="margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.08em">${t}</div>`;
+  return `${label('Giveaway')}${gw}<div style="height:18px"></div>${label('Sanctions')}${san}`;
+}
+
 /* ---- Produits / Restock ---- */
 function pvShopSpec(kind) {
   if (!$('#shop_title')) return null;
@@ -711,6 +737,7 @@ function previewSpec() {
   if (S.page === 'restock') return pvShopSpec('restock');
   if (S.page === 'vouch') return pvVouchSpec();
   if (S.page === 'sales') return pvSalesSpec();
+  if (S.page === 'announce') return pvAnnounceSpec();
   return null;
 }
 function pvTextOf(el) {
@@ -2320,6 +2347,55 @@ async function adminSearch() {
   try {
     S.admin.members = await api('/api/members?id=' + encodeURIComponent(S.gid) + '&q=' + encodeURIComponent(S.admin.memberQ));
     render();
+  } catch (e) { toast(e.message, false); }
+}
+
+/* ================================================================== */
+/*  ANNONCES GIVEAWAY / SANCTIONS                                      */
+/* ================================================================== */
+function pageAnnounce() {
+  const a = S.g.announce || {};
+  const gw = a.giveaway || {};
+  const sa = a.sanction || {};
+  return `<section class="card">
+    <h2>Panel giveaway</h2>
+    <p class="muted" style="margin-bottom:10px">Le message du giveaway affiche « Organized by » avec le @ de ton choix. Sur le dashboard, tape <b>@pseudo</b>, <b>&lt;@ID&gt;</b> ou l’ID : le bot le transforme en vraie mention.</p>
+    <div class="grid2">
+      <label class="field"><span>Créateur de l’événement (@ ou ID)</span><small>Vide = la personne qui lance <b>/giveaway creer</b>.</small><input id="an_gw_host" maxlength="100" value="${esc(gw.host || '')}" placeholder="@pseudo ou 123456789012345678"></label>
+      <label class="field"><span>Ligne « Organized by »</span><small>Variables : <b>{host}</b> (le @ ci-dessus), <b>{prize}</b>, <b>{winners}</b>. Vide = ligne par défaut.</small><input id="an_gw_line" maxlength="500" value="${esc(gw.line || '')}" placeholder="👤 **Organized by:** {host}"></label>
+    </div>
+    <div class="row end"><button class="btn" onclick="announceSave('giveaway')">Enregistrer le panel giveaway</button></div>
+  </section>
+  <section class="card">
+    <h2>Panel sanctions</h2>
+    <p class="muted" style="margin-bottom:10px">Les annonces de ban et de mute affichent « celui qui a ban » avec le @ de ton choix. Le @ peut être n’importe qui : <b>@pseudo</b>, <b>&lt;@ID&gt;</b> ou l’ID.</p>
+    <label class="field"><span>Celui qui a ban (@ ou ID)</span><small>Vide = la personne qui lance <b>/ban</b> ou <b>/mute</b>.</small><input id="an_sa_by" maxlength="100" value="${esc(sa.by || '')}" placeholder="@pseudo ou 123456789012345678"></label>
+    <label class="field"><span>Annonce de ban</span><small>Variables : <b>{member}</b> (le membre sanctionné), <b>{moderator}</b> (le @ ci-dessus), <b>{reason}</b>. Vide = texte par défaut.</small><textarea id="an_sa_ban" maxlength="500" style="min-height:70px" placeholder="{member} has been banned (permanently) by {moderator}">${esc(sa.ban || '')}</textarea></label>
+    <label class="field"><span>Annonce de mute</span><small>Variables : <b>{member}</b>, <b>{moderator}</b>, <b>{duration}</b>, <b>{reason}</b>. Vide = texte par défaut.</small><textarea id="an_sa_mute" maxlength="500" style="min-height:70px" placeholder="{member} was muted for {duration} by {moderator}">${esc(sa.mute || '')}</textarea></label>
+    <div class="row end"><button class="btn" onclick="announceSave('sanction')">Enregistrer le panel sanctions</button></div>
+  </section>
+  <section class="card">
+    <h2>Où ça s’affiche</h2>
+    <ul class="muted" style="margin:0;padding-left:18px;line-height:1.8">
+      <li><b>Giveaway</b> : message du giveaway et message de fin (gagnants).</li>
+      <li><b>Ban</b> : annonce dans le salon de sanctions et récapitulatif de la commande.</li>
+      <li><b>Mute</b> : annonce dans le salon de sanctions et récapitulatif de la commande.</li>
+    </ul>
+  </section>`;
+}
+async function announceSave(target) {
+  try {
+    const body = { guildId: S.gid, target };
+    if (target === 'giveaway') {
+      body.host = $('#an_gw_host').value.trim();
+      body.line = $('#an_gw_line').value.trim();
+    } else {
+      body.by = $('#an_sa_by').value.trim();
+      body.ban = $('#an_sa_ban').value.trim();
+      body.mute = $('#an_sa_mute').value.trim();
+    }
+    await api('/api/announce', body);
+    await afterChange('Annonces enregistrées ✅');
   } catch (e) { toast(e.message, false); }
 }
 

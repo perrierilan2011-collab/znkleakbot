@@ -17,7 +17,8 @@ Discord bot for tickets, sales, vouches, invites and moderation, with a web dash
 - **Live dashboard preview**: the right side of the dashboard shows an **exact preview** of the message that will be sent. It updates as you type, and you can **click a title, description, footer or button to edit its text directly** in the preview.
 - **Reusable panels**: in **Tickets → Panels**, **📋 Duplicate** copies an already-sent panel into the form so you can change a few things and send a new message, without touching the original.
 - **Member backup / restore**: save every member (name + roles). If the server is banned or recreated, the bot creates a permanent invite and DMs every saved member; roles are restored by name when they join.
-- **Simplified dashboard**: sections for Home, Tickets, Vouches, Sales, Products, Restock, Images, Admin, Appearance, Invites, Commands, Backup.
+- **Giveaway / sanction panels**: in **Announcements**, choose the **@ of anyone** shown as the giveaway creator (“Organized by”) or as the moderator (“banned by”). Type `@pseudo`, `<@ID>` or the raw ID; the bot turns it into a real mention. The “Organized by”, ban and mute texts are customizable with variables. Empty = the person who ran the command / the default text.
+- **Simplified dashboard**: sections for Home, Tickets, Vouches, Sales, Products, Restock, Images, Admin, Announcements, Appearance, Invites, Commands, Backup.
 - **Complete Supabase backup**: `supabase.sql` contains the main table, the history and views to read invites, panels, vouches and sales.
 
 ## Environment variables
