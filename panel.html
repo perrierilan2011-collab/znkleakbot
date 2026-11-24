@@ -517,7 +517,7 @@ function tkConfig() {
     </div>
     <div class="grid2">
       <label class="field"><span>Logo propre à cette configuration</span><small>Vide = logo global (page Apparence)</small><input id="c_logo" maxlength="500" value="${esc(t.logo || '')}" placeholder="https://…"></label>
-      <label class="field"><span>Traduction automatique</span><small>Traduit FR ⇄ EN dans les tickets de cette configuration</small>
+      <label class="field"><span>Traduction automatique</span><small>Traduit chaque message reçu en français et en anglais, quelle que soit la langue d'origine.</small>
         <select id="c_translate"><option value="false" ${!t.translate ? 'selected' : ''}>Désactivée</option><option value="true" ${t.translate ? 'selected' : ''}>Activée</option></select></label>
     </div>
     <div class="row end"><button class="btn danger ghost" onclick="tkDeleteConfig()">Supprimer la configuration</button><button class="btn" onclick="tkSaveConfig()">Enregistrer</button></div>
@@ -795,7 +795,7 @@ function tkPanels() {
     </div>
     <label class="field"><span>Pied de page</span><input id="p_footer" maxlength="200"></label>
     <label class="check"><input type="checkbox" id="p_notext"> Panel sans texte (image seule, image obligatoire)</label>
-    <label class="check"><input type="checkbox" id="p_translate"> Traduction automatique FR ⇄ EN dans les tickets ouverts depuis ce panel</label>
+    <label class="check"><input type="checkbox" id="p_translate" checked> Traduction automatique (toute langue → français + anglais) dans les tickets ouverts depuis ce panel</label>
     <button class="btn" onclick="panelSend()">Envoyer le panel</button>
   </section>`;
 }

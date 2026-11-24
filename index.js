@@ -41,7 +41,7 @@ fs.mkdirSync(path.dirname(DB_FILE), { recursive: true });
 const SEED_FILE = path.join(__dirname, 'data.json');
 if (!fs.existsSync(DB_FILE) && path.resolve(SEED_FILE) !== path.resolve(DB_FILE) && fs.existsSync(SEED_FILE)) {
   fs.copyFileSync(SEED_FILE, DB_FILE);
-  console.log(`[db] ancien data.json copié vers ${DB_FILE}`);
+  console.log(`[db] old data.json copied to ${DB_FILE}`);
 }
 
 function loadDb() {
@@ -49,7 +49,7 @@ function loadDb() {
     if (!fs.existsSync(f)) continue;
     try {
       const data = JSON.parse(fs.readFileSync(f, 'utf8'));
-      console.log(`[db] données chargées depuis ${f} (${Object.keys(data).length} serveur(s))`);
+      console.log(`[db] data loaded from ${f} (${Object.keys(data).length} server(s))`);
       return data;
     } catch (e) {
       console.error(`[db] ${f} illisible :`, e.message);
@@ -57,7 +57,7 @@ function loadDb() {
   }
   // Fichier présent mais illisible et pas de sauvegarde valide : on le garde de côté avant de repartir à vide
   if (fs.existsSync(DB_FILE)) fs.copyFileSync(DB_FILE, `${DB_FILE}.corrompu-${Date.now()}`);
-  console.warn(`[db] AUCUNE donnée trouvée (${DB_FILE}) : démarrage à vide.`);
+  console.warn(`[db] NO data found (${DB_FILE}) : starting empty.`);
   return {};
 }
 
@@ -74,20 +74,20 @@ const save = () => {
     fs.renameSync(tmp, DB_FILE); // écriture atomique : plus de fichier à moitié écrit
     supabase.queue(db);          // copie distante (survit aux redéploiements)
   } catch (e) {
-    console.error('[db] sauvegarde impossible :', e);
+    console.error('[db] backup failed:', e);
   }
 };
 
 function getG(id) {
   db[id] ??= {
     memberCountChannel: null,
-    memberCountFormat: '👥 Membres : {count}',
+    memberCountFormat: '👥 Members: {count}',
     welcome: {
       enabled: false,
       channelId: null,
       content: '{user}',
-      title: 'Bienvenue {username} !',
-      description: 'Bienvenue sur **{server}** ! Tu es le membre n°{count}.',
+      title: 'Welcome {username}!',
+      description: 'Welcome to **{server}**! You are member #{count}.',
       image: '',
       color: '#5865F2',
     },
@@ -152,7 +152,7 @@ function getG(id) {
     c.defaultSubPanelId ??= null; // sous-panel de toutes les catégories qui n'ont pas de lien propre
     c.color ??= null;       // couleur propre à cette configuration (sinon la couleur globale du serveur)
     c.logo ??= null;        // logo propre à cette configuration (sinon le logo global du serveur)
-    c.translate ??= false;  // traduction automatique FR ⇄ EN dans les tickets de cette configuration
+    c.translate ??= true;   // live translation (any language → French + English) inside this configuration's tickets
     if (!c.dmMigrated) {    // une seule fois : reprise de l'ancien système de MP
       c.dmMigrated = true;
       if (c.dm && !c.dmChoices.length) c.dmChoices = c.reasons.map((r) => ({ ...r }));
@@ -208,13 +208,13 @@ const fmt = (txt, member) =>
 
 // Couleurs possibles pour un bouton Discord
 const BTN_COLORS = [
-  { name: 'Bleu', value: 'Primary' },
-  { name: 'Gris', value: 'Secondary' },
-  { name: 'Vert', value: 'Success' },
-  { name: 'Rouge', value: 'Danger' },
+  { name: 'Blue', value: 'Primary' },
+  { name: 'Grey', value: 'Secondary' },
+  { name: 'Green', value: 'Success' },
+  { name: 'Red', value: 'Danger' },
 ];
 const btnStyle = (s) => ButtonStyle[s] ?? ButtonStyle.Primary;
-const BTN_NAMES = { Primary: 'bleu', Secondary: 'gris', Success: 'vert', Danger: 'rouge' };
+const BTN_NAMES = { Primary: 'blue', Secondary: 'grey', Success: 'green', Danger: 'red' };
 
 /* ---------- Mentions et salons cliquables ---------- */
 // Transforme ce qui est tapé à la main en vraies mentions cliquables, comme dans un message normal :
@@ -291,15 +291,15 @@ async function toFile(att, baseName) {
 }
 
 /* ---------- Formulaire + embed partagés par /annonce et /autorole ---------- */
-function announceModal(modalId, title, textLabel = "Texte de l'annonce (Markdown accepté)") {
+function announceModal(modalId, title, textLabel = "Announcement text (Markdown accepted)") {
   return new ModalBuilder().setCustomId(modalId).setTitle(title).addComponents(
     field('titre', 'Titre', TextInputStyle.Short, { max: 256 }),
     field('texte', textLabel, TextInputStyle.Paragraph, {
-      required: true, max: 4000, placeholder: '@Pseudo  @Rôle  #salon  → deviennent cliquables',
+      required: true, max: 4000, placeholder: '@Pseudo @Role #channel → become clickable',
     }),
-    field('image_url', "URL d'image (si pas de fichier)", TextInputStyle.Short, { max: 500 }),
-    field('footer', 'Pied de page', TextInputStyle.Short, { max: 2048 }),
-    field('couleur', 'Couleur hex (ex : #FF0000)', TextInputStyle.Short, { max: 7 }),
+    field('image_url', "Image URL (if no file)", TextInputStyle.Short, { max: 500 }),
+    field('footer', 'Footer', TextInputStyle.Short, { max: 2048 }),
+    field('couleur', 'Hex color (ex: #FF0000)', TextInputStyle.Short, { max: 7 }),
   );
 }
 
@@ -364,13 +364,13 @@ const hasFullAccess = (i) =>
 
 // Catégories de commandes : un rôle donné à une catégorie a accès à toutes ses commandes
 const CMD_CATEGORIES = {
-  moderation:  { label: '🛡️ Modération', commands: ['ban', 'unban', 'mute', 'unmute', 'sanctions-actives', 'historique-sanctions'] },
+  moderation:  { label: '🛡️ Moderation', commands: ['ban', 'unban', 'mute', 'unmute', 'sanctions-actives', 'historique-sanctions'] },
   giveaways:   { label: '🎉 Giveaways', commands: ['giveaway'] },
-  annonces:    { label: '📢 Annonces & rôles', commands: ['annonce', 'autorole', 'role-arrivee', 'bienvenue'] },
+  annonces:    { label: '📢 Announcements & roles', commands: ['annonce', 'autorole', 'role-arrivee', 'bienvenue'] },
   invitations: { label: '📈 Invitations (admin)', commands: ['invites-config', 'lien-invite', 'qui-a-invite', 'classement-invites', 'classement-invites-maj'] },
   tickets:     { label: '🎫 Tickets', commands: ['ticket', 'setup-paiement'] },
-  souspanel:   { label: '🗂️ Sous panel', commands: ['sous-panel'] },
-  serveur:     { label: '⚙️ Serveur', commands: ['salon-commandes', 'salon-sanctions', 'membercount', 'acces-categorie'] },
+  souspanel:   { label: '🗂️ Sub-panels', commands: ['sous-panel'] },
+  serveur:     { label: '⚙️ Server', commands: ['salon-commandes', 'salon-sanctions', 'membercount', 'acces-categorie'] },
 };
 const CMD_CATEGORY = {};
 for (const [key, c] of Object.entries(CMD_CATEGORIES)) {
@@ -402,7 +402,7 @@ const commandAllowed = (i) =>
   PUBLIC_COMMANDS.has(i.commandName) || hasFullAccess(i) ||
   (MOD_COMMANDS.has(i.commandName) && canModerate(i)) || cmdAllowed(i);
 
-const NO_ACCESS = { content: "❌ Tu n'as pas accès à cette commande.", flags: EPH };
+const NO_ACCESS = { content: "❌ You do not have access to this command.", flags: EPH };
 
 /* ---------- Salon des commandes (privé) ---------- */
 // Ces commandes restent utilisables partout : les publiques (le salon est privé, les membres ne le voient pas)
@@ -449,22 +449,22 @@ async function syncCommandChannel(guild) {
   if (!d.commandChannelId) return;
   const ch = await guild.channels.fetch(d.commandChannelId).catch(() => null);
   if (!ch) { d.commandChannelId = null; save(); return; }
-  await ch.permissionOverwrites.set(commandChannelOverwrites(guild), 'Synchronisation du salon des commandes')
+  await ch.permissionOverwrites.set(commandChannelOverwrites(guild), 'Synchronization of the orders channel')
     .catch(console.error);
 }
 
 // Vérifie qu'on a le droit de sanctionner (ban / mute) cette personne. Renvoie un message d'erreur ou null.
 function targetError(i, user, member) {
-  if (user.id === i.user.id) return '❌ Tu ne peux pas faire ça sur toi-même.';
-  if (user.id === client.user.id) return '❌ Je ne peux pas me sanctionner moi-même.';
-  if (user.id === i.guild.ownerId) return '❌ Le propriétaire du serveur est intouchable.';
+  if (user.id === i.user.id) return '❌ You can\'t do this to yourself.';
+  if (user.id === client.user.id) return '❌ I can\'t punish myself.';
+  if (user.id === i.guild.ownerId) return '❌ The server owner is untouchable.';
   if (member && !isOwner(i)) {
     const d = getG(i.guildId);
     if (member.roles.cache.some((r) => d.protectedRoles.includes(r.id))) {
-      return '❌ Ce membre a un rôle protégé : seul le propriétaire du serveur peut le sanctionner.';
+      return '❌ This member has a protected role: only the server owner can sanction them.';
     }
     if (i.member.roles.highest.position <= member.roles.highest.position) {
-      return '❌ Ce membre a un rôle supérieur ou égal au tien.';
+      return '❌ This member has a role greater than or equal to yours.';
     }
   }
   return null;
@@ -486,13 +486,13 @@ async function announceSanction(i, optionChannel, text) {
 
 // Coupe une liste de lignes pour rester sous la limite d'un champ d'embed
 function fitLines(lines, max = 1000) {
-  if (!lines.length) return 'Aucun.';
+  if (!lines.length) return 'None.';
   let out = '', n = 0;
   for (const l of lines) {
     if ((out + l + '\n').length > max) break;
     out += l + '\n'; n++;
   }
-  return out + (n < lines.length ? `… et ${lines.length - n} de plus` : '');
+  return out + (n < lines.length ? `… and ${lines.length - n} more` : '');
 }
 
 /* ------------------------------------------------------------------ */
@@ -558,7 +558,7 @@ async function checkInviteRewards(guild, userId) {
     if (count < r.count || member.roles.cache.has(r.roleId)) continue;
     const role = guild.roles.cache.get(r.roleId);
     if (role && role.editable) {
-      await member.roles.add(role, `Récompense : ${r.count} invitations`).catch(console.error);
+      await member.roles.add(role, `Reward: ${r.count} invitations`).catch(console.error);
     }
   }
 }
@@ -571,13 +571,13 @@ function buildInviteBoard(guild, top) {
     .sort((a, b) => b.n - a.n)
     .slice(0, top);
   const lines = list.map((e, idx) =>
-    `${MEDALS[idx] || `**${idx + 1}.**`} <@${e.id}> — **${e.n}** invitation${e.n > 1 ? 's' : ''} ` +
-    `(${e.s.joins} arrivées · ${e.s.left || 0} départs)`);
+    `${MEDALS[idx] || `**${idx + 1}.**`} <@${e.id}> — **${e.n}** invitation${e.n > 1 ? 's' : ''}` +
+    `(${e.s.joins} arrivals · ${e.s.left || 0} departures)`);
   return new EmbedBuilder()
     .setColor('#5865F2')
-    .setTitle('🏆 Classement des invitations')
-    .setDescription((lines.join('\n') || "Personne n'a encore invité de membre.").slice(0, 4096))
-    .setFooter({ text: 'Mis à jour' })
+    .setTitle('🏆 Invitation ranking')
+    .setDescription((lines.join('\n') || "No one has invited any members yet.").slice(0, 4096))
+    .setFooter({ text: 'Updated' })
     .setTimestamp();
 }
 
@@ -634,107 +634,107 @@ function onInviteLeave(member) {
 /*  Définition des commandes                                           */
 /* ------------------------------------------------------------------ */
 const catAndRole = (s) => s
-  .addChannelOption((o) => o.setName('categorie').setDescription('La catégorie de salons')
+  .addChannelOption((o) => o.setName('categorie').setDescription('The channel category')
     .addChannelTypes(ChannelType.GuildCategory).setRequired(true))
-  .addRoleOption((o) => o.setName('role').setDescription('Le rôle (@everyone possible)').setRequired(true));
+  .addRoleOption((o) => o.setName('role').setDescription('The role (@everyone possible)').setRequired(true));
 
 // Options communes de /sous-panel
-const spCfg = (o) => o.setName('config').setDescription('Configuration de tickets').setAutocomplete(true).setRequired(true);
-const spSub = (o) => o.setName('sous-panel').setDescription('Sous-panel').setAutocomplete(true).setRequired(true);
-const spChoice = (o) => o.setName('sous-choix').setDescription('Choix du sous-panel').setAutocomplete(true).setRequired(true);
-const spPour = (o) => o.setName('pour').setDescription('Toutes les catégories, ou une catégorie précise du panel').setAutocomplete(true).setRequired(true);
+const spCfg = (o) => o.setName('config').setDescription('Ticket configuration').setAutocomplete(true).setRequired(true);
+const spSub = (o) => o.setName('sous-panel').setDescription('Sub-panel').setAutocomplete(true).setRequired(true);
+const spChoice = (o) => o.setName('sous-choix').setDescription('Choice of subpanel').setAutocomplete(true).setRequired(true);
+const spPour = (o) => o.setName('pour').setDescription('All categories, or a specific category from the panel').setAutocomplete(true).setRequired(true);
 
 const commands = [
   // ---------- Salon privé des commandes ----------
   new SlashCommandBuilder()
     .setName('salon-commandes')
-    .setDescription('Créer / modifier le salon privé où utiliser les commandes du bot')
+    .setDescription('Create/edit private channel where to use bot commands')
     .addChannelOption((o) =>
-      o.setName('categorie').setDescription('Catégorie du salon (obligatoire à la première création)')
+      o.setName('categorie').setDescription('Show category (required for first creation)')
         .addChannelTypes(ChannelType.GuildCategory))
     .addStringOption((o) =>
-      o.setName('nom').setDescription('Nom du salon (commandes par défaut)').setMaxLength(90))
-    .addRoleOption((o) => o.setName('role').setDescription('Rôle qui aura accès au salon'))
-    .addRoleOption((o) => o.setName('role2').setDescription('Autre rôle qui aura accès au salon'))
-    .addRoleOption((o) => o.setName('role3').setDescription('Autre rôle qui aura accès au salon'))
+      o.setName('nom').setDescription('Channel name (default commands)').setMaxLength(90))
+    .addRoleOption((o) => o.setName('role').setDescription('Role who will have access to the channel'))
+    .addRoleOption((o) => o.setName('role2').setDescription('Other role who will have access to the channel'))
+    .addRoleOption((o) => o.setName('role3').setDescription('Other role who will have access to the channel'))
     .addBooleanOption((o) =>
-      o.setName('vider-roles').setDescription("Retirer d'abord tous les rôles ajoutés à la main"))
+      o.setName('vider-roles').setDescription("First remove all manually added roles"))
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setDMPermission(false),
 
   // ---------- Giveaways ----------
   new SlashCommandBuilder()
     .setName('giveaway')
-    .setDescription('Giveaways : concours avec tirage au sort')
+    .setDescription('Giveaways: competition with draw')
     .addSubcommand((s) =>
-      s.setName('creer').setDescription('Lancer un giveaway')
+      s.setName('creer').setDescription('Launch a giveaway')
         .addChannelOption((o) =>
-          o.setName('salon').setDescription('Salon où lancer le giveaway')
+          o.setName('salon').setDescription('Channel where to launch the giveaway')
             .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(true))
-        .addStringOption((o) => o.setName('lot').setDescription('Ce qu\'il y a à gagner').setMaxLength(200).setRequired(true))
+        .addStringOption((o) => o.setName('lot').setDescription('What there is to win').setMaxLength(200).setRequired(true))
         .addIntegerOption((o) =>
-          o.setName('duree').setDescription('Durée (nombre)').setMinValue(1).setMaxValue(525600).setRequired(true))
+          o.setName('duree').setDescription('Duration (number)').setMinValue(1).setMaxValue(525600).setRequired(true))
         .addStringOption((o) =>
-          o.setName('unite').setDescription('Unité de temps').setRequired(true)
+          o.setName('unite').setDescription('Unit of time').setRequired(true)
             .addChoices(
               { name: 'Minutes', value: 'minutes' },
-              { name: 'Heures', value: 'heures' },
-              { name: 'Jours', value: 'jours' },
+              { name: 'Hours', value: 'heures' },
+              { name: 'Days', value: 'jours' },
             ))
         .addIntegerOption((o) =>
-          o.setName('gagnants').setDescription('Nombre de gagnants (1 par défaut)').setMinValue(1).setMaxValue(20))
-        .addStringOption((o) => o.setName('description').setDescription('Texte sous le titre (@Pseudo, @Rôle, #salon et \\n acceptés)').setMaxLength(1000))
-        .addRoleOption((o) => o.setName('role-requis').setDescription('Rôle nécessaire pour participer'))
+          o.setName('gagnants').setDescription('Number of winners (1 by default)').setMinValue(1).setMaxValue(20))
+        .addStringOption((o) => o.setName('description').setDescription('Text under the title (@Username, @Role, #channel and \\n accepted)').setMaxLength(1000))
+        .addRoleOption((o) => o.setName('role-requis').setDescription('Role needed to participate'))
         .addIntegerOption((o) =>
-          o.setName('invites-min').setDescription("Nombre d'invitations minimum pour participer")
+          o.setName('invites-min').setDescription("Minimum number of invitations to participate")
             .setMinValue(1).setMaxValue(100000))
-        .addMentionableOption((o) => o.setName('mention').setDescription('Rôle ou membre à mentionner'))
+        .addMentionableOption((o) => o.setName('mention').setDescription('Role or member to mention'))
         .addStringOption((o) =>
           o.setName('ping').setDescription('Mention globale')
             .addChoices({ name: '@everyone', value: 'everyone' }, { name: '@here', value: 'here' }))
-        .addAttachmentOption((o) => o.setName('image').setDescription('Image du giveaway')))
+        .addAttachmentOption((o) => o.setName('image').setDescription('Giveaway image')))
     .addSubcommand((s) =>
-      s.setName('terminer').setDescription('Terminer un giveaway maintenant et tirer les gagnants')
+      s.setName('terminer').setDescription('Complete a giveaway now and draw the winners')
         .addStringOption((o) =>
-          o.setName('giveaway').setDescription('Giveaway en cours').setAutocomplete(true).setRequired(true)))
+          o.setName('giveaway').setDescription('Ongoing giveaway').setAutocomplete(true).setRequired(true)))
     .addSubcommand((s) =>
-      s.setName('reroll').setDescription('Tirer un nouveau gagnant sur un giveaway terminé')
+      s.setName('reroll').setDescription('Draw a new winner from a finished giveaway')
         .addStringOption((o) =>
-          o.setName('giveaway').setDescription('Giveaway terminé').setAutocomplete(true).setRequired(true))
+          o.setName('giveaway').setDescription('Finished giveaway').setAutocomplete(true).setRequired(true))
         .addIntegerOption((o) =>
-          o.setName('nombre').setDescription('Nombre de nouveaux gagnants (1 par défaut)').setMinValue(1).setMaxValue(20)))
+          o.setName('nombre').setDescription('Number of new winners (1 by default)').setMinValue(1).setMaxValue(20)))
     .addSubcommand((s) =>
-      s.setName('annuler').setDescription('Annuler un giveaway et supprimer son message')
+      s.setName('annuler').setDescription('Cancel a giveaway and delete its message')
         .addStringOption((o) =>
           o.setName('giveaway').setDescription('Giveaway').setAutocomplete(true).setRequired(true)))
-    .addSubcommand((s) => s.setName('liste').setDescription('Voir les giveaways en cours'))
+    .addSubcommand((s) => s.setName('liste').setDescription('View current giveaways'))
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
     .setDMPermission(false),
 
   // ---------- Compteur de membres ----------
   new SlashCommandBuilder()
     .setName('membercount')
-    .setDescription('Crée un salon vocal qui affiche le nombre de membres')
+    .setDescription('Creates a voice channel that displays the number of members')
     .addStringOption((o) =>
-      o.setName('format').setDescription('Texte du salon, utilise {count}. Ex : 👥 Membres : {count}'))
+      o.setName('format').setDescription('Channel text, uses {count}. Ex: 👥 Members: {count}'))
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
     .setDMPermission(false),
 
   // ---------- Ban ----------
   new SlashCommandBuilder()
     .setName('ban')
-    .setDescription('Bannir un membre')
-    .addUserOption((o) => o.setName('membre').setDescription('Le membre à bannir').setRequired(true))
-    .addStringOption((o) => o.setName('raison').setDescription('Raison du ban'))
+    .setDescription('Ban a member')
+    .addUserOption((o) => o.setName('membre').setDescription('The member to ban').setRequired(true))
+    .addStringOption((o) => o.setName('raison').setDescription('Reason for ban'))
     .addIntegerOption((o) =>
-      o.setName('supprimer_messages').setDescription('Supprimer ses messages récents')
+      o.setName('supprimer_messages').setDescription('Delete recent messages')
         .addChoices(
-          { name: 'Ne pas supprimer', value: 0 },
-          { name: '24 dernières heures', value: 1 },
-          { name: '7 derniers jours', value: 7 },
+          { name: 'Do not delete', value: 0 },
+          { name: 'Last 24 hours', value: 1 },
+          { name: 'Last 7 days', value: 7 },
         ))
     .addChannelOption((o) =>
-      o.setName('salon').setDescription('Salon où annoncer le ban')
+      o.setName('salon').setDescription('Channel where to announce the ban')
         .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement))
     .setDefaultMemberPermissions(null) // l'accès est géré par /roles-mod
     .setDMPermission(false),
@@ -742,31 +742,31 @@ const commands = [
   // ---------- Unban ----------
   new SlashCommandBuilder()
     .setName('unban')
-    .setDescription('Débannir un utilisateur')
+    .setDescription('Unban a user')
     .addStringOption((o) =>
-      o.setName('utilisateur').setDescription('Utilisateur banni (choisis dans la liste ou colle son ID)')
+      o.setName('utilisateur').setDescription('Banned user (choose from the list or paste their ID)')
         .setAutocomplete(true).setRequired(true))
-    .addStringOption((o) => o.setName('raison').setDescription('Raison du débannissement'))
+    .addStringOption((o) => o.setName('raison').setDescription('Reason for unbanning'))
     .setDefaultMemberPermissions(null)
     .setDMPermission(false),
 
   // ---------- Mute ----------
   new SlashCommandBuilder()
     .setName('mute')
-    .setDescription('Rendre un membre muet : il ne voit plus aucun salon')
-    .addUserOption((o) => o.setName('membre').setDescription('Le membre à mute').setRequired(true))
+    .setDescription('Mute a member: they can no longer see any channels')
+    .addUserOption((o) => o.setName('membre').setDescription('Member to mute').setRequired(true))
     .addIntegerOption((o) =>
-      o.setName('duree').setDescription('Durée du mute (nombre)').setMinValue(1).setMaxValue(525600).setRequired(true))
+      o.setName('duree').setDescription('Mute duration (number)').setMinValue(1).setMaxValue(525600).setRequired(true))
     .addStringOption((o) =>
-      o.setName('unite').setDescription('Unité de temps').setRequired(true)
+      o.setName('unite').setDescription('Unit of time').setRequired(true)
         .addChoices(
           { name: 'Minutes', value: 'minutes' },
-          { name: 'Heures', value: 'heures' },
-          { name: 'Jours', value: 'jours' },
+          { name: 'Hours', value: 'heures' },
+          { name: 'Days', value: 'jours' },
         ))
-    .addStringOption((o) => o.setName('raison').setDescription('Raison du mute'))
+    .addStringOption((o) => o.setName('raison').setDescription('Reason for mute'))
     .addChannelOption((o) =>
-      o.setName('salon').setDescription('Salon où annoncer le mute')
+      o.setName('salon').setDescription('Channel where to announce the mute')
         .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement))
     .setDefaultMemberPermissions(null)
     .setDMPermission(false),
@@ -774,18 +774,18 @@ const commands = [
   // ---------- Unmute ----------
   new SlashCommandBuilder()
     .setName('unmute')
-    .setDescription('Enlever le mute d\'un membre')
-    .addUserOption((o) => o.setName('membre').setDescription('Le membre à unmute').setRequired(true))
-    .addStringOption((o) => o.setName('raison').setDescription("Raison de l'unmute"))
+    .setDescription('Unmute a member')
+    .addUserOption((o) => o.setName('membre').setDescription('Member to unmute').setRequired(true))
+    .addStringOption((o) => o.setName('raison').setDescription("Reason for unmute"))
     .setDefaultMemberPermissions(null)
     .setDMPermission(false),
 
   // ---------- Salon par défaut des annonces de sanctions ----------
   new SlashCommandBuilder()
     .setName('salon-sanctions')
-    .setDescription('Salon par défaut où annoncer les ban et mute')
+    .setDescription('Default channel where to announce bans and mute')
     .addChannelOption((o) =>
-      o.setName('salon').setDescription('Le salon des sanctions')
+      o.setName('salon').setDescription('Channel for sanctions announcements')
         .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(true))
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setDMPermission(false),
@@ -793,506 +793,506 @@ const commands = [
   // ---------- Bannis et mutés actuels ----------
   new SlashCommandBuilder()
     .setName('sanctions-actives')
-    .setDescription('Voir tous les membres actuellement bannis ou mute')
+    .setDescription('View all currently banned or muted members')
     .setDefaultMemberPermissions(null)
     .setDMPermission(false),
 
   // ---------- Historique d'un membre ----------
   new SlashCommandBuilder()
     .setName('historique-sanctions')
-    .setDescription('Voir si un membre a déjà été banni ou mute')
-    .addUserOption((o) => o.setName('membre').setDescription('Le membre à vérifier').setRequired(true))
+    .setDescription('See if a member has already been banned or mutated')
+    .addUserOption((o) => o.setName('membre').setDescription('The member to check').setRequired(true))
     .setDefaultMemberPermissions(null)
     .setDMPermission(false),
 
   // ---------- Aide ----------
   new SlashCommandBuilder()
     .setName('help')
-    .setDescription('Voir toutes les commandes auxquelles tu as accès')
+    .setDescription('See all the commands you have access to')
     .setDMPermission(false),
 
   // ---------- Invitations (ouvert à tout le monde) ----------
   new SlashCommandBuilder()
     .setName('invites')
-    .setDescription("Voir ton nombre d'invitations (ou celui d'un membre)")
-    .addUserOption((o) => o.setName('membre').setDescription('Le membre à regarder (réservé au staff)'))
+    .setDescription("See your number of invitations (or that of a member)")
+    .addUserOption((o) => o.setName('membre').setDescription('The member to watch (reserved for staff)'))
     .setDMPermission(false),
 
   // ---------- Configuration des récompenses d'invitations ----------
   new SlashCommandBuilder()
     .setName('invites-config')
-    .setDescription("Configurer les rôles automatiques selon le nombre d'invitations")
+    .setDescription("Configure automatic roles based on the number of invitations")
     .addSubcommand((s) =>
-      s.setName('recompense-ajouter').setDescription('Donner un rôle automatiquement à partir de X invitations')
+      s.setName('recompense-ajouter').setDescription('Give a role automatically from X invitations')
         .addIntegerOption((o) =>
-          o.setName('nombre').setDescription("Nombre d'invitations nécessaires").setMinValue(1).setMaxValue(100000).setRequired(true))
-        .addRoleOption((o) => o.setName('role').setDescription('Rôle à donner').setRequired(true)))
+          o.setName('nombre').setDescription("Number of invitations required").setMinValue(1).setMaxValue(100000).setRequired(true))
+        .addRoleOption((o) => o.setName('role').setDescription('Role to give').setRequired(true)))
     .addSubcommand((s) =>
-      s.setName('recompense-retirer').setDescription('Supprimer une récompense')
+      s.setName('recompense-retirer').setDescription('Remove a reward')
         .addIntegerOption((o) =>
-          o.setName('nombre').setDescription("Nombre d'invitations de la récompense").setMinValue(1).setRequired(true)))
-    .addSubcommand((s) => s.setName('liste').setDescription('Voir les récompenses configurées'))
+          o.setName('nombre').setDescription("Number of reward invitations").setMinValue(1).setRequired(true)))
+    .addSubcommand((s) => s.setName('liste').setDescription('View configured rewards'))
     .addSubcommand((s) =>
-      s.setName('reset').setDescription("Remettre à zéro les invitations d'un membre")
-        .addUserOption((o) => o.setName('membre').setDescription('Le membre').setRequired(true)))
+      s.setName('reset').setDescription("Reset a member's invitations")
+        .addUserOption((o) => o.setName('membre').setDescription('The member').setRequired(true)))
     .setDefaultMemberPermissions('0')
     .setDMPermission(false),
 
   // ---------- Liens d'invitation dédiés ----------
   new SlashCommandBuilder()
     .setName('lien-invite')
-    .setDescription("Liens d'invitation dédiés à un membre")
+    .setDescription("Invitation links dedicated to a member")
     .addSubcommand((s) =>
-      s.setName('creer').setDescription("Créer un lien d'invitation dédié à un membre")
-        .addUserOption((o) => o.setName('membre').setDescription('Le membre à qui le lien est dédié').setRequired(true))
+      s.setName('creer').setDescription("Create an invitation link dedicated to a member")
+        .addUserOption((o) => o.setName('membre').setDescription('The member to whom the link is dedicated').setRequired(true))
         .addChannelOption((o) =>
-          o.setName('salon').setDescription('Salon vers lequel le lien mène')
+          o.setName('salon').setDescription('Channel to which the link leads')
             .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement, ChannelType.GuildVoice).setRequired(true))
         .addIntegerOption((o) =>
-          o.setName('max-utilisations').setDescription('Nombre max d\'utilisations (illimité par défaut)').setMinValue(1).setMaxValue(100))
+          o.setName('max-utilisations').setDescription('Max number of uses (unlimited by default)').setMinValue(1).setMaxValue(100))
         .addIntegerOption((o) =>
-          o.setName('expire-jours').setDescription('Expiration en jours (jamais par défaut, 7 max)').setMinValue(1).setMaxValue(7)))
-    .addSubcommand((s) => s.setName('liste').setDescription('Voir les liens dédiés'))
+          o.setName('expire-jours').setDescription('Expiration in days (never by default, 7 max)').setMinValue(1).setMaxValue(7)))
+    .addSubcommand((s) => s.setName('liste').setDescription('See dedicated links'))
     .addSubcommand((s) =>
-      s.setName('supprimer').setDescription('Supprimer un lien dédié')
-        .addStringOption((o) => o.setName('lien').setDescription('Le lien').setAutocomplete(true).setRequired(true)))
+      s.setName('supprimer').setDescription('Delete a dedicated link')
+        .addStringOption((o) => o.setName('lien').setDescription('The link').setAutocomplete(true).setRequired(true)))
     .setDefaultMemberPermissions('0')
     .setDMPermission(false),
 
   // ---------- Avec le lien de qui un membre est arrivé ----------
   new SlashCommandBuilder()
     .setName('qui-a-invite')
-    .setDescription('Voir avec le lien de qui un membre a rejoint le serveur')
-    .addUserOption((o) => o.setName('membre').setDescription('Le membre à vérifier').setRequired(true))
+    .setDescription('See with whose link a member joined the server')
+    .addUserOption((o) => o.setName('membre').setDescription('The member to check').setRequired(true))
     .setDefaultMemberPermissions('0')
     .setDMPermission(false),
 
   // ---------- Accès aux catégories de salons ----------
   new SlashCommandBuilder()
     .setName('acces-categorie')
-    .setDescription('Choisir qui voit le contenu ou seulement les salons d’une catégorie')
-    .addSubcommand((s) => catAndRole(s.setName('contenu').setDescription('Ce rôle voit les salons ET leur contenu')))
-    .addSubcommand((s) => catAndRole(s.setName('apercu').setDescription('Ce rôle voit les salons mais PAS leur historique')))
-    .addSubcommand((s) => catAndRole(s.setName('retirer').setDescription('Retirer les règles de ce rôle sur la catégorie')))
-    .addSubcommand((s) => s.setName('liste').setDescription('Voir les catégories configurées'))
+    .setDescription('Choose who sees the content or only the channels in a category')
+    .addSubcommand((s) => catAndRole(s.setName('contenu').setDescription('This role sees channels AND their content')))
+    .addSubcommand((s) => catAndRole(s.setName('apercu').setDescription('This role sees the channels but NOT their history')))
+    .addSubcommand((s) => catAndRole(s.setName('retirer').setDescription('Remove rules from this role on category')))
+    .addSubcommand((s) => s.setName('liste').setDescription('View configured categories'))
     .setDefaultMemberPermissions('0')
     .setDMPermission(false),
 
   // ---------- Rôles autorisés par commande (👑) ----------
   new SlashCommandBuilder()
     .setName('permissions')
-    .setDescription('👑 Choisir quels rôles peuvent utiliser quelle commande')
+    .setDescription('👑 Choose which roles can use which command')
     .addSubcommand((s) =>
-      s.setName('ajouter').setDescription('Autoriser un rôle à utiliser une commande')
-        .addStringOption((o) => o.setName('commande').setDescription('La commande').setAutocomplete(true).setRequired(true))
-        .addRoleOption((o) => o.setName('role').setDescription('Le rôle à autoriser').setRequired(true)))
+      s.setName('ajouter').setDescription('Authorize a role to use a command')
+        .addStringOption((o) => o.setName('commande').setDescription('The command').setAutocomplete(true).setRequired(true))
+        .addRoleOption((o) => o.setName('role').setDescription('The role to authorize').setRequired(true)))
     .addSubcommand((s) =>
-      s.setName('retirer').setDescription("Retirer l'accès d'un rôle à une commande")
-        .addStringOption((o) => o.setName('commande').setDescription('La commande').setAutocomplete(true).setRequired(true))
-        .addRoleOption((o) => o.setName('role').setDescription('Le rôle à retirer').setRequired(true)))
-    .addSubcommand((s) => s.setName('liste').setDescription('Voir qui a accès à quoi'))
+      s.setName('retirer').setDescription("Remove a role's access to a command")
+        .addStringOption((o) => o.setName('commande').setDescription('The command').setAutocomplete(true).setRequired(true))
+        .addRoleOption((o) => o.setName('role').setDescription('The role to be removed').setRequired(true)))
+    .addSubcommand((s) => s.setName('liste').setDescription('See who has access to what'))
     .setDefaultMemberPermissions('0')
     .setDMPermission(false),
 
   // ---------- Rôles autorisés par catégorie de commandes (👑) ----------
   new SlashCommandBuilder()
     .setName('permissions-categorie')
-    .setDescription('👑 Donner à un rôle l’accès à toute une catégorie de commandes')
+    .setDescription('👑 Give a role access to an entire category of commands')
     .addSubcommand((s) =>
-      s.setName('ajouter').setDescription('Autoriser un rôle à utiliser toute une catégorie')
-        .addStringOption((o) => o.setName('categorie').setDescription('Catégorie de commandes').setRequired(true)
+      s.setName('ajouter').setDescription('Allow a role to use an entire category')
+        .addStringOption((o) => o.setName('categorie').setDescription('Command category').setRequired(true)
           .addChoices(...Object.entries(CMD_CATEGORIES).map(([value, c]) => ({ name: c.label, value }))))
-        .addRoleOption((o) => o.setName('role').setDescription('Le rôle à autoriser').setRequired(true)))
+        .addRoleOption((o) => o.setName('role').setDescription('The role to authorize').setRequired(true)))
     .addSubcommand((s) =>
-      s.setName('retirer').setDescription('Retirer l’accès d’un rôle à une catégorie')
-        .addStringOption((o) => o.setName('categorie').setDescription('Catégorie de commandes').setRequired(true)
+      s.setName('retirer').setDescription('Remove access from a role to a category')
+        .addStringOption((o) => o.setName('categorie').setDescription('Command category').setRequired(true)
           .addChoices(...Object.entries(CMD_CATEGORIES).map(([value, c]) => ({ name: c.label, value }))))
-        .addRoleOption((o) => o.setName('role').setDescription('Le rôle à retirer').setRequired(true)))
-    .addSubcommand((s) => s.setName('liste').setDescription('Voir qui a accès à quelle catégorie'))
+        .addRoleOption((o) => o.setName('role').setDescription('The role to be removed').setRequired(true)))
+    .addSubcommand((s) => s.setName('liste').setDescription('See who has access to which category'))
     .setDefaultMemberPermissions('0')
     .setDMPermission(false),
 
   // ---------- Activer / désactiver des commandes (👑) ----------
   new SlashCommandBuilder()
     .setName('commandes')
-    .setDescription('👑 Retirer ou remettre des commandes du bot')
+    .setDescription('👑 Remove or resubmit bot commands')
     .addSubcommand((s) =>
-      s.setName('desactiver').setDescription('Retirer une commande (elle disparaît de Discord)')
-        .addStringOption((o) => o.setName('commande').setDescription('La commande').setAutocomplete(true).setRequired(true)))
+      s.setName('desactiver').setDescription('Remove an order (it disappears from Discord)')
+        .addStringOption((o) => o.setName('commande').setDescription('The command').setAutocomplete(true).setRequired(true)))
     .addSubcommand((s) =>
-      s.setName('activer').setDescription('Remettre une commande retirée')
-        .addStringOption((o) => o.setName('commande').setDescription('La commande').setAutocomplete(true).setRequired(true)))
-    .addSubcommand((s) => s.setName('liste').setDescription('Voir toutes les commandes et leur état'))
+      s.setName('activer').setDescription('Resubmit a withdrawn order')
+        .addStringOption((o) => o.setName('commande').setDescription('The command').setAutocomplete(true).setRequired(true)))
+    .addSubcommand((s) => s.setName('liste').setDescription('View all orders and their status'))
     .setDefaultMemberPermissions('0')
     .setDMPermission(false),
 
   // ---------- Classement des invitations ----------
   new SlashCommandBuilder()
     .setName('classement-invites')
-    .setDescription('Envoyer le classement des invitations dans un salon (mis à jour automatiquement)')
+    .setDescription('Send the invitation leaderboard in a channel (automatically updated)')
     .addChannelOption((o) =>
-      o.setName('salon').setDescription('Salon où envoyer le classement')
+      o.setName('salon').setDescription('Channel where to send the ranking')
         .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(true))
     .addIntegerOption((o) =>
-      o.setName('top').setDescription('Nombre de places affichées (10 par défaut)').setMinValue(3).setMaxValue(25))
+      o.setName('top').setDescription('Number of places displayed (10 by default)').setMinValue(3).setMaxValue(25))
     .setDefaultMemberPermissions('0')
     .setDMPermission(false),
 
   new SlashCommandBuilder()
     .setName('classement-invites-maj')
-    .setDescription('Forcer la mise à jour du classement des invitations déjà envoyé')
+    .setDescription('Force updating the ranking of invitations already sent')
     .setDefaultMemberPermissions('0')
     .setDMPermission(false),
 
   // ---------- Rôles avec accès à toutes les commandes (👑 uniquement) ----------
   new SlashCommandBuilder()
     .setName('role-total')
-    .setDescription('👑 Choisir quels rôles ont accès à TOUTES les commandes du bot')
+    .setDescription('👑 Choose which roles have access to ALL bot commands')
     .addSubcommand((s) =>
-      s.setName('ajouter').setDescription("Donner l'accès à toutes les commandes à un rôle")
-        .addRoleOption((o) => o.setName('role').setDescription('Le rôle à autoriser').setRequired(true)))
+      s.setName('ajouter').setDescription("Give access to all commands to a role")
+        .addRoleOption((o) => o.setName('role').setDescription('The role to authorize').setRequired(true)))
     .addSubcommand((s) =>
-      s.setName('retirer').setDescription("Retirer l'accès total à un rôle")
-        .addRoleOption((o) => o.setName('role').setDescription('Le rôle à retirer').setRequired(true)))
-    .addSubcommand((s) => s.setName('liste').setDescription('Voir les rôles avec accès total'))
+      s.setName('retirer').setDescription("Remove full access to a role")
+        .addRoleOption((o) => o.setName('role').setDescription('The role to be removed').setRequired(true)))
+    .addSubcommand((s) => s.setName('liste').setDescription('View roles with full access'))
     .setDefaultMemberPermissions('0')
     .setDMPermission(false),
 
   // ---------- Rôles autorisés à modérer (👑 uniquement) ----------
   new SlashCommandBuilder()
     .setName('roles-mod')
-    .setDescription('👑 Choisir quels rôles peuvent utiliser ban - unban - mute - unmute')
+    .setDescription('👑 Choose which roles can use ban - unban - mute - unmute')
     .addSubcommand((s) =>
-      s.setName('ajouter').setDescription('Autoriser un rôle à utiliser les commandes de modération')
-        .addRoleOption((o) => o.setName('role').setDescription('Le rôle à autoriser').setRequired(true)))
+      s.setName('ajouter').setDescription('Allow a role to use moderation controls')
+        .addRoleOption((o) => o.setName('role').setDescription('The role to authorize').setRequired(true)))
     .addSubcommand((s) =>
-      s.setName('retirer').setDescription("Retirer l'accès à un rôle")
-        .addRoleOption((o) => o.setName('role').setDescription('Le rôle à retirer').setRequired(true)))
-    .addSubcommand((s) => s.setName('liste').setDescription('Voir les rôles autorisés'))
+      s.setName('retirer').setDescription("Remove access to a role")
+        .addRoleOption((o) => o.setName('role').setDescription('The role to be removed').setRequired(true)))
+    .addSubcommand((s) => s.setName('liste').setDescription('View allowed roles'))
     .setDefaultMemberPermissions('0') // masquée pour tout le monde sauf admins ; vérifiée aussi dans le code
     .setDMPermission(false),
 
   // ---------- Rôles protégés (👑 uniquement) ----------
   new SlashCommandBuilder()
     .setName('roles-proteges')
-    .setDescription('👑 Choisir quels rôles ne peuvent être ni mute ni ban par les modérateurs')
+    .setDescription('👑 Choose which roles cannot be muted or banned by moderators')
     .addSubcommand((s) =>
-      s.setName('ajouter').setDescription('Protéger un rôle')
-        .addRoleOption((o) => o.setName('role').setDescription('Le rôle à protéger').setRequired(true)))
+      s.setName('ajouter').setDescription('Protect a role')
+        .addRoleOption((o) => o.setName('role').setDescription('The role to protect').setRequired(true)))
     .addSubcommand((s) =>
-      s.setName('retirer').setDescription("Retirer la protection d'un rôle")
-        .addRoleOption((o) => o.setName('role').setDescription('Le rôle à retirer').setRequired(true)))
-    .addSubcommand((s) => s.setName('liste').setDescription('Voir les rôles protégés'))
+      s.setName('retirer').setDescription("Remove protection from a role")
+        .addRoleOption((o) => o.setName('role').setDescription('The role to be removed').setRequired(true)))
+    .addSubcommand((s) => s.setName('liste').setDescription('View protected roles'))
     .setDefaultMemberPermissions('0')
     .setDMPermission(false),
 
   // ---------- Annonces ----------
   new SlashCommandBuilder()
     .setName('annonce')
-    .setDescription('Envoyer une annonce complète (titre, texte, images, mentions)')
+    .setDescription('Send a complete ad (title, text, images, mentions)')
     .addChannelOption((o) =>
-      o.setName('salon').setDescription("Salon où envoyer l'annonce")
+      o.setName('salon').setDescription("Channel where to send the ad")
         .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(true))
-    .addMentionableOption((o) => o.setName('mention').setDescription('Rôle ou membre à mentionner'))
+    .addMentionableOption((o) => o.setName('mention').setDescription('Role or member to mention'))
     .addStringOption((o) =>
       o.setName('ping').setDescription('Mention globale')
         .addChoices({ name: '@everyone', value: 'everyone' }, { name: '@here', value: 'here' }))
-    .addAttachmentOption((o) => o.setName('image').setDescription('Grande image en bas de l\'annonce'))
-    .addAttachmentOption((o) => o.setName('miniature').setDescription('Petite image en haut à droite'))
+    .addAttachmentOption((o) => o.setName('image').setDescription('Large image at the bottom of the ad'))
+    .addAttachmentOption((o) => o.setName('miniature').setDescription('Small image at top right'))
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
     .setDMPermission(false),
 
   // ---------- Message privé de masse ----------
   new SlashCommandBuilder()
     .setName('message-mp')
-    .setDescription('Envoyer un message privé à tous les membres du serveur (sauf bots)')
+    .setDescription('Send a private message to all server members (except bots)')
     .setDefaultMemberPermissions(null)
     .setDMPermission(false),
 
   // ---------- Autorole par réaction ----------
   new SlashCommandBuilder()
     .setName('autorole')
-    .setDescription('Un message avec une réaction qui donne un rôle')
+    .setDescription('A message with a reaction that gives a role')
     .addSubcommand((s) =>
-      s.setName('creer').setDescription('Envoyer un message : réagir avec l\'emoji donne le rôle')
+      s.setName('creer').setDescription('Send a message: reacting with the emoji gives the role')
         .addChannelOption((o) =>
-          o.setName('salon').setDescription('Salon où envoyer le message')
+          o.setName('salon').setDescription('Channel where to send the message')
             .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(true))
-        .addRoleOption((o) => o.setName('role').setDescription('Le rôle donné par la réaction').setRequired(true))
+        .addRoleOption((o) => o.setName('role').setDescription('The role given by the reaction').setRequired(true))
         .addStringOption((o) =>
-          o.setName('emoji').setDescription('Emoji de la réaction (ex : 🎮 ou un emoji du serveur)').setRequired(true))
-        .addMentionableOption((o) => o.setName('mention').setDescription('Rôle ou membre à mentionner'))
+          o.setName('emoji').setDescription('Reaction emoji (e.g. 🎮 or a server emoji)').setRequired(true))
+        .addMentionableOption((o) => o.setName('mention').setDescription('Role or member to mention'))
         .addStringOption((o) =>
           o.setName('ping').setDescription('Mention globale')
             .addChoices({ name: '@everyone', value: 'everyone' }, { name: '@here', value: 'here' }))
-        .addAttachmentOption((o) => o.setName('image').setDescription('Grande image en bas du message'))
-        .addAttachmentOption((o) => o.setName('miniature').setDescription('Petite image en haut à droite')))
-    .addSubcommand((s) => s.setName('liste').setDescription('Voir les autoroles existants'))
+        .addAttachmentOption((o) => o.setName('image').setDescription('Large image at bottom of post'))
+        .addAttachmentOption((o) => o.setName('miniature').setDescription('Small image at top right')))
+    .addSubcommand((s) => s.setName('liste').setDescription('View existing autoroles'))
     .addSubcommand((s) =>
-      s.setName('supprimer').setDescription('Supprimer un autorole (et son message)')
+      s.setName('supprimer').setDescription('Delete an autorole (and its message)')
         .addStringOption((o) =>
-          o.setName('message').setDescription('Autorole à supprimer').setAutocomplete(true).setRequired(true)))
+          o.setName('message').setDescription('Authority to delete').setAutocomplete(true).setRequired(true)))
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
     .setDMPermission(false),
 
   // ---------- Rôle automatique à l'arrivée ----------
   new SlashCommandBuilder()
     .setName('role-arrivee')
-    .setDescription("Rôles donnés automatiquement à chaque nouveau membre (sans réaction)")
+    .setDescription("Roles automatically given to each new member (without reaction)")
     .addSubcommand((s) =>
-      s.setName('ajouter').setDescription("Donner ce rôle à tous les nouveaux membres")
-        .addRoleOption((o) => o.setName('role').setDescription('Le rôle à donner').setRequired(true)))
+      s.setName('ajouter').setDescription("Give this role to all new members")
+        .addRoleOption((o) => o.setName('role').setDescription('The role to be given').setRequired(true)))
     .addSubcommand((s) =>
-      s.setName('retirer').setDescription("Ne plus donner ce rôle à l'arrivée")
-        .addRoleOption((o) => o.setName('role').setDescription('Le rôle à retirer').setRequired(true)))
-    .addSubcommand((s) => s.setName('liste').setDescription("Voir les rôles donnés à l'arrivée"))
+      s.setName('retirer').setDescription("No longer give this role on arrival")
+        .addRoleOption((o) => o.setName('role').setDescription('The role to be removed').setRequired(true)))
+    .addSubcommand((s) => s.setName('liste').setDescription("See the roles given on arrival"))
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
     .setDMPermission(false),
 
   // ---------- Bienvenue ----------
   new SlashCommandBuilder()
     .setName('bienvenue')
-    .setDescription("Système d'accueil des nouveaux membres")
+    .setDescription("New member onboarding system")
     .addSubcommand((s) =>
-      s.setName('configurer').setDescription('Choisir le salon et modifier tout le message')
+      s.setName('configurer').setDescription('Choose the channel and edit the whole message')
         .addChannelOption((o) =>
-          o.setName('salon').setDescription("Salon d'accueil")
+          o.setName('salon').setDescription("Welcome channel")
             .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)))
-    .addSubcommand((s) => s.setName('activer').setDescription('Activer le message de bienvenue'))
-    .addSubcommand((s) => s.setName('desactiver').setDescription('Désactiver le message de bienvenue'))
-    .addSubcommand((s) => s.setName('test').setDescription("Prévisualiser le message avec ton profil"))
+    .addSubcommand((s) => s.setName('activer').setDescription('Enable welcome message'))
+    .addSubcommand((s) => s.setName('desactiver').setDescription('Disable welcome message'))
+    .addSubcommand((s) => s.setName('test').setDescription("Preview the message with your profile"))
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setDMPermission(false),
 
   // ---------- Installation automatique du ticket paiement ----------
   new SlashCommandBuilder()
     .setName('setup-paiement')
-    .setDescription('Installe tout : menu en MP (PayPal / Wero...), catégories du serveur et panel')
-    .addRoleOption((o) => o.setName('role-staff').setDescription('Rôle staff qui gère les tickets').setRequired(true))
+    .setDescription('Install everything: DM menu (PayPal / Wero...), server categories and panel')
+    .addRoleOption((o) => o.setName('role-staff').setDescription('Staff role that manages tickets').setRequired(true))
     .addChannelOption((o) =>
-      o.setName('salon').setDescription('Salon où envoyer le panel')
+      o.setName('salon').setDescription('Channel to send the panel to')
         .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(true))
     .addStringOption((o) =>
-      o.setName('moyens').setDescription('Moyens de paiement séparés par une virgule (défaut : PayPal, Wero)').setMaxLength(300))
+      o.setName('moyens').setDescription('Payment methods separated by a comma (default: PayPal, Wero)').setMaxLength(300))
     .addStringOption((o) =>
-      o.setName('nom').setDescription('Nom de la configuration (défaut : paiement)').setMaxLength(30))
+      o.setName('nom').setDescription('Configuration name (default: payment)').setMaxLength(30))
     .addChannelOption((o) =>
-      o.setName('salon-logs').setDescription('Salon où envoyer les transcripts à la fermeture')
+      o.setName('salon-logs').setDescription('Channel where to send transcripts at closing')
         .addChannelTypes(ChannelType.GuildText))
-    .addStringOption((o) => o.setName('titre').setDescription('Titre du panel'))
-    .addStringOption((o) => o.setName('description').setDescription('Texte du panel'))
+    .addStringOption((o) => o.setName('titre').setDescription('Panel title'))
+    .addStringOption((o) => o.setName('description').setDescription('Panel text'))
     .setDefaultMemberPermissions('0')
     .setDMPermission(false),
 
   // ---------- Sous-panels ----------
   new SlashCommandBuilder()
     .setName('sous-panel')
-    .setDescription("Sous-panels : un 2e menu proposé après le choix d'une catégorie du panel")
+    .setDescription("Sub-panels: a 2nd menu offered after choosing a panel category")
     .addSubcommand((s) =>
-      s.setName('creer').setDescription('Créer un sous-panel')
+      s.setName('creer').setDescription('Create a subpanel')
         .addStringOption(spCfg)
-        .addStringOption((o) => o.setName('nom').setDescription('Nom du sous-panel (ex : Nitro)').setMaxLength(60).setRequired(true))
-        .addStringOption((o) => o.setName('titre').setDescription('Titre du message du sous-panel').setMaxLength(256))
-        .addStringOption((o) => o.setName('description').setDescription('Texte du message du sous-panel').setMaxLength(1000))
-        .addStringOption((o) => o.setName('placeholder').setDescription('Texte du menu (ex : Choisir une option...)').setMaxLength(100))
-        .addStringOption((o) => o.setName('couleur').setDescription('Couleur hex, ex : #5865F2').setMaxLength(7)))
+        .addStringOption((o) => o.setName('nom').setDescription('Name of the subpanel (ex: Nitro)').setMaxLength(60).setRequired(true))
+        .addStringOption((o) => o.setName('titre').setDescription('Subpanel post title').setMaxLength(256))
+        .addStringOption((o) => o.setName('description').setDescription('Subpanel message text').setMaxLength(1000))
+        .addStringOption((o) => o.setName('placeholder').setDescription('Menu text (e.g.: Choose an option...)').setMaxLength(100))
+        .addStringOption((o) => o.setName('couleur').setDescription('Hex color, e.g. #5865F2').setMaxLength(7)))
     .addSubcommand((s) =>
-      s.setName('modifier').setDescription("Modifier le nom, le titre, le texte, le menu ou la couleur d'un sous-panel (\"aucun\" = effacer)")
+      s.setName('modifier').setDescription("Change the name, title, text, menu or color of a subpanel (\"none\" = clear)")
         .addStringOption(spCfg)
         .addStringOption(spSub)
-        .addStringOption((o) => o.setName('nouveau-nom').setDescription('Nouveau nom').setMaxLength(60))
+        .addStringOption((o) => o.setName('nouveau-nom').setDescription('New name').setMaxLength(60))
         .addStringOption((o) => o.setName('titre').setDescription('Nouveau titre').setMaxLength(256))
         .addStringOption((o) => o.setName('description').setDescription('Nouveau texte').setMaxLength(1000))
-        .addStringOption((o) => o.setName('placeholder').setDescription('Nouveau texte du menu').setMaxLength(100))
-        .addStringOption((o) => o.setName('couleur').setDescription('Nouvelle couleur hex').setMaxLength(7)))
+        .addStringOption((o) => o.setName('placeholder').setDescription('New menu text').setMaxLength(100))
+        .addStringOption((o) => o.setName('couleur').setDescription('New hex color').setMaxLength(7)))
     .addSubcommand((s) =>
-      s.setName('supprimer').setDescription('Supprimer un sous-panel (il est retiré de toutes les catégories)')
+      s.setName('supprimer').setDescription('Delete a subpanel (it is removed from all categories)')
         .addStringOption(spCfg)
         .addStringOption(spSub))
     .addSubcommand((s) =>
-      s.setName('choix-ajouter').setDescription('Ajouter un choix au menu du sous-panel')
+      s.setName('choix-ajouter').setDescription('Add a choice to the subpanel menu')
         .addStringOption(spCfg)
         .addStringOption(spSub)
-        .addStringOption((o) => o.setName('label').setDescription('Nom du choix').setMaxLength(100).setRequired(true))
-        .addStringOption((o) => o.setName('emoji').setDescription('Emoji : 🎮 ou emoji du serveur (tape :nitro: et choisis-le)'))
+        .addStringOption((o) => o.setName('label').setDescription('Name of choice').setMaxLength(100).setRequired(true))
+        .addStringOption((o) => o.setName('emoji').setDescription('Emoji: 🎮 or server emoji (type :nitro: and choose it)'))
         .addStringOption((o) => o.setName('description').setDescription('Description courte').setMaxLength(100))
         .addChannelOption((o) =>
-          o.setName('categorie').setDescription('Catégorie du serveur où les tickets de ce choix seront créés')
+          o.setName('categorie').setDescription('Server category where tickets of this choice will be created')
             .addChannelTypes(ChannelType.GuildCategory))
-        .addStringOption((o) => o.setName('suivant').setDescription('Sous-panel proposé ensuite ("aucun" = ticket direct)').setAutocomplete(true))
-        .addRoleOption((o) => o.setName('role-staff').setDescription('Rôle staff propre à ce choix')))
+        .addStringOption((o) => o.setName('suivant').setDescription('Sub-panel proposed next ("none" = direct ticket)').setAutocomplete(true))
+        .addRoleOption((o) => o.setName('role-staff').setDescription('Staff role specific to this choice')))
     .addSubcommand((s) =>
-      s.setName('choix-modifier').setDescription("Modifier un choix d'un sous-panel")
+      s.setName('choix-modifier').setDescription("Edit a choice of a subpanel")
         .addStringOption(spCfg)
         .addStringOption(spSub)
         .addStringOption(spChoice)
-        .addStringOption((o) => o.setName('nouveau-nom').setDescription('Nouveau nom').setMaxLength(100))
-        .addStringOption((o) => o.setName('emoji').setDescription('Nouvel emoji ("aucun" pour le retirer)'))
-        .addStringOption((o) => o.setName('description').setDescription('Nouvelle description ("aucun" pour l\'effacer)').setMaxLength(100))
+        .addStringOption((o) => o.setName('nouveau-nom').setDescription('New name').setMaxLength(100))
+        .addStringOption((o) => o.setName('emoji').setDescription('New emoji (“none” to remove it)'))
+        .addStringOption((o) => o.setName('description').setDescription('New description ("none" for deleting it)').setMaxLength(100))
         .addChannelOption((o) =>
-          o.setName('categorie').setDescription('Nouvelle catégorie du serveur pour les tickets de ce choix')
+          o.setName('categorie').setDescription('New server category for tickets of this choice')
             .addChannelTypes(ChannelType.GuildCategory))
-        .addStringOption((o) => o.setName('suivant').setDescription('Sous-panel proposé ensuite ("aucun" = ticket direct)').setAutocomplete(true))
-        .addRoleOption((o) => o.setName('role-staff').setDescription('Nouveau rôle staff pour ce choix')))
+        .addStringOption((o) => o.setName('suivant').setDescription('Sub-panel proposed next ("none" = direct ticket)').setAutocomplete(true))
+        .addRoleOption((o) => o.setName('role-staff').setDescription('New staff role for this choice')))
     .addSubcommand((s) =>
-      s.setName('choix-retirer').setDescription("Retirer un choix d'un sous-panel")
+      s.setName('choix-retirer').setDescription("Remove a choice from a subpanel")
         .addStringOption(spCfg)
         .addStringOption(spSub)
         .addStringOption(spChoice))
     .addSubcommand((s) =>
-      s.setName('choix-suivant').setDescription('Mettre le MÊME sous-panel suivant sur TOUS les choix d\'un sous-panel')
+      s.setName('choix-suivant').setDescription('Put the SAME next subpanel on ALL choices of one subpanel')
         .addStringOption(spCfg)
         .addStringOption(spSub)
-        .addStringOption((o) => o.setName('suivant').setDescription('Sous-panel proposé après chaque choix (\"aucun\" = ticket direct)').setAutocomplete(true).setRequired(true)))
+        .addStringOption((o) => o.setName('suivant').setDescription('Sub-panel proposed after each choice (\"none\" = direct ticket)').setAutocomplete(true).setRequired(true)))
     .addSubcommand((s) =>
-      s.setName('lier').setDescription('Utiliser un sous-panel pour toutes les catégories, ou pour une seule')
+      s.setName('lier').setDescription('Use a subpanel for all categories, or just one')
         .addStringOption(spCfg)
         .addStringOption(spSub)
         .addStringOption(spPour))
     .addSubcommand((s) =>
-      s.setName('delier').setDescription("Retirer le lien d'une catégorie (elle reprend le réglage par défaut) ou le sous-panel par défaut")
+      s.setName('delier').setDescription("Remove the link from a category (it takes the default setting) or the default subpanel")
         .addStringOption(spCfg)
         .addStringOption(spPour))
     .addSubcommand((s) =>
-      s.setName('liste').setDescription('Voir les sous-panels et à quelles catégories ils sont reliés')
+      s.setName('liste').setDescription('See the subpanels and which categories they are linked to')
         .addStringOption(spCfg)),
 
   // ---------- Vouch (ouvert à tous ceux qui ont ouvert / pris en charge un ticket) ----------
   new SlashCommandBuilder()
     .setName('vouch')
-    .setDescription('Donner un avis vérifié sur ton ticket (note sur 5 + message)')
+    .setDescription('Give a verified opinion on your ticket (rating out of 5 + message)')
     .setDMPermission(false),
 
   // ---------- Tickets ----------
   new SlashCommandBuilder()
     .setName('ticket')
-    .setDescription('Gestion du système de tickets')
+    .setDescription('Ticket system management')
     .addSubcommand((s) =>
-      s.setName('config-creer').setDescription('Créer une configuration de ticket')
+      s.setName('config-creer').setDescription('Create a ticket configuration')
         .addStringOption((o) =>
-          o.setName('nom').setDescription('Nom (lettres, chiffres, tirets - 30 max)').setRequired(true))
+          o.setName('nom').setDescription('Name (letters, numbers, hyphens - 30 max)').setRequired(true))
         .addChannelOption((o) =>
-          o.setName('categorie').setDescription('Catégorie où les tickets seront créés (par défaut)')
+          o.setName('categorie').setDescription('Category where tickets will be created (default)')
             .addChannelTypes(ChannelType.GuildCategory).setRequired(true))
         .addRoleOption((o) =>
-          o.setName('role-staff').setDescription('Premier rôle staff (ajoute-en d\'autres avec /ticket staff-ajouter)').setRequired(true))
+          o.setName('role-staff').setDescription('First staff role (add d\' others with /ticket staff-add)').setRequired(true))
         .addChannelOption((o) =>
-          o.setName('salon-logs').setDescription('Salon où envoyer les transcripts à la fermeture')
+          o.setName('salon-logs').setDescription('Channel where to send transcripts at closing')
             .addChannelTypes(ChannelType.GuildText)))
-    .addSubcommand((s) => s.setName('config-liste').setDescription('Lister les configurations'))
+    .addSubcommand((s) => s.setName('config-liste').setDescription('List configurations'))
     .addSubcommand((s) =>
-      s.setName('config-supprimer').setDescription('Supprimer une configuration')
+      s.setName('config-supprimer').setDescription('Delete a configuration')
         .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true)))
     .addSubcommand((s) =>
-      s.setName('staff-ajouter').setDescription('Autoriser un rôle staff à voir et répondre aux tickets')
+      s.setName('staff-ajouter').setDescription('Authorize a staff role to view and respond to tickets')
         .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true))
-        .addRoleOption((o) => o.setName('role').setDescription('Rôle staff à ajouter').setRequired(true)))
+        .addRoleOption((o) => o.setName('role').setDescription('Staff role to add').setRequired(true)))
     .addSubcommand((s) =>
-      s.setName('staff-retirer').setDescription("Retirer l'accès d'un rôle staff aux tickets")
+      s.setName('staff-retirer').setDescription("Remove a staff role's access to tickets")
         .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true))
-        .addRoleOption((o) => o.setName('role').setDescription('Rôle staff à retirer').setRequired(true)))
+        .addRoleOption((o) => o.setName('role').setDescription('Staff role to be removed').setRequired(true)))
     .addSubcommand((s) =>
-      s.setName('ajouter').setDescription('Ajouter un membre au ticket actuel (à utiliser dans le ticket)')
-        .addUserOption((o) => o.setName('membre').setDescription('Membre à ajouter au ticket').setRequired(true)))
+      s.setName('ajouter').setDescription('Add a member to the current ticket (to use in the ticket)')
+        .addUserOption((o) => o.setName('membre').setDescription('Member to add to ticket').setRequired(true)))
     .addSubcommand((s) =>
-      s.setName('retirer').setDescription('Retirer un membre du ticket actuel (à utiliser dans le ticket)')
-        .addUserOption((o) => o.setName('membre').setDescription('Membre à retirer du ticket').setRequired(true)))
+      s.setName('retirer').setDescription('Remove a member from the current ticket (to use in the ticket)')
+        .addUserOption((o) => o.setName('membre').setDescription('Member to be removed from the ticket').setRequired(true)))
     .addSubcommand((s) =>
-      s.setName('raison-ajouter').setDescription("Ajouter une catégorie au menu du panel")
+      s.setName('raison-ajouter').setDescription("Add a category to the panel menu")
         .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true))
-        .addStringOption((o) => o.setName('label').setDescription('Nom de la catégorie (ex : Nitro)').setRequired(true))
-        .addStringOption((o) => o.setName('emoji').setDescription('Emoji : 🎮 ou emoji du serveur (tape :nitro: et choisis-le)'))
+        .addStringOption((o) => o.setName('label').setDescription('Category name (ex: Nitro)').setRequired(true))
+        .addStringOption((o) => o.setName('emoji').setDescription('Emoji: 🎮 or server emoji (type :nitro: and choose it)'))
         .addStringOption((o) => o.setName('description').setDescription('Description courte'))
         .addChannelOption((o) =>
-          o.setName('categorie').setDescription('Catégorie du serveur où les tickets de ce choix seront créés')
+          o.setName('categorie').setDescription('Server category where tickets of this choice will be created')
             .addChannelTypes(ChannelType.GuildCategory))
         .addRoleOption((o) =>
-          o.setName('role-staff').setDescription('Rôle staff propre à cette catégorie (remplace ceux de la config)')))
+          o.setName('role-staff').setDescription('Staff role specific to this category (replaces those in the config)')))
     .addSubcommand((s) =>
-      s.setName('raison-modifier').setDescription("Modifier l'emoji, le nom, la description ou la catégorie du serveur d'un choix")
+      s.setName('raison-modifier').setDescription("Change the emoji, name, description, or server category of a choice")
         .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true))
-        .addStringOption((o) => o.setName('label').setDescription('Catégorie à modifier').setAutocomplete(true).setRequired(true))
-        .addStringOption((o) => o.setName('emoji').setDescription('Nouvel emoji (écris "aucun" pour le retirer)'))
-        .addStringOption((o) => o.setName('nouveau-nom').setDescription('Nouveau nom').setMaxLength(100))
+        .addStringOption((o) => o.setName('label').setDescription('Category to edit').setAutocomplete(true).setRequired(true))
+        .addStringOption((o) => o.setName('emoji').setDescription('New emoji (write “none” to remove it)'))
+        .addStringOption((o) => o.setName('nouveau-nom').setDescription('New name').setMaxLength(100))
         .addStringOption((o) => o.setName('description').setDescription('Nouvelle description').setMaxLength(100))
         .addChannelOption((o) =>
-          o.setName('categorie').setDescription('Nouvelle catégorie du serveur où les tickets de ce choix seront créés')
+          o.setName('categorie').setDescription('New server category where tickets of this choice will be created')
             .addChannelTypes(ChannelType.GuildCategory)))
     .addSubcommand((s) =>
-      s.setName('raison-retirer').setDescription('Retirer une raison')
+      s.setName('raison-retirer').setDescription('Remove a reason')
         .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true))
-        .addStringOption((o) => o.setName('label').setDescription('Raison à retirer').setAutocomplete(true).setRequired(true)))
+        .addStringOption((o) => o.setName('label').setDescription('Reason to remove').setAutocomplete(true).setRequired(true)))
     .addSubcommand((s) =>
-      s.setName('message').setDescription("Modifier le message envoyé quand un ticket s'ouvre (par panel ou pour toute la config)")
+      s.setName('message').setDescription("Edit the message sent when a ticket opens (per panel or for the entire config)")
         .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true))
         .addStringOption((o) =>
-          o.setName('panel').setDescription('Panel concerné (vide = tous les panels de la configuration)').setAutocomplete(true))
+          o.setName('panel').setDescription('Panel concerned (empty = all panels in the configuration)').setAutocomplete(true))
         .addBooleanOption((o) =>
-          o.setName('reinitialiser').setDescription('Remettre le message par défaut au lieu de le modifier')))
+          o.setName('reinitialiser').setDescription('Reset the message to default instead of modifying it')))
     .addSubcommand((s) =>
-      s.setName('message-boutons').setDescription("Modifier le texte des boutons du message d'ouverture du ticket")
+      s.setName('message-boutons').setDescription("Change the text of the ticket opening message buttons")
         .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true))
-        .addStringOption((o) => o.setName('panel').setDescription('Panel concerné (vide = tous)').setAutocomplete(true))
-        .addStringOption((o) => o.setName('prendre-en-charge').setDescription('Texte du bouton 🙋 ("defaut" = par défaut)').setMaxLength(80))
-        .addStringOption((o) => o.setName('fermer').setDescription('Texte du bouton 🔒 ("defaut" = par défaut)').setMaxLength(80)))
+        .addStringOption((o) => o.setName('panel').setDescription('Panel concerned (empty = all)').setAutocomplete(true))
+        .addStringOption((o) => o.setName('prendre-en-charge').setDescription('Claim button text 🙋 (empty = default)').setMaxLength(80))
+        .addStringOption((o) => o.setName('fermer').setDescription('Close button text 🔒 (empty = default)').setMaxLength(80)))
     .addSubcommand((s) =>
-      s.setName('bouton').setDescription("Changer la couleur ou le texte du bouton d'un panel déjà envoyé")
+      s.setName('bouton').setDescription("Change the color or text of the button of a panel already sent")
         .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true))
         .addStringOption((o) =>
-          o.setName('panel').setDescription('Panel à modifier').setAutocomplete(true).setRequired(true))
+          o.setName('panel').setDescription('Panel to edit').setAutocomplete(true).setRequired(true))
         .addStringOption((o) =>
-          o.setName('couleur').setDescription('Nouvelle couleur du bouton').addChoices(...BTN_COLORS))
+          o.setName('couleur').setDescription('New button color').addChoices(...BTN_COLORS))
         .addStringOption((o) =>
-          o.setName('texte').setDescription('Nouveau texte du bouton').setMaxLength(80)))
+          o.setName('texte').setDescription('New button text').setMaxLength(80)))
     .addSubcommand((s) =>
-      s.setName('panel').setDescription('Envoyer le panel de tickets dans un salon (ensuite mis à jour automatiquement)')
+      s.setName('panel').setDescription('Send the ticket panel to a channel (then updated automatically)')
         .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true))
         .addChannelOption((o) =>
-          o.setName('salon').setDescription('Salon où poster le panel')
+          o.setName('salon').setDescription('Channel where to post the panel')
             .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(true))
-        .addStringOption((o) => o.setName('titre').setDescription('Titre du panel'))
-        .addStringOption((o) => o.setName('description').setDescription('Texte du panel (@Pseudo, @Rôle, #salon et \\n acceptés)'))
-        .addStringOption((o) => o.setName('couleur').setDescription('Couleur hex, ex : #ED4245'))
-        .addAttachmentOption((o) => o.setName('image').setDescription('Grande bannière du panel (fichier)'))
-        .addStringOption((o) => o.setName('image-url').setDescription('Bannière via un lien (si pas de fichier)'))
-        .addAttachmentOption((o) => o.setName('miniature').setDescription('Petite image en haut à droite'))
-        .addStringOption((o) => o.setName('miniature-url').setDescription('Logo en haut à droite (lien, si pas de fichier)'))
-        .addStringOption((o) => o.setName('placeholder').setDescription('Texte du menu (ex : Choisir une catégorie...)').setMaxLength(100))
+        .addStringOption((o) => o.setName('titre').setDescription('Panel title'))
+        .addStringOption((o) => o.setName('description').setDescription('Panel text (@Pseudo, @Role, #channel and \\n accepted)'))
+        .addStringOption((o) => o.setName('couleur').setDescription('Hex color, e.g. #ED4245'))
+        .addAttachmentOption((o) => o.setName('image').setDescription('Large panel banner (file)'))
+        .addStringOption((o) => o.setName('image-url').setDescription('Banner via link (if no file)'))
+        .addAttachmentOption((o) => o.setName('miniature').setDescription('Small image at top right'))
+        .addStringOption((o) => o.setName('miniature-url').setDescription('Logo at top right (link, if no file)'))
+        .addStringOption((o) => o.setName('placeholder').setDescription('Menu text (eg: Choose a category...)').setMaxLength(100))
         .addStringOption((o) => o.setName('footer').setDescription('Pied de page (ex : YouGate)').setMaxLength(200))
-        .addBooleanOption((o) => o.setName('sans-texte').setDescription("Panel avec seulement l'image et le bouton (image obligatoire)"))
+        .addBooleanOption((o) => o.setName('sans-texte').setDescription("Panel with only the image and the button (obligatory image)"))
         .addBooleanOption((o) =>
-          o.setName('traduction').setDescription('Traduction automatique FR ⇄ EN dans les tickets ouverts depuis ce panel'))
+          o.setName('traduction').setDescription('Automatic translation (any language → French + English) in tickets opened from this panel'))
         .addStringOption((o) =>
-          o.setName('type').setDescription("Bouton ou menu déroulant (menu seulement s'il y a des catégories, ignoré en mode MP)")
-            .addChoices({ name: 'Bouton', value: 'bouton' }, { name: 'Menu déroulant', value: 'menu' }))
-        .addStringOption((o) => o.setName('bouton-texte').setDescription('Texte du bouton (défaut : Ouvrir un ticket)').setMaxLength(80))
+          o.setName('type').setDescription("Button or drop-down menu (menu only if there are categories, ignored in DM mode)")
+            .addChoices({ name: 'Button', value: 'bouton' }, { name: 'Drop-down menu', value: 'menu' }))
+        .addStringOption((o) => o.setName('bouton-texte').setDescription('Button text (default: Open ticket)').setMaxLength(80))
         .addStringOption((o) =>
-          o.setName('couleur-bouton').setDescription('Couleur du bouton (défaut : bleu)').addChoices(...BTN_COLORS)))
+          o.setName('couleur-bouton').setDescription('Button color (default: blue)').addChoices(...BTN_COLORS)))
     // ----- Couleur globale des panels -----
     .addSubcommand((s) =>
-      s.setName('couleur').setDescription('Couleur appliquée à tous les panels du serveur')
-        .addStringOption((o) => o.setName('couleur').setDescription('Couleur hex, ex : #5865F2').setRequired(true).setMaxLength(7))
-        .addStringOption((o) => o.setName('config').setDescription('Seulement cette configuration (vide = tout le serveur)').setAutocomplete(true)))
+      s.setName('couleur').setDescription('Color applied to all server panels')
+        .addStringOption((o) => o.setName('couleur').setDescription('Hex color, e.g. #5865F2').setRequired(true).setMaxLength(7))
+        .addStringOption((o) => o.setName('config').setDescription('Only this configuration (empty = whole server)').setAutocomplete(true)))
     // ----- Vouch -----
     .addSubcommand((s) =>
-      s.setName('vouch-salon').setDescription('Salon où envoyer les avis /vouch')
-        .addChannelOption((o) => o.setName('salon').setDescription('Salon des vouchs').addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(true)))
-    .addSubcommand((s) => s.setName('vouch-activer').setDescription('Activer la commande /vouch'))
-    .addSubcommand((s) => s.setName('vouch-desactiver').setDescription('Désactiver la commande /vouch'))
+      s.setName('vouch-salon').setDescription('Channel where to send reviews/vouch')
+        .addChannelOption((o) => o.setName('salon').setDescription('Vouch channel').addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(true)))
+    .addSubcommand((s) => s.setName('vouch-activer').setDescription('Enable the /vouch command'))
+    .addSubcommand((s) => s.setName('vouch-desactiver').setDescription('Disable the /vouch command'))
     // ----- Traduction automatique (FR ⇄ EN) -----
     .addSubcommand((s) =>
-      s.setName('traduction-activer').setDescription('Activer la traduction automatique FR ⇄ EN pour une configuration')
+      s.setName('traduction-activer').setDescription('Enable automatic translation FR ⇄ EN for configuration')
         .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true)))
     .addSubcommand((s) =>
-      s.setName('traduction-desactiver').setDescription('Désactiver la traduction automatique FR ⇄ EN pour une configuration')
+      s.setName('traduction-desactiver').setDescription('Disable automatic translation FR ⇄ EN for configuration')
         .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true)))
     // ----- Suivi des ventes -----
     .addSubcommand((s) =>
-      s.setName('ventes-salon').setDescription('Salon où afficher le panel de suivi des ventes')
-        .addChannelOption((o) => o.setName('salon').setDescription('Salon du suivi des ventes').addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(true)))
-    .addSubcommand((s) => s.setName('ventes-panel').setDescription('Créer / rafraîchir le panel de suivi des ventes'))
+      s.setName('ventes-salon').setDescription('Channel where the sales tracking panel is sent')
+        .addChannelOption((o) => o.setName('salon').setDescription('Sales tracking channel').addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(true)))
+    .addSubcommand((s) => s.setName('ventes-panel').setDescription('Create/refresh the sales monitoring panel'))
     .addSubcommand((s) =>
-      s.setName('ventes-devise').setDescription('Devise affichée dans le suivi des ventes')
+      s.setName('ventes-devise').setDescription('Currency displayed in sales tracking')
         .addStringOption((o) => o.setName('devise').setDescription('Ex : €, $, CHF…').setRequired(true).setMaxLength(8)))
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setDMPermission(false),
@@ -1353,7 +1353,7 @@ async function syncMuteOverwrites(guild, role) {
   for (const ch of guild.channels.cache.values()) {
     if (!ch.permissionOverwrites) continue;
     if (ch.permissionOverwrites.cache.get(role.id)?.deny.has(PermissionFlagsBits.ViewChannel)) continue;
-    await ch.permissionOverwrites.edit(role, { ViewChannel: false }, { reason: 'Configuration du rôle Muté' }).catch(() => {});
+    await ch.permissionOverwrites.edit(role, { ViewChannel: false }, { reason: 'Configuring the Transferred role' }).catch(() => {});
   }
 }
 
@@ -1362,10 +1362,10 @@ async function ensureMutedRole(guild) {
   let role = d.muteRoleId ? guild.roles.cache.get(d.muteRoleId) : null;
   if (!role) {
     role = await guild.roles.create({
-      name: 'Muté',
+      name: 'Mutated',
       color: 0x808080,
       permissions: [],
-      reason: 'Rôle utilisé par le système de mute',
+      reason: 'Role used by the mute system',
     });
     d.muteRoleId = role.id;
     save();
@@ -1427,7 +1427,7 @@ async function checkMutes() {
   for (const guild of client.guilds.cache.values()) {
     const d = getG(guild.id);
     for (const [userId, rec] of Object.entries(d.muted)) {
-      if (rec.until <= Date.now()) await removeMute(guild, userId, 'Mute terminé').catch(console.error);
+      if (rec.until <= Date.now()) await removeMute(guild, userId, 'Mute Completed').catch(console.error);
     }
   }
 }
@@ -1514,7 +1514,7 @@ async function refreshPanels(guild, cfgName) {
 // Message envoyé dans le salon du ticket à son ouverture.
 // Priorité (le plus précis gagne) : dernier choix de sous-panel > catégorie du menu > panel > configuration > message par défaut.
 // Tout se règle depuis le panel web (« Message d'ouverture du ticket ») ou avec /ticket message.
-// Variables : {user} {username} {server} {category} {sub} {sub1} {sub2} {sub3} {config} {staff} {number} {paiement} {prix} {order}
+// Variables: {user} {username} {server} {category} {sub} {sub1} {sub2} {sub3} {config} {staff} {number} {paiement} {prix} {order}
 function pickOpenMsg(cfg, panel, reason, subs = []) {
   // Message propre de l'élément, sinon le modèle auquel il est relié (openMsgId)
   const own = (x) => (x?.openMsg && Object.keys(x.openMsg).length ? x.openMsg : x?.openMsgId ? cfg.openPresets?.find((p) => p.id === x.openMsgId)?.openMsg : null);
@@ -1526,17 +1526,17 @@ async function buildOpenMessage(guild, user, cfg, panel, reason, staffRoles, sub
   const staffMention = staffRoles.map((r) => `<@&${r}>`).join(' ');
   // Mode de paiement = le choix fait dans un sous-panel marqué « paiement » (variable {paiement})
   const payChoice = subs.find((c) => cfg.subPanels?.some((sp) => sp.payment && sp.choices.some((x) => x === c || x.id === c.id)));
-  const pay = payChoice?.label || 'Non précisé';
+  const pay = payChoice?.label || 'Not specified';
   // Prix = description du dernier choix d'article (hors choix du sous-panel de paiement), sinon celle de la catégorie du menu (variable {prix})
-  const prix = [...subs].reverse().find((c) => c !== payChoice && c?.description?.trim())?.description.trim() || reason?.description?.trim() || 'Non précisé';
+  const prix = [...subs].reverse().find((c) => c !== payChoice && c?.description?.trim())?.description.trim() || reason?.description?.trim() || 'Not specified';
   // Commande = ce qui a été choisi AVANT le moyen de paiement (variable {order} / {commande} / {article})
-  const order = subs.filter((c) => c !== payChoice).map((c) => c.label).join(' › ') || reason?.label || 'Non précisé';
+  const order = subs.filter((c) => c !== payChoice).map((c) => c.label).join(' › ') || reason?.label || 'Not specified';
   const vars = (txt) => {
     let t = String(txt ?? '')
       .replaceAll('{user}', `<@${user.id}>`)
       .replaceAll('{username}', user.username)
       .replaceAll('{server}', guild.name)
-      .replaceAll('{category}', reason ? reason.label : 'Non précisée')
+      .replaceAll('{category}', reason ? reason.label : 'Not specified')
       .replaceAll('{sub}', subs.map((c) => c.label).join(' › '))
       .replaceAll('{config}', cfg.name)
       .replaceAll('{number}', String(cfg.counter || 0).padStart(4, '0'))
@@ -1556,16 +1556,16 @@ async function buildOpenMessage(guild, user, cfg, panel, reason, staffRoles, sub
     .setColor(parseColor(m.color, cfg.color || getG(guild.id).panelColor || '#5865F2'))
     .setTitle((m.title ? vars(m.title) : `🎫 Ticket — ${[reason?.label, ...subs.map((c) => c.label)].filter(Boolean).join(' › ') || cfg.name}`).slice(0, 256))
     .setDescription((rd ? rd.text : (
-      `Bonjour <@${user.id}>, un membre du staff va te répondre bientôt.\n` +
-      `Explique-nous ta demande avec un maximum de détails.`)).slice(0, 4096));
+      `Hello <@${user.id}>, a member of the staff will respond to you soon.\n` +
+      `Explain your request to us in as much detail as possible.`)).slice(0, 4096));
   if (m.timestamp !== false) embed.setTimestamp();
   if (m.footer) embed.setFooter({ text: vars(m.footer).slice(0, 2048) });
   if (showInfo) {
     embed.addFields(
       { name: 'Configuration', value: cfg.name, inline: true },
-      { name: 'Catégorie', value: reason ? reason.label : 'Non précisée', inline: true },
-      ...(subs.length ? [{ name: 'Sous-panel', value: subs.map((c) => c.label).join(' › ').slice(0, 1024), inline: true }] : []),
-      ...(payChoice ? [{ name: 'Paiement', value: pay.slice(0, 1024), inline: true }] : []),
+      { name: 'Category', value: reason ? reason.label : 'Not specified', inline: true },
+      ...(subs.length ? [{ name: 'Sub-panel', value: subs.map((c) => c.label).join(' › ').slice(0, 1024), inline: true }] : []),
+      ...(payChoice ? [{ name: 'Payment', value: pay.slice(0, 1024), inline: true }] : []),
     );
   }
   for (const f of (Array.isArray(m.fields) ? m.fields : []).slice(0, 10)) { // champs personnalisés
@@ -1593,7 +1593,7 @@ async function createTicket(guild, user, cfgName, reasonId, panel, subPath = nul
   const subs = Array.isArray(subPath) ? subPath : subPath ? [subPath] : []; // choix successifs dans les sous-panels
   const data = getG(guild.id);
   const cfg = data.tickets[cfgName];
-  if (!cfg) return { error: "❌ Cette configuration n'existe plus." };
+  if (!cfg) return { error: "❌ This configuration no longer exists." };
 
   const reason = [...cfg.reasons, ...(cfg.dmChoices || [])].find((r) => r.id === reasonId);
 
@@ -1603,7 +1603,7 @@ async function createTicket(guild, user, cfgName, reasonId, panel, subPath = nul
   const staffRoles = (ownStaff ? [ownStaff] : cfg.staffRoles)
     .filter((id) => guild.roles.cache.has(id));
   if (!staffRoles.length) {
-    return { error: "❌ Aucun rôle staff valide n'est configuré pour ce ticket. Préviens un administrateur." };
+    return { error: "❌ No valid staff role is configured for this ticket. Notify an administrator." };
   }
 
   // Catégorie du serveur liée au choix du menu (sinon celle de la configuration)
@@ -1635,7 +1635,7 @@ async function createTicket(guild, user, cfgName, reasonId, panel, subPath = nul
     });
   } catch (e) {
     console.error('[ticket]', e);
-    return { error: '❌ Impossible de créer le ticket (catégorie pleine ou permissions manquantes). Préviens un administrateur.' };
+    return { error: '❌ Unable to create ticket (category full or missing permissions). Notify an administrator.' };
   }
 
   data.open[channel.id] = {
@@ -1647,7 +1647,7 @@ async function createTicket(guild, user, cfgName, reasonId, panel, subPath = nul
   const payload = await buildOpenMessage(guild, user, cfg, panel, reason, staffRoles, subs);
   const om = pickOpenMsg(cfg, panel, reason, subs);
   const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('tk_claim').setLabel((om.claimLabel || 'Prendre en charge').slice(0, 80)).setEmoji(parseEmoji(om.claimEmoji) || '🙋').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('tk_claim').setLabel((om.claimLabel || 'Claim').slice(0, 80)).setEmoji(parseEmoji(om.claimEmoji) || '🙋').setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId('tk_close').setLabel((om.closeLabel || 'Fermer').slice(0, 80)).setEmoji(parseEmoji(om.closeEmoji) || '🔒').setStyle(ButtonStyle.Danger),
   );
   await channel.send({ ...payload, components: [row] }).catch(console.error);
@@ -1662,14 +1662,14 @@ async function createTicket(guild, user, cfgName, reasonId, panel, subPath = nul
 const IMG_DIR = path.join(path.dirname(DB_FILE), 'images');
 
 // Textes par défaut (tous modifiables avec /ticket mp-menu et /ticket mp-textes)
-// Variables : {user} {username} {server} {config} — et dans le message final : {channel} {link} {choice}
+// Variables: {user} {username} {server} {config} — et dans le message final : {channel} {link} {choice}
 const DM_DEFAULT = {
-  title: '🎫 Ouvrir un ticket — {server}',
-  description: 'Choisis la catégorie de ta demande dans le menu ci-dessous.',
-  sentReply: "📩 Je t'ai envoyé un message privé : choisis ta catégorie là-bas pour ouvrir ton ticket.",
-  doneTitle: '✅ Ton ticket est ouvert',
-  doneText: 'Va dans {channel} pour continuer ta demande.',
-  invalid: "❌ Ce menu n'est plus valide. Reclique sur le panel du serveur pour en obtenir un nouveau.",
+  title: '🎫 Open a ticket — {server}',
+  description: 'Choose the category of your request from the menu below.',
+  sentReply: "📩 I sent you a private message: choose your category there to open your ticket.",
+  doneTitle: '✅ Your ticket is open',
+  doneText: 'Go to {channel} to continue your request.',
+  invalid: "❌ This menu is no longer valid. Click again on the server panel to get a new one.",
 };
 const dmText = (cfg, k) => cfg.dmTexts?.[k] || DM_DEFAULT[k];
 const dmVars = (txt, { guild, user, cfg, channel, choice }) =>
@@ -1703,9 +1703,9 @@ function removeDmImage(cfg) {
 }
 
 async function saveDmImage(guildId, cfg, att) {
-  if (!att.contentType?.startsWith('image/')) throw new Error("ce fichier n'est pas une image");
+  if (!att.contentType?.startsWith('image/')) throw new Error("this file is not an image");
   const res = await fetch(att.url);
-  if (!res.ok) throw new Error(`téléchargement impossible (${res.status})`);
+  if (!res.ok) throw new Error(`Unable to download (${res.status})`);
   const ext = (att.name || '').match(/\.(png|jpe?g|gif|webp)$/i)?.[0]?.toLowerCase() || '.png';
   const file = `${guildId}-${cfg.name}-mp${ext}`;
   removeDmImage(cfg);
@@ -1739,7 +1739,7 @@ function buildDmMessage(guild, user, cfg) {
       components.push(new ActionRowBuilder().addComponents(
         new StringSelectMenuBuilder()
           .setCustomId(`tk_dm:${cfg.name}:${guild.id}:${n}`)
-          .setPlaceholder((cfg.dmTexts?.placeholder || 'Choisir une catégorie...').slice(0, 150))
+          .setPlaceholder((cfg.dmTexts?.placeholder || 'Choose a category...').slice(0, 150))
           .addOptions(part.map((r) => {
             const o = { label: String(r.label).slice(0, 100), value: r.id };
             if (r.description) o.description = String(r.description).slice(0, 100);
@@ -1764,7 +1764,7 @@ async function deleteDm(user, p) {
 async function startDmFlow(i, cfg, panel) {
   const data = getG(i.guildId);
   if (!cfg.dmChoices.length) {
-    return i.editReply("❌ Aucun choix n'est configuré pour ce ticket. Préviens un administrateur.");
+    return i.editReply("❌ No choices are configured for this ticket. Notify an administrator.");
   }
   const ctx = { guild: i.guild, user: i.user, cfg };
 
@@ -1777,7 +1777,7 @@ async function startDmFlow(i, cfg, panel) {
   try {
     dm = await i.user.send(buildDmMessage(i.guild, i.user, cfg));
   } catch {
-    return i.editReply("❌ Je ne peux pas t'envoyer de MP. Active les messages privés des membres de ce serveur, puis réessaie.");
+    return i.editReply("❌ I can't send you a PM. Enable private messages from members of this server, then try again.");
   }
   data.pendingDm[key] = { messageId: dm.id, channelId: dm.channelId, panelId: panel?.messageId || null };
   save();
@@ -1837,19 +1837,19 @@ function rememberFlow(msgId, path) {
 function subSummary(cfg) {
   const name = (id) => cfg.subPanels.find((x) => x.id === id)?.name;
   const def = name(cfg.defaultSubPanelId);
-  const lines = [`**🗂️ Sous-panels de ${cfg.name}**`, `🌐 Par défaut (toutes les catégories) : ${def ? `**${def}**` : 'aucun'}`];
+  const lines = [`**🗂️ Sub-panels of ${cfg.name}**`, `🌐 Default (all categories): ${def ? `**${def}**` : 'none'}`];
   const targets = subTargets(cfg);
   if (targets.length) {
-    lines.push('', '**Catégories**', ...targets.map((t) => {
+    lines.push('', '**Categories**', ...targets.map((t) => {
       const l = cfg.subLinks[t.id];
-      const v = l === 'none' ? '❌ aucun' : l && name(l) ? `**${name(l)}**` : def ? `${def} *(par défaut)*` : 'aucun';
+      const v = l === 'none' ? '❌ none' : l && name(l) ? `**${name(l)}**` : def ? `${def} *(default)*` : 'none';
       return `• ${t.mp ? '📩 ' : ''}${t.label} → ${v}`;
     }));
   }
   if (cfg.subPanels.length) {
-    lines.push('', '**Sous-panels**', ...cfg.subPanels.map((x) =>
+    lines.push('', '**Sub-panels**', ...cfg.subPanels.map((x) =>
       `• **${x.name}** — ${x.choices.length ? x.choices.map((c) => (c.emoji ? c.emoji + ' ' : '') + c.label + (c.nextSubId && name(c.nextSubId) ? ` ➜ ${name(c.nextSubId)}` : '')).join(', ') : '*aucun choix*'}`));
-  } else lines.push('', 'Aucun sous-panel. Crée-en un avec `/sous-panel creer`.');
+  } else lines.push('', 'No subpanels. Create one with `/sous-panel creer`.');
   return lines.join('\n').slice(0, 1990);
 }
 
@@ -1859,7 +1859,7 @@ function buildSubMessage(guild, user, cfg, sub, customId, reason) {
   const embed = new EmbedBuilder()
     .setColor(parseColor(sub.color, cfg.color || getG(guild.id).panelColor || '#5865F2'))
     .setTitle(dmVars(sub.title || reason?.label || sub.name, ctx).slice(0, 256))
-    .setDescription(dmVars(sub.description || 'Précise ta demande dans le menu ci-dessous.', ctx).slice(0, 4096))
+    .setDescription(dmVars(sub.description || 'Specify your request in the menu below.', ctx).slice(0, 4096))
     .setTimestamp();
   if (isUrl(sub.image)) embed.setImage(sub.image.trim());
   if (isUrl(sub.thumbnail)) embed.setThumbnail(sub.thumbnail.trim());
@@ -1867,7 +1867,7 @@ function buildSubMessage(guild, user, cfg, sub, customId, reason) {
   const menuRows = chunkList(sub.choices).slice(0, 5).map((part, n) => new ActionRowBuilder().addComponents(
     new StringSelectMenuBuilder()
       .setCustomId(`${customId}:${n}`)
-      .setPlaceholder((sub.placeholder || 'Choisir une option...').slice(0, 150))
+      .setPlaceholder((sub.placeholder || 'Choose an option...').slice(0, 150))
       .addOptions(part.map((c) => {
         const o = { label: String(c.label).slice(0, 100), value: c.id };
         if (c.description) o.description = String(c.description).slice(0, 100);
@@ -1892,7 +1892,7 @@ async function subChoose(i) {
   const cfg = getG(i.guildId).tickets[cfgName];
   const choice = cfg?.subPanels.find((x) => x.id === subId)?.choices.find((c) => c.id === i.values[0]);
   if (!cfg || !choice) {
-    return i.update({ content: "❌ Ce menu n'est plus valide. Reclique sur le panel du serveur pour en obtenir un nouveau.", embeds: [], components: [] });
+    return i.update({ content: "❌ This menu is no longer valid. Click again on the server panel to get a new one.", embeds: [], components: [] });
   }
   const path = [...flowPath(i.message.id), choice];
   const next = nextSub(cfg, choice);
@@ -1902,10 +1902,10 @@ async function subChoose(i) {
   }
   subFlows.delete(i.message.id);
   // Le menu disparaît tout de suite : un seul ticket par menu
-  await i.update({ content: '⏳ Création de ton ticket...', embeds: [], components: [] });
+  await i.update({ content: '⏳ Creating your ticket...', embeds: [], components: [] });
   const panel = cfg.panels.find((p) => p.messageId === pid);
   const r = await createTicket(i.guild, i.user, cfgName, rid === '-' ? null : rid, panel, path);
-  return i.editReply(r.error || `✅ Ton ticket a été créé : <#${r.channel.id}>`);
+  return i.editReply(r.error || `✅ Your ticket has been created: <#${r.channel.id}>`);
 }
 
 /* ---------- Menu MP ---------- */
@@ -1976,9 +1976,9 @@ async function dmFinish(i, guild, data, cfg, key, choice, subPath) {
   };
 
   const member = await guild.members.fetch(i.user.id).catch(() => null);
-  if (!member) return reply("❌ Impossible d'ouvrir le ticket : tu as quitté le serveur.");
-  if (data.muted[i.user.id]) return reply('❌ Tu ne peux pas ouvrir de ticket pendant ton mute.');
-  if (!choice) return reply("❌ Ce choix n'existe plus. Reclique sur le panel du serveur.");
+  if (!member) return reply("❌ Unable to open the ticket: you have left the server.");
+  if (data.muted[i.user.id]) return reply('❌ You cannot open a ticket during your mute.');
+  if (!choice) return reply("❌ This choice no longer exists. Click again on the server panel.");
 
   const panel = cfg.panels.find((x) => x.messageId === p.panelId);
   const r = await createTicket(guild, i.user, cfg.name, choice.id, panel, subPath);
@@ -1998,7 +1998,7 @@ async function dmFinish(i, guild, data, cfg, key, choice, subPath) {
 async function openTicket(i, cfgName, reasonId) {
   const data = getG(i.guildId);
   const cfg = data.tickets[cfgName];
-  if (!cfg) return i.reply({ content: "❌ Cette configuration n'existe plus.", flags: EPH });
+  if (!cfg) return i.reply({ content: "❌ This configuration no longer exists.", flags: EPH });
 
   await i.deferReply({ flags: EPH });
   // Réinitialise le menu déroulant pour pouvoir rechoisir la même raison
@@ -2017,7 +2017,7 @@ async function openTicket(i, cfgName, reasonId) {
   // Sinon le ticket s'ouvre directement
   const r = await createTicket(i.guild, i.user, cfgName, reasonId, panel);
   if (r.error) return i.editReply(r.error);
-  await i.editReply(`✅ Ton ticket a été créé : <#${r.channel.id}>`);
+  await i.editReply(`✅ Your ticket has been created: <#${r.channel.id}>`);
 }
 
 // Le staff d'un ticket = les rôles enregistrés à son ouverture (ou ceux de la config pour les anciens tickets)
@@ -2030,14 +2030,14 @@ function isStaff(i, t, cfg) {
 async function claimTicket(i) {
   const data = getG(i.guildId);
   const t = data.open[i.channelId];
-  if (!t) return i.reply({ content: "❌ Ce salon n'est pas un ticket géré.", flags: EPH });
+  if (!t) return i.reply({ content: "❌ This channel is not a managed ticket.", flags: EPH });
   if (!isStaff(i, t, data.tickets[t.config])) {
-    return i.reply({ content: '❌ Réservé au staff.', flags: EPH });
+    return i.reply({ content: '❌ Reserved for staff.', flags: EPH });
   }
-  if (t.claimedBy) return i.reply({ content: `❌ Déjà pris en charge par <@${t.claimedBy}>.`, flags: EPH });
+  if (t.claimedBy) return i.reply({ content: `❌ Already supported by <@${t.claimedBy}>.`, flags: EPH });
   t.claimedBy = i.user.id;
   save();
-  await i.reply({ content: `🙋 <@${i.user.id}> prend en charge ce ticket.`, allowedMentions: { parse: [] } });
+  await i.reply({ content: `🙋 <@${i.user.id}> supports this ticket.`, allowedMentions: { parse: [] } });
   // ❌ (en attente) devient ✅ (pris en charge) ; sans await : Discord limite les renommages de salons
   if (i.channel.name.startsWith('❌')) i.channel.setName(i.channel.name.replace(/^❌/, '✅')).catch(console.error);
 }
@@ -2056,20 +2056,20 @@ function buildSalesEmbed(guild) {
   const entries = [...(s.entries || [])].slice(-8).reverse();
   const avg = s.count ? s.total / s.count : 0;
   const description = [
-    `**Ventes réalisées :** ${s.count}`,
-    `**Argent généré :** ${fmtMoney(s.total, s.currency)}`,
+    `**Sales completed:** ${s.count}`,
+    `**Money generated:** ${fmtMoney(s.total, s.currency)}`,
     `**Panier moyen :** ${fmtMoney(avg, s.currency)}`,
     '',
-    '**🧾 Dernières ventes**',
+    '**🧾 Latest sales**',
     entries.length
       ? entries.map((e) =>
         `• <t:${Math.floor(e.at / 1000)}:d> — **${fmtMoney(e.amount, s.currency)}** — ${saleBuyer(e)}` +
         `${e.product ? ` — ${e.product}` : ''}`).join('\n')
-      : "Aucune vente enregistrée pour l'instant.",
+      : "No sales recorded yet.",
   ].join('\n').slice(0, 4096);
   return new EmbedBuilder()
     .setColor(parseColor(d.panelColor, '#57F287'))
-    .setTitle('📈 Suivi des ventes')
+    .setTitle('📈 Sales Tracking')
     .setDescription(description)
     .setFooter({ text: guild.name })
     .setTimestamp();
@@ -2136,12 +2136,12 @@ function vouchAllowed(i, t) {
 async function vouchPanel(i) {
   const d = getG(i.guildId);
   const t = d.open[i.channelId];
-  if (!t) return i.reply({ content: '❌ `/vouch` s’utilise uniquement dans un ticket ouvert.', flags: EPH });
-  if (!d.vouch.enabled) return i.reply({ content: '❌ Les vouchs sont désactivés sur ce serveur.', flags: EPH });
-  if (!d.vouch.channelId) return i.reply({ content: "❌ Aucun salon de vouch n'est configuré. Préviens un administrateur.", flags: EPH });
-  if (!vouchAllowed(i, t)) return i.reply({ content: '❌ Seul la personne qui a ouvert le ticket ou qui l’a pris en charge peut le vouch.', flags: EPH });
+  if (!t) return i.reply({ content: '❌ `/vouch` is only used in an open ticket.', flags: EPH });
+  if (!d.vouch.enabled) return i.reply({ content: '❌ Vouchs are disabled on this server.', flags: EPH });
+  if (!d.vouch.channelId) return i.reply({ content: "❌ No vouch channel is configured. Notify an administrator.", flags: EPH });
+  if (!vouchAllowed(i, t)) return i.reply({ content: '❌ Only the person who opened the ticket or who took charge of it can vouch for it.', flags: EPH });
   if ((d.vouches || []).some((v) => v.ticketId === i.channelId && v.from === i.user.id)) {
-    return i.reply({ content: '❌ Tu as déjà laissé un vouch pour ce ticket.', flags: EPH });
+    return i.reply({ content: '❌ You have already left a voucher for this ticket.', flags: EPH });
   }
   const embed = new EmbedBuilder()
     .setColor(parseColor(d.panelColor, '#F1C40F'))
@@ -2167,11 +2167,11 @@ async function vouchPanel(i) {
 
 async function vouchModal(i, stars) {
   const n = Number(stars);
-  if (!(n >= 1 && n <= 5)) return i.reply({ content: '❌ Note invalide.', flags: EPH });
+  if (!(n >= 1 && n <= 5)) return i.reply({ content: '❌ Invalid rating.', flags: EPH });
   const d = getG(i.guildId);
   const t = d.open[i.channelId];
-  if (!t) return i.reply({ content: '❌ Ce ticket n’existe plus.', flags: EPH });
-  if (!vouchAllowed(i, t)) return i.reply({ content: '❌ Tu ne peux pas vouch ce ticket.', flags: EPH });
+  if (!t) return i.reply({ content: '❌ This ticket no longer exists.', flags: EPH });
+  if (!vouchAllowed(i, t)) return i.reply({ content: '❌ You cannot vouch for this ticket.', flags: EPH });
   return i.showModal(new ModalBuilder()
     .setCustomId(`vouch_modal:${n}:${i.channelId}`)
     .setTitle(`Your review — ${starsText(n)}`)
@@ -2185,16 +2185,16 @@ async function vouchSubmit(m) {
   const stars = Number(starsRaw);
   const d = getG(m.guildId);
   const t = d.open[channelId];
-  if (!t) return m.reply({ content: '❌ Ce ticket n’existe plus.', flags: EPH });
-  if (!d.vouch.enabled || !d.vouch.channelId) return m.reply({ content: '❌ Les vouchs ne sont plus configurés.', flags: EPH });
-  if (!vouchAllowed(m, t)) return m.reply({ content: '❌ Tu ne peux pas vouch ce ticket.', flags: EPH });
+  if (!t) return m.reply({ content: '❌ This ticket no longer exists.', flags: EPH });
+  if (!d.vouch.enabled || !d.vouch.channelId) return m.reply({ content: '❌ Vouchs are no longer configured.', flags: EPH });
+  if (!vouchAllowed(m, t)) return m.reply({ content: '❌ You cannot vouch for this ticket.', flags: EPH });
   if ((d.vouches || []).some((v) => v.ticketId === channelId && v.from === m.user.id)) {
-    return m.reply({ content: '❌ Tu as déjà laissé un vouch pour ce ticket.', flags: EPH });
+    return m.reply({ content: '❌ You have already left a voucher for this ticket.', flags: EPH });
   }
   const message = m.fields.getTextInputValue('message').trim().slice(0, 1000);
-  if (!message) return m.reply({ content: '❌ Ton message est vide.', flags: EPH });
+  if (!message) return m.reply({ content: '❌ Your message is empty.', flags: EPH });
   const ch = await m.guild.channels.fetch(d.vouch.channelId).catch(() => null);
-  if (!ch) return m.reply({ content: '❌ Le salon des vouchs est introuvable.', flags: EPH });
+  if (!ch) return m.reply({ content: '❌ The vouch channel could not be found.', flags: EPH });
 
   const member = await m.guild.members.fetch(m.user.id).catch(() => m.member);
   const vouch = {
@@ -2212,16 +2212,16 @@ async function vouchSubmit(m) {
   const embed = new EmbedBuilder()
     .setColor(parseColor(d.panelColor, '#F1C40F'))
     .setAuthor({ name: member?.displayName || m.user.username, iconURL: m.user.displayAvatarURL({ size: 256 }) })
-    .setTitle(`${starsText(vouch.stars)}  ${vouch.stars}/5`)
+    .setTitle(`${starsText(vouch.stars)} ${vouch.stars}/5`)
     .setDescription(message)
     .addFields(
       { name: 'Ticket', value: `#${vouch.ticketName || 'ticket'}`, inline: true },
-      { name: 'Catégorie', value: (t.reason || t.config || '—').slice(0, 1024), inline: true },
-      { name: 'Pris en charge par', value: t.claimedBy ? `<@${t.claimedBy}>` : 'Personne', inline: true },
+      { name: 'Category', value: (t.reason || t.config || '—').slice(0, 1024), inline: true },
+      { name: 'Claimed by', value: t.claimedBy ? `<@${t.claimedBy}>` : 'Nobody', inline: true },
     )
     .setTimestamp(vouch.at);
   if (isUrl(d.vouch.logo)) embed.setThumbnail(d.vouch.logo.trim());
-  embed.setFooter({ text: `Vouch vérifié · ${m.guild.name}` });
+  embed.setFooter({ text: `Vouch verified · ${m.guild.name}` });
 
   let sent = null;
   try {
@@ -2229,10 +2229,10 @@ async function vouchSubmit(m) {
   } catch (e) {
     console.error('[vouch]', e.message);
   }
-  if (!sent) return m.reply({ content: '❌ Impossible de publier ton vouch (permissions du salon). Préviens un administrateur.', flags: EPH });
+  if (!sent) return m.reply({ content: '❌ Unable to publish your vouch (channel permissions). Notify an administrator.', flags: EPH });
   d.vouches.push(vouch);
   save();
-  const okMsg = { content: `✅ Merci ! Ton vouch a été publié dans <#${d.vouch.channelId}>.`, embeds: [], components: [] };
+  const okMsg = { content: `✅ Thanks! Your vouch was published in <#${d.vouch.channelId}>.`, embeds: [], components: [] };
   if (m.isFromMessage?.()) {
     try { return await m.update(okMsg); } catch { /* le panneau a peut-être expiré */ }
   }
@@ -2245,24 +2245,24 @@ async function vouchSubmit(m) {
 async function closeTicket(i) {
   const data = getG(i.guildId);
   const t = data.open[i.channelId];
-  if (!t) return i.reply({ content: "❌ Ce salon n'est pas un ticket géré.", flags: EPH });
+  if (!t) return i.reply({ content: "❌ This channel is not a managed ticket.", flags: EPH });
   const cfg = data.tickets[t.config];
   if (!isStaff(i, t, cfg)) {
-    return i.reply({ content: '❌ Seul le staff peut fermer un ticket.', flags: EPH });
+    return i.reply({ content: '❌ Only staff can close a ticket.', flags: EPH });
   }
   const embed = new EmbedBuilder()
     .setColor(parseColor(data.panelColor, '#ED4245'))
-    .setTitle('🔒 Fermer ce ticket')
+    .setTitle('🔒 Close this ticket')
     .setDescription(
-      '**La vente a-t-elle été réalisée ?**\n\n' +
-      '• **Oui** → indique le montant : le panel de suivi des ventes sera mis à jour.\n' +
-      '• **Non** → le ticket est fermé sans vente.\n\n' +
-      'Seul un membre du staff peut choisir. Le ticket sera fermé après ta réponse.'
+      '**Was the sale completed?**\n\n' +
+      '• **Yes** → indicates the amount: the sales monitoring panel will be updated.\n' +
+      '• **No** → the ticket is closed without sale.\n\n' +
+      'Only a staff member can choose. The ticket will be closed after your response.'
     )
-    .setFooter({ text: 'Choisis une option ci-dessous.' });
+    .setFooter({ text: 'Choose an option below.' });
   const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`tk_sale:yes:${i.channelId}`).setLabel('Oui, vente réalisée').setEmoji('✅').setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId(`tk_sale:no:${i.channelId}`).setLabel('Non, pas de vente').setEmoji('❌').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`tk_sale:yes:${i.channelId}`).setLabel('Yes, sale completed').setEmoji('✅').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`tk_sale:no:${i.channelId}`).setLabel('No, no sale').setEmoji('❌').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('tk_close_cancel').setLabel('Annuler').setStyle(ButtonStyle.Danger),
   );
   return i.reply({ embeds: [embed], components: [row], flags: EPH });
@@ -2271,17 +2271,17 @@ async function closeTicket(i) {
 async function saleModal(i, channelId) {
   const d = getG(i.guildId);
   const t = d.open[channelId];
-  if (!t) return i.reply({ content: '❌ Ce ticket n’existe plus.', flags: EPH });
+  if (!t) return i.reply({ content: '❌ This ticket no longer exists.', flags: EPH });
   const cfg = d.tickets[t.config];
-  if (!isStaff(i, t, cfg)) return i.reply({ content: '❌ Seul le staff peut enregistrer une vente.', flags: EPH });
+  if (!isStaff(i, t, cfg)) return i.reply({ content: '❌ Only staff can register a sale.', flags: EPH });
   const opener = await client.users.fetch(t.userId).catch(() => null);
   return i.showModal(new ModalBuilder()
     .setCustomId(`tk_sale_modal:${channelId}`)
-    .setTitle('Vente réalisée')
+    .setTitle('Sale completed')
     .addComponents(
-      field('montant', 'Montant encaissé (obligatoire)', TextInputStyle.Short, { required: true, max: 20, placeholder: 'Ex : 25' }),
-      field('acheteur', 'Acheteur (mention, ID ou pseudo)', TextInputStyle.Short, { max: 100, value: opener ? opener.username : '', placeholder: 'Laisser vide = le membre du ticket' }),
-      field('produit', 'Produit / service (optionnel)', TextInputStyle.Short, { max: 100, value: (t.reason || '').slice(0, 100), placeholder: 'Ex : Netflix 1 mois' }),
+      field('montant', 'Amount collected (required)', TextInputStyle.Short, { required: true, max: 20, placeholder: 'Ex : 25' }),
+      field('acheteur', 'Buyer (mention, ID or nickname)', TextInputStyle.Short, { max: 100, value: opener ? opener.username : '', placeholder: 'Leave blank = ticket member' }),
+      field('produit', 'Product/service (optional)', TextInputStyle.Short, { max: 100, value: (t.reason || '').slice(0, 100), placeholder: 'Ex : Netflix 1 mois' }),
     ));
 }
 
@@ -2290,12 +2290,12 @@ async function finishClose(i, sale) {
   const data = getG(i.guildId);
   const t = data.open[i.channelId];
   if (!t) {
-    try { await i.reply({ content: '❌ Ce ticket est déjà fermé.', flags: EPH }); } catch { /* rien */ }
+    try { await i.reply({ content: '❌ This ticket is already closed.', flags: EPH }); } catch { /* rien */ }
     return;
   }
   const cfg = data.tickets[t.config];
   if (!isStaff(i, t, cfg)) {
-    try { await i.reply({ content: '❌ Seul le staff peut fermer ce ticket.', flags: EPH }); } catch { /* rien */ }
+    try { await i.reply({ content: '❌ Only staff can close this ticket.', flags: EPH }); } catch { /* rien */ }
     return;
   }
   delete data.open[i.channelId]; // évite un double clic / double vente
@@ -2303,7 +2303,7 @@ async function finishClose(i, sale) {
   if (sale) {
     recordSale(i.guild, { ...sale, by: i.user.id, config: t.config, ticket: i.channel.name });
   }
-  const ack = { content: '🔒 Fermeture du ticket dans quelques secondes...', embeds: [], components: [] };
+  const ack = { content: '🔒 Ticket closing in a few seconds...', embeds: [], components: [] };
   try {
     if (i.isFromMessage?.()) await i.update(ack);
     else if (i.deferred || i.replied) await i.followUp({ ...ack, flags: EPH });
@@ -2330,15 +2330,15 @@ async function finishClose(i, sale) {
 
   const logEmbed = new EmbedBuilder()
     .setColor(parseColor(data.panelColor, '#ED4245'))
-    .setTitle('🔒 Ticket fermé')
+    .setTitle('🔒 Ticket closed')
     .addFields(
       { name: 'Ticket', value: i.channel.name, inline: true },
       { name: 'Configuration', value: t.config, inline: true },
-      { name: 'Catégorie', value: t.reason || 'Non précisée', inline: true },
-      { name: 'Ouvert par', value: `<@${t.userId}>`, inline: true },
-      { name: 'Fermé par', value: `<@${i.user.id}>`, inline: true },
-      { name: 'Pris en charge par', value: t.claimedBy ? `<@${t.claimedBy}>` : 'Personne', inline: true },
-      ...(sale ? [{ name: 'Vente enregistrée', value: `${fmtMoney(sale.amount, data.sales.currency)}${sale.product ? ` — ${sale.product}` : ''}`, inline: true }] : []),
+      { name: 'Category', value: t.reason || 'Not specified', inline: true },
+      { name: 'Opened by', value: `<@${t.userId}>`, inline: true },
+      { name: 'Closed by', value: `<@${i.user.id}>`, inline: true },
+      { name: 'Claimed by', value: t.claimedBy ? `<@${t.claimedBy}>` : 'Nobody', inline: true },
+      ...(sale ? [{ name: 'Registered sale', value: `${fmtMoney(sale.amount, data.sales.currency)}${sale.product ? ` — ${sale.product}` : ''}`, inline: true }] : []),
     )
     .setTimestamp();
 
@@ -2347,7 +2347,7 @@ async function finishClose(i, sale) {
 
   const opener = await client.users.fetch(t.userId).catch(() => null);
   if (opener) {
-    opener.send({ content: `Ton ticket **${i.channel.name}** sur **${i.guild.name}** a été fermé. Voici le transcript :`, files: [mkFile()] }).catch(() => {});
+    opener.send({ content: `Your ticket **${i.channel.name}** on **${i.guild.name}** has been closed. Here is the transcript:`, files: [mkFile()] }).catch(() => {});
   }
 
   setTimeout(() => i.channel.delete().catch(console.error), 5000);
@@ -2357,13 +2357,13 @@ async function saleSubmit(m) {
   const channelId = m.customId.split(':')[1];
   const d = getG(m.guildId);
   const t = d.open[channelId];
-  if (!t) return m.reply({ content: '❌ Ce ticket n’existe plus.', flags: EPH });
+  if (!t) return m.reply({ content: '❌ This ticket no longer exists.', flags: EPH });
   const cfg = d.tickets[t.config];
-  if (!isStaff(m, t, cfg)) return m.reply({ content: '❌ Seul le staff peut enregistrer une vente.', flags: EPH });
+  if (!isStaff(m, t, cfg)) return m.reply({ content: '❌ Only staff can register a sale.', flags: EPH });
   const raw = m.fields.getTextInputValue('montant').replace(',', '.').replace(/[^\d.]/g, '');
   const amount = Number(raw);
   if (!Number.isFinite(amount) || amount <= 0) {
-    return m.reply({ content: '❌ Montant invalide : écris un nombre (ex : 25 ou 12.50).', flags: EPH });
+    return m.reply({ content: '❌ Invalid amount: write a number (ex: 25 or 12.50).', flags: EPH });
   }
   const buyerRaw = (m.fields.getTextInputValue('acheteur') || '').trim();
   const idMatch = /^(?:<@!?)?(\d{15,25})>?$/.exec(buyerRaw);
@@ -2406,9 +2406,9 @@ async function handleReaction(reaction, user, add) {
     if (!member) return;
 
     if (add) {
-      if (!member.roles.cache.has(role.id)) await member.roles.add(role, 'Autorole (réaction)');
+      if (!member.roles.cache.has(role.id)) await member.roles.add(role, 'Autorole (reaction)');
     } else if (member.roles.cache.has(role.id)) {
-      await member.roles.remove(role, 'Autorole (réaction retirée)');
+      await member.roles.remove(role, 'Autorole (reaction withdrawn)');
     }
   } catch (e) {
     console.error('[autorole]', e);
@@ -2468,7 +2468,7 @@ function gwRow(gw) {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('gw_join')
-      .setLabel(`${gw.ended ? 'Terminé' : 'Participer'} (${gw.entrants.length})`)
+      .setLabel(`${gw.ended ? 'Ended' : 'Enter'} (${gw.entrants.length})`)
       .setEmoji('🎉')
       .setStyle(gw.ended ? ButtonStyle.Secondary : ButtonStyle.Success)
       .setDisabled(!!gw.ended));
@@ -2481,10 +2481,10 @@ function gwDescription(gw) {
   lines.push(
     `⏰ **Fin :** <t:${ts}:R> (<t:${ts}:f>)`,
     `🏆 **Gagnant${gw.winners > 1 ? 's' : ''} :** ${gw.winners}`,
-    `👤 **Organisé par :** <@${gw.hostId}>`);
-  if (gw.requiredRole) lines.push(`🔒 **Rôle requis :** <@&${gw.requiredRole}>`);
+    `👤 **Organized by:** <@${gw.hostId}>`);
+  if (gw.requiredRole) lines.push(`🔒 **Required role:** <@&${gw.requiredRole}>`);
   if (gw.minInvites) lines.push(`📨 **Invitations minimum :** ${gw.minInvites}`);
-  lines.push('', 'Clique sur le bouton ci-dessous pour participer !');
+  lines.push('', 'Click on the button below to participate!');
   return lines.join('\n');
 }
 
@@ -2513,18 +2513,18 @@ const pickWinners = (valid, n, exclude = []) =>
 async function editEndedMessage(msg, gw) {
   const winnersTxt = gw.winnerIds.length
     ? gw.winnerIds.map((w) => `<@${w}>`).join(', ')
-    : 'Aucun participant valide';
+    : 'No valid participants';
   const desc =
     `${gw.description ? gw.description + '\n\n' : ''}` +
     `🏆 **Gagnant${gw.winnerIds.length > 1 ? 's' : ''} :** ${winnersTxt}\n` +
-    `👤 **Organisé par :** <@${gw.hostId}>\n` +
+    `👤 **Organized by:** <@${gw.hostId}>\n` +
     `👥 **Participants valides :** ${gw.validCount ?? gw.entrants.length}`;
   const make = (withImage) => {
     const e = msg.embeds[0] ? EmbedBuilder.from(msg.embeds[0]) : new EmbedBuilder();
-    e.setTitle(`🎉 ${gw.prize} — Terminé`.slice(0, 256))
+    e.setTitle(`🎉 ${gw.prize} — Done`.slice(0, 256))
       .setColor('#95A5A6')
       .setDescription(desc.slice(0, 4096))
-      .setFooter({ text: 'Giveaway terminé' })
+      .setFooter({ text: 'Finished giveaway' })
       .setTimestamp(new Date(gw.endedAt));
     if (!withImage) e.setImage(null);
     return e;
@@ -2542,19 +2542,19 @@ async function announceWinners(msg, gw, winners, isReroll) {
   let text;
   if (!winners.length) {
     text = isReroll
-      ? `❌ Aucun autre participant valide pour **${gw.prize}**.`
-      : `😕 Le giveaway **${gw.prize}** est terminé : aucun participant valide, pas de gagnant.`;
+      ? `❌ No other valid participant for **${gw.prize}**.`
+      : `😕 The giveaway **${gw.prize}** is over: no valid participants, no winner.`;
   } else {
     const list = winners.map((w) => `<@${w}>`).join(', ');
-    text = `${isReroll ? '🔄 Nouveau tirage' : '🎉 Félicitations'} ${list} ! ` +
-      `${winners.length > 1 ? 'Vous avez gagné' : 'Tu as gagné'} **${gw.prize}** !`;
+    text = `${isReroll ? '🔄 Reroll' : '🎉 Congratulations'} ${list} !` +
+      `${winners.length > 1 ? 'You all won' : 'You won'} **${gw.prize}**!`;
   }
   const payload = { content: text, allowedMentions: { users: winners, repliedUser: false } };
   await msg.reply(payload).catch(() => msg.channel.send(payload).catch(console.error));
 
   for (const w of winners) {
     client.users.fetch(w)
-      .then((u) => u.send(`🎉 Tu as gagné **${gw.prize}** sur **${msg.guild.name}** !\n${msg.url}`))
+      .then((u) => u.send(`🎉 You won **${gw.prize}** on **${msg.guild.name}**!\n${msg.url}`))
       .catch(() => {});
   }
 }
@@ -2563,13 +2563,13 @@ async function announceWinners(msg, gw, winners, isReroll) {
 async function endGiveaway(guild, id) {
   const d = getG(guild.id);
   const gw = d.giveaways[id];
-  if (!gw || gw.ended) return { ok: false, reason: 'introuvable ou déjà terminé' };
-  if (endingNow.has(id)) return { ok: false, reason: 'tirage déjà en cours' };
+  if (!gw || gw.ended) return { ok: false, reason: 'not found or already completed' };
+  if (endingNow.has(id)) return { ok: false, reason: 'draw already in progress' };
   endingNow.add(id);
   try {
     const { msg, gone } = await fetchMsg(guild, gw.channelId, id);
-    if (gone) { delete d.giveaways[id]; save(); return { ok: false, reason: 'le message a été supprimé' }; }
-    if (!msg) return { ok: false, reason: 'message inaccessible (nouvel essai automatique)' };
+    if (gone) { delete d.giveaways[id]; save(); return { ok: false, reason: 'the message was deleted' }; }
+    if (!msg) return { ok: false, reason: 'message inaccessible (automatic retry)' };
 
     const valid = await validEntrants(guild, gw);
     const winners = pickWinners(valid, gw.winners);
@@ -2639,11 +2639,11 @@ function scheduleGwUpdate(guild, id) {
 
 async function gwJoin(i) {
   const gw = getG(i.guildId).giveaways[i.message.id];
-  if (!gw) return i.reply({ content: "❌ Ce giveaway n'existe plus.", flags: EPH });
-  if (gw.ended || Date.now() >= gw.endAt) return i.reply({ content: '⏰ Ce giveaway est terminé.', flags: EPH });
+  if (!gw) return i.reply({ content: "❌ This giveaway no longer exists.", flags: EPH });
+  if (gw.ended || Date.now() >= gw.endAt) return i.reply({ content: '⏰ This giveaway is over.', flags: EPH });
   if (gw.requiredRole && !i.member.roles.cache.has(gw.requiredRole)) {
     return i.reply({
-      content: `❌ Il te faut le rôle <@&${gw.requiredRole}> pour participer.`,
+      content: `❌ You need the role <@&${gw.requiredRole}> to participate.`,
       flags: EPH, allowedMentions: { parse: [] },
     });
   }
@@ -2651,33 +2651,33 @@ async function gwJoin(i) {
     const have = invNet(getG(i.guildId).invites.stats[i.user.id]);
     if (have < gw.minInvites) {
       return i.reply({
-        content: `❌ Il te faut au moins **${gw.minInvites}** invitation(s) pour participer (tu en as **${have}**). ` +
-          'Vérifie avec `/invites`.',
+        content: `❌ You need at least **${gw.minInvites}** invitation(s) to participate (you have **${have}**).` +
+          'Check with `/invites`.',
         flags: EPH,
       });
     }
   }
   if (gw.entrants.includes(i.user.id)) {
     return i.reply({
-      content: '✅ Tu participes déjà à ce giveaway.',
+      content: '✅ You are already participating in this giveaway.',
       flags: EPH,
       components: [new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`gw_leave:${i.message.id}`).setLabel('Quitter le giveaway').setStyle(ButtonStyle.Danger))],
+        new ButtonBuilder().setCustomId(`gw_leave:${i.message.id}`).setLabel('Leave the giveaway').setStyle(ButtonStyle.Danger))],
     });
   }
   gw.entrants.push(i.user.id);
   save();
-  await i.reply({ content: '🎉 Participation enregistrée, bonne chance !', flags: EPH });
+  await i.reply({ content: '🎉 Registered entry, good luck!', flags: EPH });
   scheduleGwUpdate(i.guild, i.message.id);
 }
 
 async function gwLeave(i) {
   const id = i.customId.split(':')[1];
   const gw = getG(i.guildId).giveaways[id];
-  if (!gw || gw.ended) return i.update({ content: '⏰ Ce giveaway est terminé.', components: [] });
+  if (!gw || gw.ended) return i.update({ content: '⏰ This giveaway is over.', components: [] });
   gw.entrants = gw.entrants.filter((u) => u !== i.user.id);
   save();
-  await i.update({ content: '👋 Tu ne participes plus à ce giveaway.', components: [] });
+  await i.update({ content: '👋 You are no longer participating in this giveaway.', components: [] });
   scheduleGwUpdate(i.guild, id);
 }
 
@@ -2691,13 +2691,13 @@ async function applyAccessTo(ch, cfg) {
     await ch.permissionOverwrites.edit(id, {
       ViewChannel: true,
       ReadMessageHistory: true,
-    }, { reason: 'Accès catégorie (contenu)' }).catch(console.error);
+    }, { reason: 'Category access (content)' }).catch(console.error);
   }
   for (const id of (cfg.preview || []).filter(has)) {
     await ch.permissionOverwrites.edit(id, {
       ViewChannel: true,
       ReadMessageHistory: false,
-    }, { reason: 'Accès catégorie (salons seulement)' }).catch(console.error);
+    }, { reason: 'Category access (trade channels only)' }).catch(console.error);
   }
 }
 
@@ -2729,13 +2729,13 @@ async function syncCategoryAccess(guild) {
 // Lancée à chaque démarrage du bot : plus rien à renvoyer à la main après une mise à jour du code
 async function refreshGuild(guild) {
   const steps = [
-    ['salon commandes', () => syncCommandChannel(guild)],
-    ['accès catégories', () => syncCategoryAccess(guild)],
-    ['panels tickets', () => refreshPanels(guild)],
-    ['panel des ventes', () => refreshSalesPanel(guild)],
+    ['commands channel', () => syncCommandChannel(guild)],
+    ['category access', () => syncCategoryAccess(guild)],
+    ['ticket panels', () => refreshPanels(guild)],
+    ['sales panel', () => refreshSalesPanel(guild)],
     ['autoroles', () => syncAutoroles(guild)],
     ['giveaways', () => refreshGiveaways(guild)],
-    ['classement invitations', () => refreshBoard(guild)],
+    ['invitation leaderboard', () => refreshBoard(guild)],
   ];
   for (const [name, fn] of steps) {
     await fn().catch((e) => console.error(`[maj auto] ${name} :`, e));
@@ -2750,8 +2750,8 @@ function roleListHandler(key, title, ownerOnly = false) {
     if (ownerOnly ? !isOwner(i) : !hasFullAccess(i)) {
       return i.reply({
         content: ownerOnly
-          ? '❌ Seul le propriétaire du serveur (👑) peut utiliser cette commande.'
-          : '❌ Réservé au propriétaire (👑) et aux rôles avec accès total.',
+          ? '❌ Only the server owner (👑) can use this command.'
+          : '❌ Reserved for the owner (👑) and roles with full access.',
         flags: EPH,
       });
     }
@@ -2761,26 +2761,26 @@ function roleListHandler(key, title, ownerOnly = false) {
     if (sub === 'liste') {
       const txt = d[key].length
         ? d[key].map((id) => `• <@&${id}>`).join('\n')
-        : 'Aucun rôle pour le moment.';
+        : 'No roles at the moment.';
       return i.reply({ content: `**${title}**\n${txt}`, flags: EPH, allowedMentions: { parse: [] } });
     }
 
     const role = i.options.getRole('role', true);
     if (role.id === i.guild.id) {
-      return i.reply({ content: '❌ Tu ne peux pas choisir @everyone.', flags: EPH });
+      return i.reply({ content: '❌ You can\'t choose @everyone.', flags: EPH });
     }
 
     if (sub === 'ajouter') {
       if (!d[key].includes(role.id)) d[key].push(role.id);
       save();
       if (key !== 'protectedRoles') syncCommandChannel(i.guild).catch(console.error);
-      return i.reply({ content: `✅ <@&${role.id}> ajouté à : **${title}**.`, flags: EPH, allowedMentions: { parse: [] } });
+      return i.reply({ content: `✅ <@&${role.id}> added to: **${title}**.`, flags: EPH, allowedMentions: { parse: [] } });
     }
 
     d[key] = d[key].filter((id) => id !== role.id);
     save();
     if (key !== 'protectedRoles') syncCommandChannel(i.guild).catch(console.error);
-    return i.reply({ content: `🗑️ <@&${role.id}> retiré de : **${title}**.`, flags: EPH, allowedMentions: { parse: [] } });
+    return i.reply({ content: `🗑️ <@&${role.id}> removed from: **${title}**.`, flags: EPH, allowedMentions: { parse: [] } });
   };
 }
 
@@ -2789,75 +2789,75 @@ function roleListHandler(key, title, ownerOnly = false) {
 /* ------------------------------------------------------------------ */
 // level : public = tout le monde · mod = modérateurs · full = accès total · owner = propriétaire (👑)
 const HELP = [
-  { title: '⭐ Avis (vouch)', level: 'public', lines: [
-    '`/vouch` — dans un ticket : noter la transaction sur 5 étoiles + message (publié dans le salon des vouchs)',
-    '`/help` — voir les commandes auxquelles tu as accès',
+  { title: '⭐ Reviews (vouch)', level: 'public', lines: [
+    '`/vouch` — in a ticket: rate the deal out of 5 stars + message (posted in the vouch channel)',
+    '`/help` — see the commands you have access to',
   ] },
   { title: '📨 Invitations', level: 'public', lines: [
-    "`/invites` — voir ton nombre d'invitations",
-    '`/message-mp` — envoyer un message privé à **tous** les membres du serveur',
+    "`/invites` — see your number of invitations",
+    '`/message-mp` — send a private message to **all** server members',
   ] },
-  { title: '🛡️ Modération', level: 'mod', lines: [
-    '`/ban` — bannir un membre',
-    '`/unban` — débannir un utilisateur',
-    '`/mute` — rendre un membre muet pour une durée',
-    '`/unmute` — enlever le mute',
-    '`/sanctions-actives` — bannis et mutés actuels',
-    "`/historique-sanctions` — historique d'un membre",
+  { title: '🛡️ Moderation', level: 'mod', lines: [
+    '`/ban` — ban a member',
+    '`/unban` — unban a user',
+    '`/mute` — mute a member for a duration',
+    '`/unmute` — unmute',
+    '`/sanctions-actives` — current bans and transfers',
+    "`/historique-sanctions` — member history",
   ] },
   { title: '🎉 Giveaways', level: 'full', lines: [
-    '`/giveaway creer` — lancer un giveaway (rôle requis, invitations minimum…)',
-    '`/giveaway terminer` — terminer maintenant et tirer',
-    '`/giveaway reroll` — nouveau tirage',
-    '`/giveaway annuler` — annuler et supprimer le message',
-    '`/giveaway liste` — giveaways en cours',
+    '`/giveaway creer` — launch a giveaway (required role, minimum invitations…)',
+    '`/giveaway terminer` — finish now and draw the winners',
+    '`/giveaway reroll` — draw a new winner',
+    '`/giveaway annuler` — cancel and delete the message',
+    '`/giveaway liste` — ongoing giveaways',
   ] },
-  { title: '📢 Annonces & rôles', level: 'full', lines: [
-    '`/annonce` — envoyer une annonce (titre, texte, images, mentions). Écris @Pseudo, @Rôle ou #salon : ils deviennent cliquables',
-    '`/autorole creer` · `liste` · `supprimer` — réaction qui donne un rôle',
-    '`/role-arrivee ajouter` · `retirer` · `liste` — rôle donné automatiquement aux nouveaux membres',
+  { title: '📢 Announcements & roles', level: 'full', lines: [
+    '`/annonce` — send an announcement (title, text, images, mentions). Type @User, @Role or #channel: they become clickable',
+    '`/autorole creer` · `liste` · `supprimer` — reaction that gives a role',
+    '`/role-arrivee ajouter` · `retirer` · `liste` — role automatically given to new members',
     '`/bienvenue configurer` · `activer` · `desactiver` · `test`',
   ] },
   { title: '📈 Invitations (admin)', level: 'full', lines: [
     '`/invites-config recompense-ajouter` · `recompense-retirer` · `liste` · `reset`',
-    '`/lien-invite creer` · `liste` · `supprimer` — liens dédiés à un membre',
-    '`/qui-a-invite` — avec le lien de qui un membre est arrivé',
-    '`/classement-invites` — envoyer le classement',
-    '`/classement-invites-maj` — forcer sa mise à jour',
+    '`/lien-invite creer` · `liste` · `supprimer` — links dedicated to a member',
+    '`/qui-a-invite` — whose link a member arrived with',
+    '`/classement-invites` — send the leaderboard',
+    '`/classement-invites-maj` — force update',
   ] },
   { title: '🎫 Tickets', level: 'full', lines: [
-    '`/setup-paiement` — installe tout le ticket paiement en une commande (menu MP, catégories, panel)',
+    '`/setup-paiement` — sets up the whole payment ticket in one command (DM menu, categories, panel)',
     '`/ticket config-creer` · `config-liste` · `config-supprimer`',
     '`/ticket staff-ajouter` · `staff-retirer`',
-    '`/ticket ajouter` · `retirer` — ajouter ou retirer un membre du ticket où tu tapes la commande',
-    '`/ticket raison-ajouter` · `raison-modifier` · `raison-retirer` — catégories du menu du panel (emoji perso + catégorie du serveur liée)',
-    '`/ticket panel` — envoyer le panel (bannière, menu ou bouton coloré, sans texte possible) dans un salon',
-    "`/ticket message` — modifier le message d'ouverture des tickets (par panel ou pour toute la config)",
-    '`/ticket bouton` — changer la couleur / le texte du bouton d\'un panel déjà envoyé',
-    '`/ticket couleur` — une seule couleur pour **tous les panels** (ou une configuration)',
-    '`/ticket vouch-salon` · `vouch-activer` · `vouch-desactiver` — salon et activation des avis `/vouch`',
-    '`/ticket ventes-salon` · `ventes-panel` · `ventes-devise` — panel de suivi des ventes, mis à jour à chaque fermeture',
+    '`/ticket ajouter` · `retirer` — add or remove a member from the ticket where you type the command',
+    '`/ticket raison-ajouter` · `raison-modifier` · `raison-retirer` — panel menu categories (personal emoji + linked server category)',
+    '`/ticket panel` — send the panel (banner, menu or colored button, without text possible) to a channel',
+    "`/ticket message` — edit the ticket opening message (per panel or for the entire config)",
+    '`/ticket bouton` — change button color/text of an already sent panel',
+    '`/ticket couleur` — a single color for **all panels** (or one configuration)',
+    '`/ticket vouch-salon` · `vouch-activer` · `vouch-desactiver` — channel and activation for `/vouch` reviews',
+    '`/ticket ventes-salon` · `ventes-panel` · `ventes-devise` — sales tracking panel, updated after each sale',
   ] },
-  { title: '🗂️ Sous panel', level: 'full', lines: [
-    '`/sous-panel creer` · `modifier` · `supprimer` — un 2e menu proposé après le choix d\'une catégorie du panel',
-    '`/sous-panel choix-ajouter` · `choix-modifier` · `choix-retirer` — les choix du sous-panel (emoji, catégorie du serveur, staff, sous-panel suivant : autant de niveaux que tu veux)',
-    '`/sous-panel choix-suivant` — le même sous-panel suivant sur tous les choix d\'un sous-panel en une fois',
-    '`/sous-panel lier` — le même sous-panel pour toutes les catégories, ou un différent par catégorie',
-    '`/sous-panel delier` · `liste` — retirer un lien · voir qui utilise quoi',
+  { title: '🗂️ Sub-panels', level: 'full', lines: [
+    '`/sous-panel creer` · `modifier` · `supprimer` — a 2nd menu offered after choosing a panel category',
+    '`/sous-panel choix-ajouter` · `choix-modifier` · `choix-retirer` — sub-panel choices (emoji, server category, staff, next sub-panel: as many levels as you want)',
+    '`/sous-panel choix-suivant` — the same next subpanel for all choices of one subpanel at once',
+    '`/sous-panel lier` — the same subpanel for all categories, or a different one per category',
+    '`/sous-panel delier` · `liste` — remove a link · see who is using what',
   ] },
-  { title: '⚙️ Serveur & accès', level: 'full', lines: [
-    '`/salon-commandes` — salon privé des commandes (et ses rôles)',
-    '`/salon-sanctions` — salon par défaut des annonces ban / mute',
-    '`/membercount` — salon vocal avec le nombre de membres',
-    '`/acces-categorie` — qui voit le contenu / seulement les salons d’une catégorie',
-    '`/roles-mod` — rôles autorisés à modérer',
-    '`/roles-proteges` — rôles que les modérateurs ne peuvent pas sanctionner',
+  { title: '⚙️ Server & access', level: 'full', lines: [
+    '`/salon-commandes` — private channel for commands (and its roles)',
+    '`/salon-sanctions` — default channel for ban/mute announcements',
+    '`/membercount` — voice channel with number of members',
+    '`/acces-categorie` — who sees the content / only the channels in a category',
+    '`/roles-mod` — roles allowed to moderate',
+    '`/roles-proteges` — roles that moderators cannot sanction',
   ] },
-  { title: '👑 Propriétaire', level: 'owner', lines: [
-    '`/role-total` — rôles avec accès à TOUTES les commandes',
-    '`/permissions` — choisir quel rôle a accès à quelle commande',
-    '`/permissions-categorie` — donner à un rôle toute une catégorie de commandes',
-    '`/commandes` — retirer / remettre des commandes',
+  { title: '👑 Owner', level: 'owner', lines: [
+    '`/role-total` — roles with access to ALL commands',
+    '`/permissions` — choose which role has access to which command',
+    '`/permissions-categorie` — give a role a whole category of commands',
+    '`/commandes` — enable / disable commands',
   ] },
 ];
 const HELP_LEVEL = { public: () => true, mod: canModerate, full: hasFullAccess, owner: isOwner };
@@ -2893,7 +2893,7 @@ const handlers = {
 
   /* ---------- /help ---------- */
   async help(i) {
-    const embed = new EmbedBuilder().setColor('#5865F2').setTitle('📖 Tes commandes').setTimestamp();
+    const embed = new EmbedBuilder().setColor('#5865F2').setTitle('📖 Your orders').setTimestamp();
     for (const s of HELP) {
       if (HELP_LEVEL[s.level](i)) embed.addFields({ name: s.title, value: s.lines.join('\n').slice(0, 1024) });
     }
@@ -2901,7 +2901,7 @@ const handlers = {
     const cc = getG(i.guildId).commandChannelId;
     const ccCh = cc && i.guild.channels.cache.get(cc);
     if (ccCh && ccCh.permissionsFor(i.member)?.has(PermissionFlagsBits.ViewChannel)) {
-      embed.setDescription(`Les commandes s'utilisent dans <#${cc}>.`);
+      embed.setDescription(`Commands are used in <#${cc}>.`);
     }
     return i.reply({ embeds: [embed], flags: EPH });
   },
@@ -2915,7 +2915,7 @@ const handlers = {
       : null;
     const picked = ['role', 'role2', 'role3'].map((n) => i.options.getRole(n)).filter(Boolean);
     if (picked.some((r) => r.id === i.guild.id)) {
-      return i.reply({ content: '❌ Tu ne peux pas choisir @everyone.', flags: EPH });
+      return i.reply({ content: '❌ You can\'t choose @everyone.', flags: EPH });
     }
 
     await i.deferReply({ flags: EPH });
@@ -2923,7 +2923,7 @@ const handlers = {
 
     try {
       let ch = d.commandChannelId ? await i.guild.channels.fetch(d.commandChannelId).catch(() => null) : null;
-      if (!ch && !cat) return i.editReply('❌ Indique une **catégorie** pour créer le salon.');
+      if (!ch && !cat) return i.editReply('❌ Specify a **category** to create the channel.');
 
       // Rôles ajoutés à la main (en plus des rôles /role-total et /roles-mod)
       if (i.options.getBoolean('vider-roles')) d.commandChannelRoles = [];
@@ -2942,18 +2942,18 @@ const handlers = {
           name: name || 'commandes',
           type: ChannelType.GuildText,
           parent: cat.id,
-          topic: 'Salon privé : toutes les commandes du bot se font ici.',
+          topic: 'Private channel: all bot commands are made here.',
           permissionOverwrites: commandChannelOverwrites(i.guild),
         });
         await ch.send({
           embeds: [new EmbedBuilder()
             .setColor('#5865F2')
-            .setTitle('⌨️ Salon des commandes')
+            .setTitle('⌨️ Commands channel')
             .setDescription(
-              "Toutes les commandes du bot s'utilisent **ici**.\n" +
-              "Si une commande est tapée dans un autre salon, le bot ne l'exécute pas.\n" +
-              'Les réponses sont **privées** : tu ne vois que les tiennes. Les messages écrits à la main ici sont supprimés.\n\n' +
-              'Ce salon est invisible pour les membres. Chacun ne peut utiliser que les commandes auxquelles il a droit (`/help`).')],
+              "All bot commands are used **here**.\n" +
+              "If a command is typed in another channel, the bot does not execute it.\n" +
+              'The answers are **private**: you only see yours. Handwritten messages here are deleted.\n\n' +
+              'This channel is invisible to members. Everyone can only use the commands to which they are entitled (`/help`).')],
         }).catch(console.error);
       }
       d.commandChannelId = ch.id;
@@ -2961,20 +2961,20 @@ const handlers = {
 
       const extra = d.commandChannelRoles.length
         ? d.commandChannelRoles.map((id) => `<@&${id}>`).join(' ')
-        : 'aucun';
+        : 'none';
       await i.editReply({
         content:
-          `✅ Salon des commandes prêt : <#${ch.id}>\n` +
-          `• Rôles ajoutés à la main : ${extra}\n` +
-          '• Les rôles `/role-total` et `/roles-mod` y ont toujours accès.\n' +
-          "• Un rôle ajouté ici voit le salon mais n'a **pas** plus de commandes : il garde seulement `/help` et `/invites`.\n" +
-          '• `/help` et `/invites` restent utilisables partout.\n' +
-          '• Les commandes tapées ailleurs sont refusées (message visible uniquement par celui qui a tapé la commande).',
+          `✅ Commands channel ready: <#${ch.id}>\n` +
+          `• Roles added by hand: ${extra}\n` +
+          '• The roles `/role-total` and `/roles-mod` always have access.\n' +
+          "• A role added here sees the channel but has **no** more commands: it only keeps `/help` and `/invites`.\n" +
+          '• `/help` and `/invites` remain usable everywhere.\n' +
+          '• Commands typed elsewhere are refused (message visible only to the person who typed the command).',
         allowedMentions: { parse: [] },
       });
     } catch (e) {
       console.error(e);
-      await i.editReply('❌ Impossible de créer le salon. Il me faut les permissions **Gérer les salons** et **Gérer les rôles** (et d\'avoir accès à cette catégorie).');
+      await i.editReply('❌ Unable to create channel. I need the **Manage Channels** and **Manage roles** permissions (and I have access to this category).');
     }
   },
 
@@ -2985,7 +2985,7 @@ const handlers = {
 
     if (sub === 'liste') {
       const active = Object.entries(d.giveaways).filter(([, g]) => !g.ended).sort((a, b) => a[1].endAt - b[1].endAt);
-      if (!active.length) return i.reply({ content: 'Aucun giveaway en cours. Lance-en un avec `/giveaway creer`.', flags: EPH });
+      if (!active.length) return i.reply({ content: 'No giveaway in progress. Start one with `/giveaway creer`.', flags: EPH });
       const lines = active.map(([id, g]) =>
         `🎉 **${g.prize}** · <#${g.channelId}> · fin <t:${Math.floor(g.endAt / 1000)}:R> · ${g.entrants.length} participant(s)` +
         `${g.minInvites ? ` · 📨 min. ${g.minInvites}` : ''} · ` +
@@ -3009,10 +3009,10 @@ const handlers = {
       const img = i.options.getAttachment('image');
 
       const duration = amount * UNITS[unit];
-      if (duration > MAX_GW) return i.reply({ content: '❌ Durée maximale : 365 jours.', flags: EPH });
-      if (role && role.id === i.guild.id) return i.reply({ content: '❌ Tu ne peux pas choisir @everyone.', flags: EPH });
+      if (duration > MAX_GW) return i.reply({ content: '❌ Maximum duration: 365 days.', flags: EPH });
+      if (role && role.id === i.guild.id) return i.reply({ content: '❌ You can\'t choose @everyone.', flags: EPH });
       if (ping && !i.member.permissions.has(PermissionFlagsBits.MentionEveryone)) {
-        return i.reply({ content: '❌ Il te faut la permission de mentionner @everyone.', flags: EPH });
+        return i.reply({ content: '❌ You need permission to mention @everyone.', flags: EPH });
       }
 
       await i.deferReply({ flags: EPH });
@@ -3047,27 +3047,27 @@ const handlers = {
         d.giveaways[msg.id] = gw;
         save();
         await i.editReply(
-          `✅ Giveaway lancé dans <#${salon.id}> (fin <t:${Math.floor(gw.endAt / 1000)}:R>). ` +
-          'Le tirage se fait tout seul à la fin.');
+          `✅ Giveaway launched in <#${salon.id}> (end <t:${Math.floor(gw.endAt / 1000)}:R>).` +
+          'The draw is done by itself at the end.');
       } catch (e) {
         console.error('[giveaway]', e);
-        await i.editReply("❌ Impossible de lancer le giveaway (vérifie mes permissions dans ce salon et l'image).");
+        await i.editReply("❌ Unable to launch the giveaway (check my permissions in this channel and the image).");
       }
       return;
     }
 
     const id = i.options.getString('giveaway', true);
     const gw = d.giveaways[id];
-    if (!gw) return i.reply({ content: '❌ Giveaway introuvable.', flags: EPH });
+    if (!gw) return i.reply({ content: '❌ Giveaway not found.', flags: EPH });
 
     if (sub === 'terminer') {
-      if (gw.ended) return i.reply({ content: '❌ Ce giveaway est déjà terminé.', flags: EPH });
+      if (gw.ended) return i.reply({ content: '❌ This giveaway has already ended.', flags: EPH });
       await i.deferReply({ flags: EPH });
       const r = await endGiveaway(i.guild, id);
-      if (!r.ok) return i.editReply(`❌ Impossible de terminer ce giveaway : ${r.reason}.`);
+      if (!r.ok) return i.editReply(`❌ Unable to complete this giveaway: ${r.reason}.`);
       return i.editReply(r.winners.length
-        ? `✅ Giveaway terminé. Gagnant${r.winners.length > 1 ? 's' : ''} : ${r.winners.map((w) => `<@${w}>`).join(', ')}`
-        : '✅ Giveaway terminé : aucun participant valide.');
+        ? `✅ Giveaway ended. Winner${r.winners.length > 1 ? 's' : ''}: ${r.winners.map((w) => `<@${w}>`).join(', ')}`
+        : '✅ Giveaway ended: no valid participants.');
     }
 
     if (sub === 'annuler') {
@@ -3076,14 +3076,14 @@ const handlers = {
       delete d.giveaways[id];
       save();
       if (msg) await msg.delete().catch(() => {});
-      return i.editReply('🗑️ Giveaway annulé et message supprimé.');
+      return i.editReply('🗑️ Giveaway canceled and message deleted.');
     }
 
     // reroll
-    if (!gw.ended) return i.reply({ content: "❌ Ce giveaway n'est pas encore terminé. Utilise `/giveaway terminer`.", flags: EPH });
+    if (!gw.ended) return i.reply({ content: "❌ This giveaway is not over yet. Uses `/giveaway terminer`.", flags: EPH });
     await i.deferReply({ flags: EPH });
     const { msg } = await fetchMsg(i.guild, gw.channelId, id);
-    if (!msg) return i.editReply('❌ Le message du giveaway est introuvable.');
+    if (!msg) return i.editReply('❌ The giveaway message could not be found.');
     const n = i.options.getInteger('nombre') ?? 1;
     const valid = await validEntrants(i.guild, gw);
     const winners = pickWinners(valid, n, gw.winnerIds);
@@ -3092,14 +3092,14 @@ const handlers = {
     await announceWinners(msg, gw, winners, true);
     return i.editReply(winners.length
       ? `✅ Nouveau tirage : ${winners.map((w) => `<@${w}>`).join(', ')}`
-      : '❌ Aucun autre participant valide.');
+      : '❌ No other valid participants.');
   },
 
   /* ---------- /invites (tout le monde) ---------- */
   async invites(i) {
     const asked = i.options.getUser('membre');
     if (asked && asked.id !== i.user.id && !hasFullAccess(i)) {
-      return i.reply({ content: '❌ Tu peux seulement voir tes propres invitations.', flags: EPH });
+      return i.reply({ content: '❌ You can only see your own invitations.', flags: EPH });
     }
     const user = asked || i.user;
     const d = getG(i.guildId).invites;
@@ -3113,13 +3113,13 @@ const handlers = {
       .setTitle('📨 Invitations')
       .addFields(
         { name: 'Invitations', value: `**${n}**`, inline: true },
-        { name: 'Arrivées', value: String(s.joins), inline: true },
-        { name: 'Départs', value: String(s.left || 0), inline: true },
+        { name: 'Arrivals', value: String(s.joins), inline: true },
+        { name: 'Departures', value: String(s.left || 0), inline: true },
       );
     if (next) {
       embed.addFields({
-        name: 'Prochaine récompense',
-        value: `<@&${next.roleId}> à **${next.count}** invitations (encore ${next.count - n})`,
+        name: 'Next reward',
+        value: `<@&${next.roleId}> to **${next.count}** invitations (again ${next.count - n})`,
       });
     }
     return i.reply({ embeds: [embed], flags: EPH, allowedMentions: { parse: [] } });
@@ -3132,8 +3132,8 @@ const handlers = {
 
     if (sub === 'liste') {
       const txt = [...d.rewards].sort((a, b) => a.count - b.count)
-        .map((r) => `• **${r.count}** invitations → <@&${r.roleId}>`).join('\n') || 'Aucune récompense.';
-      return i.reply({ content: `**Récompenses d'invitations**\n${txt}`, flags: EPH, allowedMentions: { parse: [] } });
+        .map((r) => `• **${r.count}** invitations → <@&${r.roleId}>`).join('\n') || 'No reward.';
+      return i.reply({ content: `**Invitation Rewards**\n${txt}`, flags: EPH, allowedMentions: { parse: [] } });
     }
 
     if (sub === 'recompense-retirer') {
@@ -3143,8 +3143,8 @@ const handlers = {
       save();
       return i.reply({
         content: d.rewards.length < before
-          ? '🗑️ Récompense supprimée (les rôles déjà donnés sont conservés).'
-          : '❌ Aucune récompense pour ce nombre.',
+          ? '🗑️ Reward deleted (roles already given are kept).'
+          : '❌ No reward for this number.',
         flags: EPH,
       });
     }
@@ -3154,7 +3154,7 @@ const handlers = {
       delete d.stats[user.id];
       for (const [uid, inviter] of Object.entries(d.joinedBy)) if (inviter === user.id) delete d.joinedBy[uid];
       save();
-      return i.reply({ content: `✅ Invitations de <@${user.id}> remises à zéro.`, flags: EPH, allowedMentions: { parse: [] } });
+      return i.reply({ content: `✅ <@${user.id}> invitations reset.`, flags: EPH, allowedMentions: { parse: [] } });
     }
 
     // recompense-ajouter
@@ -3162,10 +3162,10 @@ const handlers = {
     const roleOpt = i.options.getRole('role', true);
     const role = i.guild.roles.cache.get(roleOpt.id);
     if (!role || role.id === i.guild.id || role.managed) {
-      return i.reply({ content: '❌ Choisis un rôle normal (pas @everyone ni un rôle de bot).', flags: EPH });
+      return i.reply({ content: '❌ Choose a normal role (not @everyone or a bot role).', flags: EPH });
     }
     if (!role.editable) {
-      return i.reply({ content: '❌ Mon rôle doit être **au-dessus** de ce rôle dans la liste des rôles.', flags: EPH });
+      return i.reply({ content: '❌ My role must be **above** this role in the role list.', flags: EPH });
     }
     await i.deferReply({ flags: EPH });
     d.rewards = d.rewards.filter((r) => r.count !== nb);
@@ -3177,7 +3177,7 @@ const handlers = {
       if (invNet(s) >= nb) await checkInviteRewards(i.guild, uid);
     }
     return i.editReply({
-      content: `✅ À partir de **${nb}** invitations, le rôle <@&${role.id}> sera donné automatiquement.`,
+      content: `✅ From **${nb}** invitations, the role <@&${role.id}> will be given automatically.`,
       allowedMentions: { parse: [] },
     });
   },
@@ -3189,26 +3189,26 @@ const handlers = {
 
     if (sub === 'liste') {
       const lines = Object.entries(d.links).map(([code, l]) =>
-        `• https://discord.gg/${code} → <@${l.userId}> · ${l.joins || 0} arrivée(s) · créé par <@${l.createdBy}>`);
-      const embed = new EmbedBuilder().setColor('#5865F2').setTitle("🔗 Liens d'invitation dédiés")
-        .setDescription(lines.length ? fitLines(lines, 4000) : 'Aucun lien dédié. Crée-en un avec `/lien-invite creer`.');
+        `• https://discord.gg/${code} → <@${l.userId}> · ${l.joins || 0} arrival(s) · created by <@${l.createdBy}>`);
+      const embed = new EmbedBuilder().setColor('#5865F2').setTitle("🔗 Dedicated invite links")
+        .setDescription(lines.length ? fitLines(lines, 4000) : 'No dedicated link. Create one with `/lien-invite creer`.');
       return i.reply({ embeds: [embed], flags: EPH, allowedMentions: { parse: [] } });
     }
 
     if (sub === 'supprimer') {
       const code = i.options.getString('lien', true).trim().replace(/^.*\//, '');
-      if (!d.links[code]) return i.reply({ content: '❌ Ce lien n\'est pas un lien dédié.', flags: EPH });
+      if (!d.links[code]) return i.reply({ content: '❌ This link n\' is not a dedicated link.', flags: EPH });
       await i.deferReply({ flags: EPH });
-      await i.guild.invites.delete(code, `Supprimé par ${i.user.tag}`).catch(() => {});
+      await i.guild.invites.delete(code, `Deleted by ${i.user.tag}`).catch(() => {});
       delete d.links[code];
       save();
       await snapshotInvites(i.guild);
-      return i.editReply('🗑️ Lien supprimé (les arrivées déjà comptées sont conservées).');
+      return i.editReply('🗑️ Link removed (arrivals already counted are retained).');
     }
 
     // creer
     const user = i.options.getUser('membre', true);
-    if (user.bot) return i.reply({ content: '❌ Choisis un vrai membre (pas un bot).', flags: EPH });
+    if (user.bot) return i.reply({ content: '❌ Choose a real member (not a bot).', flags: EPH });
     const salon = i.options.getChannel('salon', true);
     const maxUses = i.options.getInteger('max-utilisations') ?? 0;
     const days = i.options.getInteger('expire-jours') ?? 0;
@@ -3216,7 +3216,7 @@ const handlers = {
     try {
       const inv = await salon.createInvite({
         maxAge: days * 86400, maxUses, unique: true,
-        reason: `Lien dédié à ${user.tag} (créé par ${i.user.tag})`,
+        reason: `Link dedicated to ${user.tag} (created by ${i.user.tag})`,
       });
       d.links[inv.code] = { userId: user.id, createdBy: i.user.id, createdAt: Date.now(), joins: 0 };
       save();
@@ -3224,13 +3224,13 @@ const handlers = {
       m.set(inv.code, { uses: 0, maxUses, inviterId: user.id });
       inviteCache.set(i.guildId, m);
       return i.editReply({
-        content: `✅ Lien dédié à <@${user.id}> : https://discord.gg/${inv.code}\n` +
-          `Chaque personne qui rejoint avec ce lien compte comme une invitation de <@${user.id}>.`,
+        content: `✅ Link dedicated to <@${user.id}>: https://discord.gg/${inv.code}\n` +
+          `Each person who joins with this link counts as an invite from <@${user.id}>.`,
         allowedMentions: { parse: [] },
       });
     } catch (e) {
       console.error(e);
-      return i.editReply("❌ Impossible de créer le lien : il me faut la permission **Créer une invitation** dans ce salon.");
+      return i.editReply("❌ Unable to create the link: I need permission **Create an invitation** in this channel.");
     }
   },
 
@@ -3242,7 +3242,7 @@ const handlers = {
     if (!v && d.joinedBy[user.id]) v = { code: null, inviterId: d.joinedBy[user.id], at: null }; // anciennes données
     if (!v) {
       return i.reply({
-        content: "❌ Aucune info pour ce membre : il est arrivé avant le suivi ou le bot n'a pas pu déterminer le lien.",
+        content: "❌ No info for this member: it arrived before tracking or the bot could not determine the link.",
         flags: EPH,
       });
     }
@@ -3250,19 +3250,19 @@ const handlers = {
     const embed = new EmbedBuilder()
       .setColor('#5865F2')
       .setAuthor({ name: user.username, iconURL: user.displayAvatarURL() })
-      .setTitle('🔎 Origine de l\'arrivée')
+      .setTitle('🔎 Origin of arrival')
       .addFields(
-        { name: 'Invité par', value: v.inviterId ? `<@${v.inviterId}>` : 'Inconnu (lien personnalisé ou non détecté)', inline: true },
-        { name: 'Type', value: dedicated ? '🔗 Lien dédié' : 'Invitation classique', inline: true },
+        { name: 'Guest by', value: v.inviterId ? `<@${v.inviterId}>` : 'Unknown (custom link or not detected)', inline: true },
+        { name: 'Type', value: dedicated ? '🔗 Dedicated link' : 'Classic invitation', inline: true },
         { name: 'Lien', value: v.code ? `https://discord.gg/${v.code}` : 'Inconnu' },
       );
-    if (v.at) embed.addFields({ name: 'Arrivé', value: `<t:${Math.floor(v.at / 1000)}:F>` });
+    if (v.at) embed.addFields({ name: 'Arrived', value: `<t:${Math.floor(v.at / 1000)}:F>` });
     return i.reply({ embeds: [embed], flags: EPH, allowedMentions: { parse: [] } });
   },
 
   /* ---------- /permissions (👑) ---------- */
   async permissions(i) {
-    if (!isOwner(i)) return i.reply({ content: '❌ Seul le propriétaire du serveur (👑) peut utiliser cette commande.', flags: EPH });
+    if (!isOwner(i)) return i.reply({ content: '❌ Only the server owner (👑) can use this command.', flags: EPH });
     const d = getG(i.guildId);
     const sub = i.options.getSubcommand();
 
@@ -3270,17 +3270,17 @@ const handlers = {
       const lines = Object.entries(d.cmdPerms).filter(([, ids]) => ids.length)
         .map(([c, ids]) => `• \`/${c}\` → ${ids.map((id) => `<@&${id}>`).join(' ')}`);
       return i.reply({
-        content: `**Rôles autorisés par commande**\n${fitLines(lines, 1800)}\n\n` +
-          '_Les rôles accès total (/role-total) et le propriétaire ont toujours accès à tout._',
+        content: `**Roles allowed per command**\n${fitLines(lines, 1800)}\n\n` +
+          '_Full access roles (/role-total) and the owner always have access to everything._',
         flags: EPH, allowedMentions: { parse: [] },
       });
     }
 
     const name = i.options.getString('commande', true);
     const role = i.options.getRole('role', true);
-    if (!commands.some((c) => c.name === name)) return i.reply({ content: '❌ Commande inconnue.', flags: EPH });
-    if (OWNER_ONLY.has(name)) return i.reply({ content: '❌ Cette commande est réservée au propriétaire.', flags: EPH });
-    if (role.id === i.guild.id) return i.reply({ content: '❌ Tu ne peux pas choisir @everyone.', flags: EPH });
+    if (!commands.some((c) => c.name === name)) return i.reply({ content: '❌ Unknown command.', flags: EPH });
+    if (OWNER_ONLY.has(name)) return i.reply({ content: '❌ This command is reserved for the owner.', flags: EPH });
+    if (role.id === i.guild.id) return i.reply({ content: '❌ You can\'t choose @everyone.', flags: EPH });
 
     await i.deferReply({ flags: EPH });
     const list = (d.cmdPerms[name] ??= []);
@@ -3296,29 +3296,29 @@ const handlers = {
     return i.editReply({
       content: sub === 'ajouter'
         ? `✅ <@&${role.id}> peut maintenant utiliser \`/${name}\`.`
-        : `🗑️ <@&${role.id}> n'a plus accès à \`/${name}\`.`,
+        : `🗑️ <@&${role.id}> no longer has access to \`/${name}\`.`,
       allowedMentions: { parse: [] },
     });
   },
 
   /* ---------- /permissions-categorie (👑) ---------- */
   async 'permissions-categorie'(i) {
-    if (!isOwner(i)) return i.reply({ content: '❌ Seul le propriétaire du serveur (👑) peut utiliser cette commande.', flags: EPH });
+    if (!isOwner(i)) return i.reply({ content: '❌ Only the server owner (👑) can use this command.', flags: EPH });
     const d = getG(i.guildId);
     const sub = i.options.getSubcommand();
 
     if (sub === 'liste') {
       const txt = Object.entries(CMD_CATEGORIES).map(([key, c]) =>
         `**${c.label}** — ${c.commands.map((name) => `\`/${name}\``).join(' ')}\n→ ` +
-        (d.catPerms[key]?.length ? d.catPerms[key].map((id) => `<@&${id}>`).join(' ') : 'aucun rôle')
+        (d.catPerms[key]?.length ? d.catPerms[key].map((id) => `<@&${id}>`).join(' ') : 'no role')
       ).join('\n\n');
       return i.reply({ content: txt.slice(0, 1990), flags: EPH, allowedMentions: { parse: [] } });
     }
 
     const key = i.options.getString('categorie', true);
     const role = i.options.getRole('role', true);
-    if (!CMD_CATEGORIES[key]) return i.reply({ content: '❌ Catégorie inconnue.', flags: EPH });
-    if (role.id === i.guild.id) return i.reply({ content: '❌ Tu ne peux pas choisir @everyone.', flags: EPH });
+    if (!CMD_CATEGORIES[key]) return i.reply({ content: '❌ Unknown category.', flags: EPH });
+    if (role.id === i.guild.id) return i.reply({ content: '❌ You can\'t choose @everyone.', flags: EPH });
 
     await i.deferReply({ flags: EPH });
     const list = (d.catPerms[key] ??= []);
@@ -3333,8 +3333,8 @@ const handlers = {
     await syncCommandChannel(i.guild);
     return i.editReply({
       content: sub === 'ajouter'
-        ? `✅ <@&${role.id}> peut maintenant utiliser toutes les commandes de **${CMD_CATEGORIES[key].label}**.`
-        : `🗑️ <@&${role.id}> n'a plus accès à **${CMD_CATEGORIES[key].label}**.`,
+        ? `✅ <@&${role.id}> can now use every command in **${CMD_CATEGORIES[key].label}**.`
+        : `🗑️ <@&${role.id}> no longer has access to **${CMD_CATEGORIES[key].label}**.`,
       allowedMentions: { parse: [] },
     });
   },
@@ -3346,11 +3346,11 @@ const handlers = {
 
     if (sub === 'liste') {
       const lines = Object.entries(d.catAccess).map(([id, cfg]) =>
-        `📁 <#${id}>\n• 👁️ Contenu visible : ${(cfg.content || []).length ? cfg.content.map((r) => r === i.guildId ? '@everyone' : `<@&${r}>`).join(' ') : 'aucun'}` +
-        `\n• 🚪 Salons visibles sans contenu : ${(cfg.preview || []).length ? cfg.preview.map((r) => r === i.guildId ? '@everyone' : `<@&${r}>`).join(' ') : 'aucun'}`
+        `📁 <#${id}>\n• 👁️ Contenu visible : ${(cfg.content || []).length ? cfg.content.map((r) => r === i.guildId ? '@everyone' : `<@&${r}>`).join(' ') : 'none'}` +
+        `\n• 🚪 Visible channels without content: ${(cfg.preview || []).length ? cfg.preview.map((r) => r === i.guildId ? '@everyone' : `<@&${r}>`).join(' ') : 'none'}`
       );
       return i.reply({
-        content: lines.length ? lines.join('\n\n').slice(0, 1990) : 'Aucune catégorie configurée. Utilise `/acces-categorie contenu` ou `apercu`.',
+        content: lines.length ? lines.join('\n\n').slice(0, 1990) : 'No categories configured. Uses `/acces-categorie contenu` or `apercu`.',
         flags: EPH, allowedMentions: { parse: [] },
       });
     }
@@ -3374,7 +3374,7 @@ const handlers = {
         for (const ch of targets) {
           await ch.permissionOverwrites.edit(role.id, { ViewChannel: null, ReadMessageHistory: null }).catch(() => {});
         }
-        return i.editReply({ content: `🗑️ Règles de ${label} retirées sur **${cat.name}**.`, allowedMentions: { parse: [] } });
+        return i.editReply({ content: `🗑️ ${label} rules removed on **${cat.name}**.`, allowedMentions: { parse: [] } });
       }
 
       cfg.content = without(cfg.content);
@@ -3384,19 +3384,19 @@ const handlers = {
       await applyCategoryAccess(i.guild, cat.id);
       return i.editReply({
         content: sub === 'contenu'
-          ? `✅ ${label} voit les salons de **${cat.name}** et leur contenu.`
-          : `✅ ${label} voit les salons de **${cat.name}** mais pas leur historique.\nℹ️ Les nouveaux messages envoyés pendant qu'il a le salon ouvert restent visibles en direct : c'est une limite de Discord.`,
+          ? `✅ ${label} sees the channels in **${cat.name}** and their content.`
+          : `✅ ${label} sees **${cat.name}**'s channels but not their history.\nℹ️ New messages sent while the channel is open remain visible live: this is a Discord limit.`,
         allowedMentions: { parse: [] },
       });
     } catch (e) {
       console.error(e);
-      return i.editReply('❌ Impossible de modifier les permissions. Il me faut **Gérer les salons** et **Gérer les rôles**, avec mon rôle au-dessus des autres.');
+      return i.editReply('❌ Unable to change permissions. I need to **Manage Channels** and **Manage roles**, with my role above the others.');
     }
   },
 
   /* ---------- /commandes (👑) ---------- */
   async commandes(i) {
-    if (!isOwner(i)) return i.reply({ content: '❌ Seul le propriétaire du serveur (👑) peut utiliser cette commande.', flags: EPH });
+    if (!isOwner(i)) return i.reply({ content: '❌ Only the server owner (👑) can use this command.', flags: EPH });
     const d = getG(i.guildId);
     const sub = i.options.getSubcommand();
 
@@ -3407,25 +3407,25 @@ const handlers = {
     }
 
     const name = i.options.getString('commande', true);
-    if (!commands.some((c) => c.name === name)) return i.reply({ content: '❌ Commande inconnue.', flags: EPH });
+    if (!commands.some((c) => c.name === name)) return i.reply({ content: '❌ Unknown command.', flags: EPH });
 
     if (sub === 'desactiver') {
-      if (ALWAYS_ON.has(name)) return i.reply({ content: '❌ Cette commande ne peut pas être désactivée.', flags: EPH });
-      if (d.disabledCommands.includes(name)) return i.reply({ content: '❌ Déjà désactivée.', flags: EPH });
+      if (ALWAYS_ON.has(name)) return i.reply({ content: '❌ This command cannot be disabled.', flags: EPH });
+      if (d.disabledCommands.includes(name)) return i.reply({ content: '❌ Already disabled.', flags: EPH });
       await i.deferReply({ flags: EPH });
       d.disabledCommands.push(name);
       save();
       await registerCommands(i.guild);
-      return i.editReply(`⛔ \`/${name}\` retirée de Discord. Remets-la avec \`/commandes activer\`.`);
+      return i.editReply(`⛔ \`/${name}\` removed from Discord. Put it back with \`/activate\` commands.`);
     }
 
     // activer
-    if (!d.disabledCommands.includes(name)) return i.reply({ content: "❌ Cette commande n'est pas désactivée.", flags: EPH });
+    if (!d.disabledCommands.includes(name)) return i.reply({ content: "❌ This command is not disabled.", flags: EPH });
     await i.deferReply({ flags: EPH });
     d.disabledCommands = d.disabledCommands.filter((n) => n !== name);
     save();
     await registerCommands(i.guild);
-    return i.editReply(`✅ \`/${name}\` est de retour (Discord peut mettre quelques secondes à l'afficher).`);
+    return i.editReply(`✅ \`/${name}\` is back (Discord may take a few seconds to display it).`);
   },
 
   /* ---------- /classement-invites ---------- */
@@ -3440,28 +3440,28 @@ const handlers = {
         channelId: salon.id, messageId: msg.id, top, sig: sig(embed.data.description),
       };
       save();
-      await i.editReply(`✅ Classement envoyé dans <#${salon.id}>. Il se met à jour automatiquement (toutes les 5 minutes).`);
+      await i.editReply(`✅ Leaderboard sent to <#${salon.id}>. It updates automatically (every 5 minutes).`);
     } catch (e) {
       console.error(e);
-      await i.editReply('❌ Envoi impossible : vérifie mes permissions dans ce salon.');
+      await i.editReply('❌ Unable to send: check my permissions in this channel.');
     }
   },
 
   /* ---------- /classement-invites-maj ---------- */
   async 'classement-invites-maj'(i) {
     const b = getG(i.guildId).invites.board;
-    if (!b) return i.reply({ content: "❌ Aucun classement envoyé. Utilise d'abord `/classement-invites`.", flags: EPH });
+    if (!b) return i.reply({ content: "❌ No rankings sent. Use `/classement-invites` first.", flags: EPH });
     await i.deferReply({ flags: EPH });
     const r = await refreshBoard(i.guild, true);
-    if (r === 'missing') return i.editReply('❌ Le message du classement a été supprimé. Renvoie-le avec `/classement-invites`.');
-    if (r !== 'ok') return i.editReply('❌ Impossible de modifier le message du classement.');
-    return i.editReply(`✅ Classement mis à jour : https://discord.com/channels/${i.guildId}/${b.channelId}/${b.messageId}`);
+    if (r === 'missing') return i.editReply('❌ The leaderboard message has been deleted. Return it with `/classement-invites`.');
+    if (r !== 'ok') return i.editReply('❌ Failed to change leaderboard message.');
+    return i.editReply(`✅ Updated ranking: https://discord.com/channels/${i.guildId}/${b.channelId}/${b.messageId}`);
   },
 
   /* ---------- /roles-mod & /roles-proteges (👑) ---------- */
-  'role-total': roleListHandler('fullRoles', 'Rôles avec accès à toutes les commandes', true),
-  'roles-mod': roleListHandler('modRoles', 'Rôles autorisés à modérer (ban - unban - mute - unmute)'),
-  'roles-proteges': roleListHandler('protectedRoles', 'Rôles protégés (ni mute ni ban par les modérateurs)'),
+  'role-total': roleListHandler('fullRoles', 'Roles with access to all commands', true),
+  'roles-mod': roleListHandler('modRoles', 'Roles allowed to moderate (ban - unban - mute - unmute)'),
+  'roles-proteges': roleListHandler('protectedRoles', 'Protected roles (neither muted nor banned by moderators)'),
 
   /* ---------- /membercount ---------- */
   async membercount(i) {
@@ -3483,7 +3483,7 @@ const handlers = {
     });
     d.memberCountChannel = ch.id;
     save();
-    await i.editReply(`✅ Salon créé : <#${ch.id}>. Il se met à jour automatiquement.`);
+    await i.editReply(`✅ Channel created: <#${ch.id}>. It updates automatically.`);
   },
 
   /* ---------- /ban ---------- */
@@ -3491,18 +3491,18 @@ const handlers = {
     if (!canModerate(i)) return i.reply(NO_ACCESS);
 
     const user = i.options.getUser('membre', true);
-    const reason = i.options.getString('raison') || 'Aucune raison fournie';
+    const reason = i.options.getString('raison') || 'No reason provided';
     const days = i.options.getInteger('supprimer_messages') ?? 0;
 
     const member = await i.guild.members.fetch(user.id).catch(() => null);
     const err = targetError(i, user, member);
     if (err) return i.reply({ content: err, flags: EPH });
     if (member && !member.bannable) {
-      return i.reply({ content: '❌ Je ne peux pas bannir ce membre (son rôle est au-dessus du mien).', flags: EPH });
+      return i.reply({ content: '❌ I cannot ban this member (his role is above mine).', flags: EPH });
     }
 
     await i.deferReply({ flags: EPH });
-    await user.send(`🔨 Tu as été banni de **${i.guild.name}**.\nRaison : ${reason}`).catch(() => {});
+    await user.send(`🔨 You have been banned from **${i.guild.name}**.\nReason: ${reason}`).catch(() => {});
     await i.guild.members.ban(user.id, { reason: `${i.user.tag} : ${reason}`, deleteMessageSeconds: days * 86400 });
     banCache.delete(i.guildId);
 
@@ -3512,16 +3512,16 @@ const handlers = {
     save();
 
     // Historique + annonce dans le salon choisi (option "salon") ou le salon par défaut (/salon-sanctions)
-    logSanction(d, user.id, { type: 'ban', by: i.user.id, reason, duration: 'définitif' });
+    logSanction(d, user.id, { type: 'ban', by: i.user.id, reason, duration: 'final' });
     await announceSanction(i, i.options.getChannel('salon'),
-      `<@${user.id}> a été banni (définitif) par <@${i.user.id}>`);
+      `<@${user.id}> has been banned (permanently) by <@${i.user.id}>`);
 
     const embed = new EmbedBuilder()
       .setColor('#ED4245')
-      .setTitle('🔨 Membre banni')
+      .setTitle('🔨 Member banned')
       .addFields(
         { name: 'Membre', value: `${user.tag} (${user.id})` },
-        { name: 'Modérateur', value: `<@${i.user.id}>` },
+        { name: 'Moderator', value: `<@${i.user.id}>` },
         { name: 'Raison', value: reason },
       )
       .setTimestamp();
@@ -3533,7 +3533,7 @@ const handlers = {
     if (!canModerate(i)) return i.reply(NO_ACCESS);
 
     const input = i.options.getString('utilisateur', true).trim();
-    const reason = i.options.getString('raison') || 'Aucune raison fournie';
+    const reason = i.options.getString('raison') || 'No reason provided';
 
     await i.deferReply({ flags: EPH });
 
@@ -3541,15 +3541,15 @@ const handlers = {
     let id = input.replace(/[<@!>]/g, '');
     if (!/^\d{15,25}$/.test(id)) {
       banCache.delete(i.guildId); // liste fraîche
-      const list = await getBans(i.guild).catch((e) => { console.error('[unban] lecture des bans :', e); return null; });
+      const list = await getBans(i.guild).catch((e) => { console.error('[unban] reading bans:', e); return null; });
       if (!list) {
-        return i.editReply('❌ Impossible de lire la liste des bannis. Vérifie que j\'ai la permission **Bannir des membres**.');
+        return i.editReply('❌ Unable to read banned list. Verify that I have the **Ban members** permission.');
       }
       const q = input.toLowerCase().replace(/^@/, '');
       const found = list.filter((b) => b.username.toLowerCase() === q || b.tag.toLowerCase() === q);
       if (found.length > 1) return i.editReply('❌ Plusieurs bannis correspondent : utilise l\'ID exact.');
       if (!found.length) {
-        return i.editReply("❌ Aucun banni ne correspond. Choisis-le dans la liste ou colle son ID.");
+        return i.editReply("❌ No banned matches. Choose it from the list or paste its ID.");
       }
       id = found[0].id;
     }
@@ -3559,21 +3559,21 @@ const handlers = {
       await i.guild.bans.remove(id, `${i.user.tag} : ${reason}`);
     } catch (e) {
       console.error('[unban]', e);
-      if (e.code === 10026) return i.editReply("❌ Cet utilisateur n'est pas banni.");
+      if (e.code === 10026) return i.editReply("❌ This user is not banned.");
       if (e.code === 50013 || e.code === 50001) {
-        return i.editReply('❌ Il me manque la permission **Bannir des membres** (ou l\'accès à ce serveur).');
+        return i.editReply('❌ I am missing the **Ban members** permission (or access to this server).');
       }
-      return i.editReply(`❌ Impossible de débannir : ${e.message}`);
+      return i.editReply(`❌ Unable to unban: ${e.message}`);
     }
     banCache.delete(i.guildId);
 
     const user = await client.users.fetch(id).catch(() => null);
     const embed = new EmbedBuilder()
       .setColor('#57F287')
-      .setTitle('✅ Membre débanni')
+      .setTitle('✅ Member banned')
       .addFields(
         { name: 'Utilisateur', value: user ? `${user.tag} (${id})` : id },
-        { name: 'Modérateur', value: `<@${i.user.id}>` },
+        { name: 'Moderator', value: `<@${i.user.id}>` },
         { name: 'Raison', value: reason },
       )
       .setTimestamp();
@@ -3587,12 +3587,12 @@ const handlers = {
     const user = i.options.getUser('membre', true);
     const amount = i.options.getInteger('duree', true);
     const unit = i.options.getString('unite', true);
-    const reason = i.options.getString('raison') || 'Aucune raison fournie';
+    const reason = i.options.getString('raison') || 'No reason provided';
     const duration = amount * UNITS[unit];
-    if (duration > MAX_MUTE) return i.reply({ content: '❌ Durée maximale : 365 jours.', flags: EPH });
+    if (duration > MAX_MUTE) return i.reply({ content: '❌ Maximum duration: 365 days.', flags: EPH });
 
     const member = await i.guild.members.fetch(user.id).catch(() => null);
-    if (!member) return i.reply({ content: "❌ Ce membre n'est pas sur le serveur.", flags: EPH });
+    if (!member) return i.reply({ content: "❌ This member is not on the server.", flags: EPH });
     const err = targetError(i, user, member);
     if (err) return i.reply({ content: err, flags: EPH });
 
@@ -3603,27 +3603,27 @@ const handlers = {
     } catch (e) {
       console.error(e);
       return i.editReply(
-        "❌ Impossible de mute ce membre. Mon rôle doit être **au-dessus** du sien (idéalement tout en haut de la liste) " +
-        "et j'ai besoin des permissions **Gérer les rôles** et **Gérer les salons**.");
+        "❌ Unable to mute this member. My role must be **above** his (ideally at the top of the list)" +
+        "and I need **Manage Roles** and **Manage Channels** permissions.");
     }
 
     // Historique + annonce dans le salon choisi (option "salon") ou le salon par défaut (/salon-sanctions)
     logSanction(getG(i.guildId), user.id, { type: 'mute', by: i.user.id, reason, duration: `${amount} ${unit}` });
     await announceSanction(i, i.options.getChannel('salon'),
-      `<@${user.id}> a été mute pendant ${amount} ${unit} par <@${i.user.id}>`);
+      `<@${user.id}> was muted for ${amount} ${unit} by <@${i.user.id}>`);
 
     const ts = Math.floor(until / 1000);
     await user.send(
-      `🔇 Tu as été mute sur **${i.guild.name}** jusqu'à <t:${ts}:F> (<t:${ts}:R>).\nRaison : ${reason}`).catch(() => {});
+      `🔇 You have been muted on **${i.guild.name}** until <t:${ts}:F> (<t:${ts}:R>).\nReason: ${reason}`).catch(() => {});
 
     const embed = new EmbedBuilder()
       .setColor('#FEE75C')
-      .setTitle('🔇 Membre mute')
+      .setTitle('🔇 Mute Member')
       .addFields(
         { name: 'Membre', value: `<@${user.id}> (${user.id})` },
-        { name: 'Modérateur', value: `<@${i.user.id}>`, inline: true },
-        { name: 'Durée', value: `${amount} ${unit}`, inline: true },
-        { name: 'Fin du mute', value: `<t:${ts}:F> (<t:${ts}:R>)` },
+        { name: 'Moderator', value: `<@${i.user.id}>`, inline: true },
+        { name: 'Duration', value: `${amount} ${unit}`, inline: true },
+        { name: 'Nice you mute', value: `<t:${ts}:F> (<t:${ts}:R>)` },
         { name: 'Raison', value: reason },
       )
       .setTimestamp();
@@ -3635,24 +3635,24 @@ const handlers = {
     if (!canModerate(i)) return i.reply(NO_ACCESS);
 
     const user = i.options.getUser('membre', true);
-    const reason = i.options.getString('raison') || 'Aucune raison fournie';
+    const reason = i.options.getString('raison') || 'No reason provided';
     const rec = getG(i.guildId).muted[user.id];
 
-    if (!rec) return i.reply({ content: "❌ Ce membre n'est pas mute.", flags: EPH });
+    if (!rec) return i.reply({ content: "❌ This member is not muted.", flags: EPH });
     if (rec.by === i.guild.ownerId && !isOwner(i)) {
-      return i.reply({ content: '❌ Ce mute a été posé par le propriétaire : lui seul peut le lever.', flags: EPH });
+      return i.reply({ content: '❌ This mute was set by the owner: only he can remove it.', flags: EPH });
     }
 
     await i.deferReply({ flags: EPH });
     await removeMute(i.guild, user.id, `Unmute par ${i.user.tag} : ${reason}`);
-    await user.send(`🔊 Tu as été unmute sur **${i.guild.name}**.`).catch(() => {});
+    await user.send(`🔊 You have been unmuted on **${i.guild.name}**.`).catch(() => {});
 
     const embed = new EmbedBuilder()
       .setColor('#57F287')
-      .setTitle('🔊 Membre unmute')
+      .setTitle('🔊 Member unmute')
       .addFields(
         { name: 'Membre', value: `<@${user.id}> (${user.id})` },
-        { name: 'Modérateur', value: `<@${i.user.id}>` },
+        { name: 'Moderator', value: `<@${i.user.id}>` },
         { name: 'Raison', value: reason },
       )
       .setTimestamp();
@@ -3665,7 +3665,7 @@ const handlers = {
     getG(i.guildId).sanctionChannel = salon.id;
     save();
     return i.reply({
-      content: `✅ Les ban et mute seront annoncés dans <#${salon.id}> (sauf si un autre salon est choisi dans la commande).`,
+      content: `✅ Bans and mutes will be announced in <#${salon.id}> (unless another channel is chosen in the command).`,
       flags: EPH,
     });
   },
@@ -3679,16 +3679,16 @@ const handlers = {
     const bans = await i.guild.bans.fetch().catch(() => null);
     const banLines = bans
       ? [...bans.values()].map((b) => `• <@${b.user.id}> (${b.user.username}) — ${b.reason || 'aucune raison'}`)
-      : ['Impossible de lire la liste des bannis (permission **Bannir des membres** ?).'];
+      : ['Unable to read the ban list (permission **Ban members**?).'];
     const muteLines = Object.entries(d.muted).map(([id, r]) =>
       `• <@${id}> — fin <t:${Math.floor(r.until / 1000)}:R> — par <@${r.by}> — ${r.reason}`);
 
     const embed = new EmbedBuilder()
       .setColor('#5865F2')
-      .setTitle('📋 Sanctions en cours')
+      .setTitle('📋 Active sanctions')
       .addFields(
         { name: `🔨 Bannis (${bans ? bans.size : '?'})`, value: fitLines(banLines) },
-        { name: `🔇 Mutés (${muteLines.length})`, value: fitLines(muteLines) },
+        { name: `🔇 Mutated (${muteLines.length})`, value: fitLines(muteLines) },
       )
       .setTimestamp();
     await i.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
@@ -3710,20 +3710,20 @@ const handlers = {
 
     const status = [
       banNow ? '🔨 **Actuellement banni**' : null,
-      muteNow ? `🔇 **Actuellement mute** jusqu'à <t:${Math.floor(muteNow.until / 1000)}:F>` : null,
-    ].filter(Boolean).join('\n') || '✅ Aucune sanction en cours.';
+      muteNow ? `🔇 **Currently muted** until <t:${Math.floor(muteNow.until / 1000)}:F>` : null,
+    ].filter(Boolean).join('\n') || '✅ No sanctions in progress.';
 
     const lines = hist.slice().reverse().slice(0, 15).map((h) =>
       `${h.type === 'ban' ? '🔨 Ban' : '🔇 Mute'} — <t:${Math.floor(h.at / 1000)}:d> — ${h.duration} — par <@${h.by}> — ${h.reason}`);
 
     const embed = new EmbedBuilder()
       .setColor(hist.length || banNow || muteNow ? '#ED4245' : '#57F287')
-      .setTitle(`📜 Historique de ${user.username}`)
+      .setTitle(`📜 History of ${user.username}`)
       .setDescription((
         `${status}\n\n**Total :** ${nbBan} ban(s) - ${nbMute} mute(s)\n\n` +
         (lines.length
           ? lines.join('\n')
-          : "Aucune sanction enregistrée.\n*(L'historique commence à partir de cette mise à jour du bot.)*")
+          : "No sanctions recorded.\n*(History starts from this bot update.)*")
       ).slice(0, 4096))
       .setTimestamp();
     await i.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
@@ -3738,7 +3738,7 @@ const handlers = {
     const thumb = i.options.getAttachment('miniature');
 
     if (ping && !i.member.permissions.has(PermissionFlagsBits.MentionEveryone)) {
-      return i.reply({ content: "❌ Il te faut la permission de mentionner @everyone.", flags: EPH });
+      return i.reply({ content: "❌ You need permission to mention @everyone.", flags: EPH });
     }
 
     const modalId = `annonce_${i.id}`;
@@ -3755,10 +3755,10 @@ const handlers = {
       const { embed, files, mentions } = await buildAnnounce(m, img, thumb);
       const { content, allowed } = buildMentions(ping, mentionOpt, mentions);
       await salon.send({ content, embeds: [embed], files, allowedMentions: allowed });
-      await m.editReply(`✅ Annonce envoyée dans <#${salon.id}>.`);
+      await m.editReply(`✅ Announcement sent in <#${salon.id}>.`);
     } catch (e) {
       console.error(e);
-      await m.editReply("❌ Impossible d'envoyer l'annonce (vérifie mes permissions dans ce salon et les liens d'images).");
+      await m.editReply("❌ Unable to send ad (check my permissions in this channel and image links).");
     }
   },
 
@@ -3768,15 +3768,15 @@ const handlers = {
     await i.showModal(
       new ModalBuilder()
         .setCustomId(modalId)
-        .setTitle('Message privé de masse')
+        .setTitle('Mass private message')
         .addComponents(
           field('titre', 'Titre (optionnel)', TextInputStyle.Short, { max: 256 }),
-          field('texte', 'Message (Markdown accepté)', TextInputStyle.Paragraph, {
+          field('texte', 'Message (Markdown accepted)', TextInputStyle.Paragraph, {
             required: true,
             max: 2000,
-            placeholder: 'Tu peux utiliser @Pseudo, @Rôle, #salon → ils deviennent cliquables',
+            placeholder: 'You can use @Username, @Role, #channel → they become clickable',
           }),
-          field('couleur', 'Couleur hex de l\'embed (ex : #5865F2)', TextInputStyle.Short, { max: 7 }),
+          field('couleur', 'Hex color of the embed (e.g. #5865F2)', TextInputStyle.Short, { max: 7 }),
         ),
     );
 
@@ -3799,7 +3799,7 @@ const handlers = {
       .setColor(parseColor(couleur, '#5865F2'))
       .setDescription(r.text.slice(0, 4096))
       .setTimestamp()
-      .setFooter({ text: `Envoyé depuis ${m.guild.name}` });
+      .setFooter({ text: `Sent from ${m.guild.name}` });
 
     if (titre) embed.setTitle(titre.slice(0, 256));
 
@@ -3811,7 +3811,7 @@ const handlers = {
     let failed = 0;
     const total = members.size;
 
-    await m.editReply(`📤 Envoi en cours… 0/${total} (ne ferme pas le bot)`);
+    await m.editReply(`📤 Sending… 0/${total} (does not close the bot)`);
 
     // Envoi avec délai pour éviter le rate-limit
     for (const member of members.values()) {
@@ -3824,7 +3824,7 @@ const handlers = {
 
       // Mise à jour toutes les 25 personnes
       if ((sent + failed) % 25 === 0) {
-        await m.editReply(`📤 Envoi en cours… ${sent + failed}/${total} (${sent} envoyés · ${failed} échecs)`).catch(() => {});
+        await m.editReply(`📤 Sending… ${sent + failed}/${total} (${sent} sent · ${failed} failures)`).catch(() => {});
       }
 
       // Délai important (1,2 seconde)
@@ -3832,10 +3832,10 @@ const handlers = {
     }
 
     await m.editReply(
-      `✅ **Envoi terminé**\n` +
-      `• Membres ciblés : **${total}**\n` +
-      `• Envoyés : **${sent}**\n` +
-      `• Échecs (MP fermés / bloqués) : **${failed}**`
+      `✅ **Sending completed**\n` +
+      `• Targeted members: **${total}**\n` +
+      `• Sent: **${sent}**\n` +
+      `• Failures (PM closed/blocked): **${failed}**`
     );
   },
 
@@ -3847,7 +3847,7 @@ const handlers = {
     if (sub === 'liste') {
       const entries = Object.entries(d.reactionRoles);
       if (!entries.length) {
-        return i.reply({ content: 'Aucun autorole. Crée-en un avec `/autorole creer`.', flags: EPH });
+        return i.reply({ content: 'No autorole. Create one with `/autorole creer`.', flags: EPH });
       }
       const embed = new EmbedBuilder().setColor('#5865F2').setTitle('🎭 Autoroles').setDescription(
         entries.map(([id, r]) =>
@@ -3859,14 +3859,14 @@ const handlers = {
     if (sub === 'supprimer') {
       const id = i.options.getString('message', true).trim();
       const rr = d.reactionRoles[id];
-      if (!rr) return i.reply({ content: '❌ Autorole introuvable.', flags: EPH });
+      if (!rr) return i.reply({ content: '❌ Autorole not found.', flags: EPH });
       delete d.reactionRoles[id];
       save();
       await i.deferReply({ flags: EPH });
       const ch = await i.guild.channels.fetch(rr.channelId).catch(() => null);
       const msg = ch ? await ch.messages.fetch(id).catch(() => null) : null;
       if (msg) await msg.delete().catch(() => {});
-      return i.editReply('🗑️ Autorole supprimé (le message a aussi été effacé).');
+      return i.editReply('🗑️ Autorole deleted (the message was also deleted).');
     }
 
     // ----- creer -----
@@ -3880,23 +3880,23 @@ const handlers = {
 
     const role = i.guild.roles.cache.get(roleOpt.id);
     if (!role || role.id === i.guild.id || role.managed) {
-      return i.reply({ content: '❌ Choisis un rôle normal (pas @everyone ni un rôle de bot).', flags: EPH });
+      return i.reply({ content: '❌ Choose a normal role (not @everyone or a bot role).', flags: EPH });
     }
     if (!role.editable) {
-      return i.reply({ content: '❌ Mon rôle doit être **au-dessus** de ce rôle dans la liste des rôles du serveur.', flags: EPH });
+      return i.reply({ content: '❌ My role must be **above** this role in the server role list.', flags: EPH });
     }
     if (!isOwner(i) && i.member.roles.highest.position <= role.position) {
-      return i.reply({ content: '❌ Tu ne peux pas distribuer un rôle supérieur ou égal au tien.', flags: EPH });
+      return i.reply({ content: '❌ You cannot assign a role greater than or equal to yours.', flags: EPH });
     }
     if (!emojiInput || emojiInput.length > 64) {
       return i.reply({ content: '❌ Emoji invalide.', flags: EPH });
     }
     if (ping && !i.member.permissions.has(PermissionFlagsBits.MentionEveryone)) {
-      return i.reply({ content: "❌ Il te faut la permission de mentionner @everyone.", flags: EPH });
+      return i.reply({ content: "❌ You need permission to mention @everyone.", flags: EPH });
     }
 
     const modalId = `autorole_${i.id}`;
-    await i.showModal(announceModal(modalId, 'Message autorole', 'Texte du message (Markdown accepté)'));
+    await i.showModal(announceModal(modalId, 'Autorole message', 'Message text (Markdown accepted)'));
 
     const m = await i.awaitModalSubmit({
       time: 15 * 60_000,
@@ -3920,15 +3920,15 @@ const handlers = {
       };
       save();
       await m.editReply({
-        content: `✅ Message envoyé dans <#${salon.id}>. Réagir avec ${emojiInput} donne le rôle <@&${role.id}>.`,
+        content: `✅ Message sent in <#${salon.id}>. Reacting with ${emojiInput} gives the role <@&${role.id}>.`,
         allowedMentions: { parse: [] },
       });
     } catch (e) {
       console.error('[autorole]', e);
       if (msg) msg.delete().catch(() => {});
       await m.editReply(
-        "❌ Impossible de créer l'autorole. Vérifie l'emoji (un emoji d'un serveur où je ne suis pas ne fonctionne pas) " +
-        "et mes permissions dans ce salon : **Voir le salon, Envoyer des messages, Intégrer des liens, Ajouter des réactions**.");
+        "❌ Failed to create autorole. Check the emoji (an emoji from a server I'm not on doesn't work)" +
+        "and my permissions in this channel: **View channel, Send messages, Embed links, Add reactions**.");
     }
   },
 
@@ -3940,21 +3940,21 @@ const handlers = {
     if (sub === 'liste') {
       const txt = d.joinRoles.length
         ? d.joinRoles.map((id) => `• <@&${id}>`).join('\n')
-        : "Aucun rôle automatique. Ajoute-en un avec `/role-arrivee ajouter`.";
-      return i.reply({ content: `**Rôles donnés à l'arrivée**\n${txt}`, flags: EPH, allowedMentions: { parse: [] } });
+        : "No automatic roles. Add one with `/role-arrivee ajouter`.";
+      return i.reply({ content: `**Roles given on arrival**\n${txt}`, flags: EPH, allowedMentions: { parse: [] } });
     }
 
     const roleOpt = i.options.getRole('role', true);
-    if (roleOpt.id === i.guild.id) return i.reply({ content: '❌ Tu ne peux pas choisir @everyone.', flags: EPH });
+    if (roleOpt.id === i.guild.id) return i.reply({ content: '❌ You can\'t choose @everyone.', flags: EPH });
 
     if (sub === 'retirer') {
       if (!d.joinRoles.includes(roleOpt.id)) {
-        return i.reply({ content: "❌ Ce rôle n'est pas dans la liste.", flags: EPH });
+        return i.reply({ content: "❌ This role is not in the list.", flags: EPH });
       }
       d.joinRoles = d.joinRoles.filter((id) => id !== roleOpt.id);
       save();
       return i.reply({
-        content: `🗑️ <@&${roleOpt.id}> ne sera plus donné à l'arrivée (les membres qui l'ont déjà le gardent).`,
+        content: `🗑️ <@&${roleOpt.id}> will no longer be given upon arrival (members who already have it keep it).`,
         flags: EPH, allowedMentions: { parse: [] },
       });
     }
@@ -3962,24 +3962,24 @@ const handlers = {
     // ajouter
     const role = i.guild.roles.cache.get(roleOpt.id);
     if (!role || role.managed) {
-      return i.reply({ content: '❌ Choisis un rôle normal (pas un rôle de bot ou de boost).', flags: EPH });
+      return i.reply({ content: '❌ Choose a normal role (not a bot or boost role).', flags: EPH });
     }
     if (!role.editable) {
-      return i.reply({ content: '❌ Mon rôle doit être **au-dessus** de ce rôle dans la liste des rôles du serveur.', flags: EPH });
+      return i.reply({ content: '❌ My role must be **above** this role in the server role list.', flags: EPH });
     }
     if (!isOwner(i) && i.member.roles.highest.position <= role.position) {
-      return i.reply({ content: '❌ Tu ne peux pas distribuer un rôle supérieur ou égal au tien.', flags: EPH });
+      return i.reply({ content: '❌ You cannot assign a role greater than or equal to yours.', flags: EPH });
     }
     if (d.joinRoles.includes(role.id)) {
-      return i.reply({ content: '❌ Ce rôle est déjà donné à l\'arrivée.', flags: EPH });
+      return i.reply({ content: '❌ This role is already given to arrival.', flags: EPH });
     }
     if (d.joinRoles.length >= 10) {
-      return i.reply({ content: '❌ 10 rôles automatiques maximum.', flags: EPH });
+      return i.reply({ content: '❌ 10 automatic roles maximum.', flags: EPH });
     }
     d.joinRoles.push(role.id);
     save();
     return i.reply({
-      content: `✅ Chaque nouveau membre recevra automatiquement <@&${role.id}>.`,
+      content: `✅ Each new member will automatically receive <@&${role.id}>.`,
       flags: EPH, allowedMentions: { parse: [] },
     });
   },
@@ -3991,11 +3991,11 @@ const handlers = {
 
     if (sub === 'activer' || sub === 'desactiver') {
       if (sub === 'activer' && !d.welcome.channelId) {
-        return i.reply({ content: "❌ Configure d'abord le salon avec `/bienvenue configurer`.", flags: EPH });
+        return i.reply({ content: "❌ First configure the channel with `/bienvenue configurer`.", flags: EPH });
       }
       d.welcome.enabled = sub === 'activer';
       save();
-      return i.reply({ content: d.welcome.enabled ? '✅ Message de bienvenue activé.' : '⏸️ Message de bienvenue désactivé.', flags: EPH });
+      return i.reply({ content: d.welcome.enabled ? '✅ Welcome message enabled.' : '⏸️ Welcome message disabled.', flags: EPH });
     }
 
     if (sub === 'test') {
@@ -4007,17 +4007,17 @@ const handlers = {
     const salon = i.options.getChannel('salon');
     const w = d.welcome;
     if (!salon && !w.channelId) {
-      return i.reply({ content: '❌ Indique un salon pour la première configuration.', flags: EPH });
+      return i.reply({ content: '❌ Specify a channel for the first configuration.', flags: EPH });
     }
 
     const modalId = `welcome_${i.id}`;
     await i.showModal(
-      new ModalBuilder().setCustomId(modalId).setTitle("Message de bienvenue").addComponents(
-        field('content', 'Texte au-dessus ({user}, @Rôle, #salon)', TextInputStyle.Short, { value: w.content, max: 500 }),
-        field('title', "Titre de l'embed", TextInputStyle.Short, { value: w.title, max: 256 }),
-        field('description', 'Description (voir variables ci-dessous)', TextInputStyle.Paragraph, { value: w.description, max: 4000, placeholder: '{user} {username} {server} {count} @Rôle #salon' }),
-        field('image', "URL de l'image (optionnel)", TextInputStyle.Short, { value: w.image, max: 500 }),
-        field('color', 'Couleur hex (ex : #5865F2)', TextInputStyle.Short, { value: w.color, max: 7 }),
+      new ModalBuilder().setCustomId(modalId).setTitle("Welcome message").addComponents(
+        field('content', 'Text above ({user}, @Role, #channel)', TextInputStyle.Short, { value: w.content, max: 500 }),
+        field('title', "Embed title", TextInputStyle.Short, { value: w.title, max: 256 }),
+        field('description', 'Description (voir variables ci-dessous)', TextInputStyle.Paragraph, { value: w.description, max: 4000, placeholder: '{user} {username} {server} {count} @Role #channel' }),
+        field('image', "Image URL (optional)", TextInputStyle.Short, { value: w.image, max: 500 }),
+        field('color', 'Hex color (e.g. #5865F2)', TextInputStyle.Short, { value: w.color, max: 7 }),
       ));
 
     const m = await i.awaitModalSubmit({
@@ -4035,7 +4035,7 @@ const handlers = {
     w.enabled = true;
     save();
 
-    await m.reply({ content: `✅ Bienvenue configuré dans <#${w.channelId}> et activé. Aperçu :`, flags: EPH });
+    await m.reply({ content: `✅ Welcome configured in <#${w.channelId}> and activated. Preview :`, flags: EPH });
     await m.followUp({ ...(await buildWelcome(i.member)), flags: EPH });
   },
 
@@ -4047,15 +4047,15 @@ const handlers = {
     const nom = (i.options.getString('nom') || 'paiement').toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 30);
     const d = getG(i.guildId);
 
-    if (staff.id === i.guild.id) return i.reply({ content: '❌ Tu ne peux pas choisir @everyone.', flags: EPH });
+    if (staff.id === i.guild.id) return i.reply({ content: '❌ You can\'t choose @everyone.', flags: EPH });
     if (d.tickets[nom]) {
-      return i.reply({ content: `❌ La configuration **${nom}** existe déjà. Supprime-la avec \`/ticket config-supprimer\` ou choisis un autre nom.`, flags: EPH });
+      return i.reply({ content: `❌ Configuration **${nom}** already exists. Delete it with \`/ticket config-delete\` or choose another name.`, flags: EPH });
     }
 
     const EMOJIS = { paypal: '💳', wero: '🏦', virement: '🏛️', crypto: '🪙', carte: '💳', cb: '💳' };
     const moyens = (i.options.getString('moyens') || 'PayPal, Wero')
       .split(',').map((s) => s.trim()).filter(Boolean).slice(0, 125);
-    if (!moyens.length) return i.reply({ content: '❌ Indique au moins un moyen de paiement.', flags: EPH });
+    if (!moyens.length) return i.reply({ content: '❌ Indicates at least one payment method.', flags: EPH });
 
     await i.deferReply({ flags: EPH });
     const P = PermissionFlagsBits;
@@ -4071,12 +4071,12 @@ const handlers = {
             { id: staff.id, allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.ManageMessages] },
             { id: client.user.id, allow: [P.ViewChannel, P.SendMessages, P.ManageChannels, P.ReadMessageHistory, P.EmbedLinks] },
           ],
-          reason: `/setup-paiement par ${i.user.tag}`,
+          reason: `/setup-payment by ${i.user.tag}`,
         });
         choices.push({
           id: crypto.randomUUID().slice(0, 8),
           label: label.slice(0, 100),
-          description: `Paiement par ${label}`.slice(0, 100),
+          description: `Payment by ${label}`.slice(0, 100),
           emoji: EMOJIS[label.toLowerCase()] || '💶',
           staffRoleId: null,
           categoryId: cat.id,
@@ -4098,9 +4098,9 @@ const handlers = {
         dmChoices: choices,
         dmImage: null,
         dmTexts: {
-          title: '💳 Choisis ton moyen de paiement',
-          description: 'Sélectionne ton moyen de paiement dans le menu ci-dessous.',
-          placeholder: 'Choisis ton moyen de paiement...',
+          title: '💳 Choose your payment method',
+          description: 'Select your payment method from the menu below.',
+          placeholder: 'Choose your payment method...',
         },
       };
       d.tickets[nom] = cfg;
@@ -4111,9 +4111,9 @@ const handlers = {
       const richDesc = customDesc ? (await rich(i.guild, customDesc)).text : null;
       const embed = new EmbedBuilder()
         .setColor(parseColor(d.panelColor, '#57F287'))
-        .setTitle(i.options.getString('titre') || '🎫 Passer commande')
-        .setDescription((richDesc || 'Clique sur le bouton ci-dessous pour passer commande.\n' +
-          'Tu recevras un **message privé** pour choisir ton moyen de paiement.').slice(0, 4096))
+        .setTitle(i.options.getString('titre') || '🎫 Place order')
+        .setDescription((richDesc || 'Click on the button below to place an order.\n' +
+          'You will receive a **private message** to choose your payment method.').slice(0, 4096))
         .setTimestamp();
       const rows = panelRows(cfg, { button: true, label: 'Place an order', style: 'Success' });
       const sent = await salon.send({ embeds: [embed], components: rows });
@@ -4126,17 +4126,17 @@ const handlers = {
 
       await i.editReply({
         content:
-          `✅ Tout est installé (config **${nom}**) :\n` +
+          `✅ Everything is installed (config **${nom}**): \n` +
           choices.map((r) => `• ${r.emoji} **${r.label}** → <#${r.categoryId}>`).join('\n') +
-          `\n• Staff : <@&${staff.id}>\n• Panel envoyé dans <#${salon.id}>` +
+          `\n• Staff: <@&${staff.id}>\n• Panel sent to <#${salon.id}>` +
           `${logCh ? `\n• Transcripts : <#${logCh.id}>` : ''}\n` +
-          "Le membre clique sur **Commander**, reçoit un MP avec le menu, choisit, et le ticket s'ouvre dans la bonne catégorie.\n" +
+          "The member clicks on **Order**, receives a PM with the menu, chooses, and the ticket opens in the correct category.\n" +
           '',
         allowedMentions: { parse: [] },
       });
     } catch (e) {
       console.error('[setup-paiement]', e);
-      await i.editReply('❌ Installation impossible. Il me faut **Gérer les salons** et **Gérer les rôles**, et mon rôle doit être au-dessus du rôle staff.');
+      await i.editReply('❌ Unable to install. I need to **Manage Channels** and **Manage roles**, and my role must be above the staff role.');
     }
   },
 
@@ -4147,16 +4147,16 @@ const handlers = {
     const cfgName = i.options.getString('config', true);
     const cfg = d.tickets[cfgName];
     const say = (content) => i.reply({ content, flags: EPH, allowedMentions: { parse: [] } });
-    if (!cfg) return say('❌ Configuration introuvable.');
+    if (!cfg) return say('❌ Configuration not found.');
     // texte facultatif : vide -> null, "aucun" -> null (effacer), sinon texte coupé à `max`
     const clean = (v, max) => { const t = (v ?? '').trim(); return t.toLowerCase() === 'aucun' ? null : t.slice(0, max) || null; };
 
     if (sub === 'liste') return say(subSummary(cfg));
 
     if (sub === 'creer') {
-      if (cfg.subPanels.length >= 100) return say('❌ 100 sous-panels maximum par configuration.');
+      if (cfg.subPanels.length >= 100) return say('❌ 100 subpanels maximum per configuration.');
       const nom = i.options.getString('nom', true).trim().slice(0, 60);
-      if (findSub(cfg, nom)) return say('❌ Un sous-panel porte déjà ce nom.');
+      if (findSub(cfg, nom)) return say('❌ A subpanel already has this name.');
       const couleur = (i.options.getString('couleur') || '').trim();
       cfg.subPanels.push({
         id: crypto.randomUUID().slice(0, 8),
@@ -4169,9 +4169,9 @@ const handlers = {
       });
       save();
       return say(
-        `✅ Sous-panel **${nom}** créé dans **${cfgName}**.\n` +
-        '• Ajoute-lui des choix : `/sous-panel choix-ajouter`\n' +
-        '• Puis relie-le : `/sous-panel lier` (à toutes les catégories du panel, ou à une seule)');
+        `✅ Subpanel **${nom}** created in **${cfgName}**.\n` +
+        '• Add choices to it: `/sous-panel choix-ajouter`\n' +
+        '• Then link it: `/sous-panel lier` (to all categories in the panel, or to just one)');
     }
 
     if (sub === 'delier') {
@@ -4179,21 +4179,21 @@ const handlers = {
       if (pour === 'all') {
         cfg.defaultSubPanelId = null;
         save();
-        return say('✅ Plus de sous-panel par défaut : les catégories sans sous-panel propre ouvrent directement le ticket.');
+        return say('✅ No more subpanel by default: categories without their own subpanel open the ticket directly.');
       }
       const t = findTarget(cfg, pour);
-      if (!t) return say('❌ Catégorie introuvable. Choisis-la dans la liste proposée.');
+      if (!t) return say('❌ Category not found. Choose it from the list provided.');
       delete cfg.subLinks[t.id];
       save();
       const def = cfg.subPanels.find((x) => x.id === cfg.defaultSubPanelId);
-      return say(`✅ **${t.label}** reprend le réglage par défaut (${def ? `sous-panel **${def.name}**` : 'aucun sous-panel'}).`);
+      return say(`✅ **${t.label}** returns to the default setting (${def ? `subpanel **${def.name}**` : 'no subpanel'}).`);
     }
 
     // Toutes les autres sous-commandes travaillent sur un sous-panel existant ('none' accepté seulement pour /lier)
     const rawSp = i.options.getString('sous-panel', true);
     const none = sub === 'lier' && rawSp === 'none';
     const sp = none ? null : findSub(cfg, rawSp);
-    if (!none && !sp) return say('❌ Sous-panel introuvable. Choisis-le dans la liste proposée.');
+    if (!none && !sp) return say('❌ Subpanel not found. Choose it from the list provided.');
 
     if (sub === 'supprimer') {
       cfg.subPanels = cfg.subPanels.filter((x) => x !== sp);
@@ -4201,7 +4201,7 @@ const handlers = {
       for (const [k, v] of Object.entries(cfg.subLinks)) if (v === sp.id) delete cfg.subLinks[k];
       if (cfg.defaultSubPanelId === sp.id) cfg.defaultSubPanelId = null;
       save();
-      return say(`🗑️ Sous-panel **${sp.name}** supprimé (et retiré de toutes les catégories).`);
+      return say(`🗑️ Subpanel **${sp.name}** removed (and removed from all categories).`);
     }
 
     if (sub === 'modifier') {
@@ -4209,7 +4209,7 @@ const handlers = {
       if (nom) {
         const n = nom.trim().slice(0, 60);
         const other = findSub(cfg, n);
-        if (other && other !== sp) return say('❌ Un sous-panel porte déjà ce nom.');
+        if (other && other !== sp) return say('❌ A subpanel already has this name.');
         sp.name = n;
       }
       for (const [opt, key, max] of [['titre', 'title', 256], ['description', 'description', 1000], ['placeholder', 'placeholder', 100]]) {
@@ -4219,26 +4219,26 @@ const handlers = {
       const c = i.options.getString('couleur');
       if (c !== null) sp.color = !c.trim() || c.trim().toLowerCase() === 'aucun' ? null : parseColor(c);
       save();
-      return say(`✅ Sous-panel **${sp.name}** modifié.`);
+      return say(`✅ Subpanel **${sp.name}** modified.`);
     }
 
     if (sub === 'lier') {
       const pour = i.options.getString('pour', true);
-      const warn = !none && !sp.choices.length ? '\n⚠️ Ce sous-panel n\'a encore aucun choix : il ne s\'affichera pas (`/sous-panel choix-ajouter`).' : '';
+      const warn = !none && !sp.choices.length ? '\n⚠️ This subpanel has no choices yet: it will not be displayed (`/sous-panel choix-ajouter`).' : '';
       if (pour === 'all') {
         cfg.defaultSubPanelId = none ? null : sp.id;
         save();
         return say(none
-          ? '✅ Plus de sous-panel par défaut.'
-          : `✅ **${sp.name}** s'applique maintenant à **toutes** les catégories de **${cfgName}** (sauf celles qui ont leur propre sous-panel).${warn}`);
+          ? '✅ No more default subpanel.'
+          : `✅ **${sp.name}** now applies to **all** categories in **${cfgName}** (except those that have their own subpanel).${warn}`);
       }
       const t = findTarget(cfg, pour);
-      if (!t) return say('❌ Catégorie introuvable. Choisis-la dans la liste proposée.');
+      if (!t) return say('❌ Category not found. Choose it from the list provided.');
       cfg.subLinks[t.id] = none ? 'none' : sp.id;
       save();
       return say(none
-        ? `✅ **${t.label}** ouvre directement le ticket (aucun sous-panel).`
-        : `✅ **${t.label}** utilise maintenant le sous-panel **${sp.name}**.${warn}`);
+        ? `✅ **${t.label}** opens the ticket directly (no subpanel).`
+        : `✅ **${t.label}** now uses subpanel **${sp.name}**.${warn}`);
     }
 
     // Sous-panel proposé après un choix (option "suivant") : undefined = inchangé, null = aucun
@@ -4249,34 +4249,34 @@ const handlers = {
         if (raw.trim().toLowerCase() === 'aucun') nextId = null;
         else {
           const n = findSub(cfg, raw);
-          if (!n) return say('❌ Sous-panel suivant introuvable. Choisis-le dans la liste proposée.');
-          if (n === sp || subReaches(cfg, n.id, sp.id)) return say('❌ Boucle impossible : ce sous-panel mène déjà (directement ou non) à celui-ci.');
+          if (!n) return say('❌ Next subpanel not found. Choose it from the list provided.');
+          if (n === sp || subReaches(cfg, n.id, sp.id)) return say('❌ Loop impossible: this subpanel already leads (directly or not) to this one.');
           nextId = n.id;
         }
       }
     }
-    const nextTxt = nextId ? ` — ouvre ensuite le sous-panel **${cfg.subPanels.find((x) => x.id === nextId).name}**` : '';
+    const nextTxt = nextId ? ` — then opens the subpanel **${cfg.subPanels.find((x) => x.id === nextId).name}**` : '';
 
     // Même sous-panel suivant pour TOUS les choix du sous-panel (nextId a déjà été vérifié : pas de boucle)
     if (sub === 'choix-suivant') {
-      if (!sp.choices.length) return say(`❌ **${sp.name}** n'a encore aucun choix.`);
+      if (!sp.choices.length) return say(`❌ **${sp.name}** has no choices yet.`);
       for (const c of sp.choices) c.nextSubId = nextId || null;
       save();
       return say(nextId
-        ? `✅ Les **${sp.choices.length}** choix de **${sp.name}** ouvrent tous ensuite le sous-panel **${cfg.subPanels.find((x) => x.id === nextId).name}**.`
-        : `✅ Les **${sp.choices.length}** choix de **${sp.name}** ouvrent maintenant directement le ticket.`);
+        ? `✅ All **${sp.choices.length}** choices of **${sp.name}** now lead to the subpanel **${cfg.subPanels.find((x) => x.id === nextId).name}**.`
+        : `✅ **${sp.choices.length}** choices of **${sp.name}** now open the ticket directly.`);
     }
 
     if (sub === 'choix-ajouter') {
-      if (sp.choices.length >= 125) return say('❌ 125 choix maximum par sous-panel : au-delà, utilise un sous-panel suivant pour en proposer plus.');
+      if (sp.choices.length >= 125) return say('❌ Maximum 125 choices per sub-panel: beyond that, use a following sub-panel to offer more.');
       const staff = i.options.getRole('role-staff');
-      if (staff && staff.id === i.guild.id) return say('❌ Tu ne peux pas choisir @everyone.');
+      if (staff && staff.id === i.guild.id) return say('❌ You can\'t choose @everyone.');
       const emojiRaw = (i.options.getString('emoji') || '').trim();
       if (emojiRaw && !parseEmoji(emojiRaw)) {
-        return say("❌ Emoji invalide. Utilise un emoji normal ou un emoji du serveur (tape `:nom:` puis choisis-le dans la liste).");
+        return say("❌ Invalid emoji. Use a normal emoji or a server emoji (type `:nom:` then choose it from the list).");
       }
       const label = i.options.getString('label', true).trim().slice(0, 100);
-      if (findChoice(sp, label)) return say('❌ Ce sous-panel a déjà un choix de ce nom.');
+      if (findChoice(sp, label)) return say('❌ This subpanel already has a choice of this name.');
       const cat = i.options.getChannel('categorie');
       sp.choices.push({
         id: crypto.randomUUID().slice(0, 8),
@@ -4289,18 +4289,18 @@ const handlers = {
       });
       save();
       return say(
-        `✅ Choix **${label}** ajouté à **${sp.name}** (${sp.choices.length}/125)` +
-        `${cat ? ` — tickets créés dans <#${cat.id}>` : ' — tickets créés dans la catégorie du menu (ou celle de la configuration)'}` +
+        `✅ Choice **${label}** added to **${sp.name}** (${sp.choices.length}/125)` +
+        `${cat ? ` — tickets created in <#${cat.id}>` : ' — tickets created in the menu category (or the configuration category)'}` +
         `${staff ? ` — staff : <@&${staff.id}>` : ''}${nextTxt}.`);
     }
 
     if (sub === 'choix-modifier' || sub === 'choix-retirer') {
       const ch = findChoice(sp, i.options.getString('sous-choix', true));
-      if (!ch) return say('❌ Choix introuvable. Choisis-le dans la liste proposée.');
+      if (!ch) return say('❌ Choice not found. Choose it from the list provided.');
       if (sub === 'choix-retirer') {
         sp.choices = sp.choices.filter((c) => c !== ch);
         save();
-        return say(`🗑️ Choix **${ch.label}** retiré de **${sp.name}**.`);
+        return say(`🗑️ Choice **${ch.label}** removed from **${sp.name}**.`);
       }
       const emojiRaw = (i.options.getString('emoji') || '').trim();
       if (emojiRaw) {
@@ -4311,7 +4311,7 @@ const handlers = {
       const nom = (i.options.getString('nouveau-nom') || '').trim();
       if (nom) {
         const other = findChoice(sp, nom);
-        if (other && other !== ch) return say('❌ Ce sous-panel a déjà un choix de ce nom.');
+        if (other && other !== ch) return say('❌ This subpanel already has a choice of this name.');
         ch.label = nom.slice(0, 100);
       }
       const desc = i.options.getString('description');
@@ -4320,12 +4320,12 @@ const handlers = {
       if (cat) ch.categoryId = cat.id;
       const staff = i.options.getRole('role-staff');
       if (staff) {
-        if (staff.id === i.guild.id) return say('❌ Tu ne peux pas choisir @everyone.');
+        if (staff.id === i.guild.id) return say('❌ You can\'t choose @everyone.');
         ch.staffRoleId = staff.id;
       }
       if (nextId !== undefined) ch.nextSubId = nextId;
       save();
-      return say(`✅ Choix **${ch.label}** modifié${nextId === null ? ' (plus de sous-panel suivant)' : nextTxt}.`);
+      return say(`✅ Choice **${ch.label}** modified${nextId === null ? ' (no more next subpanel)' : nextTxt}.`);
     }
   },
 
@@ -4337,26 +4337,26 @@ const handlers = {
     /* ----- Ajouter / retirer un membre du ticket actuel ----- */
     if (sub === 'ajouter' || sub === 'retirer') {
       const t = d.open[i.channelId];
-      if (!t) return i.reply({ content: '❌ Utilise cette commande **dans un salon de ticket**.', flags: EPH });
-      if (!isStaff(i, t, d.tickets[t.config])) return i.reply({ content: '❌ Réservé au staff du ticket.', flags: EPH });
+      if (!t) return i.reply({ content: '❌ Use this command **in a ticket channel**.', flags: EPH });
+      if (!isStaff(i, t, d.tickets[t.config])) return i.reply({ content: '❌ Reserved for ticket staff.', flags: EPH });
       const user = i.options.getUser('membre', true);
-      if (user.bot) return i.reply({ content: '❌ Tu ne peux pas ajouter un bot au ticket.', flags: EPH });
+      if (user.bot) return i.reply({ content: '❌ You cannot add a bot to the ticket.', flags: EPH });
       if (sub === 'ajouter') {
-        if (user.id === t.userId) return i.reply({ content: '❌ Cette personne a déjà ouvert le ticket.', flags: EPH });
+        if (user.id === t.userId) return i.reply({ content: '❌ This person has already opened the ticket.', flags: EPH });
         await i.channel.permissionOverwrites.edit(user.id, {
           ViewChannel: true, SendMessages: true, ReadMessageHistory: true, AttachFiles: true, EmbedLinks: true,
-        }, { reason: `Ajouté au ticket par ${i.user.tag}` }).catch((e) => {
+        }, { reason: `Added to ticket by ${i.user.tag}` }).catch((e) => {
           console.error('[ticket ajouter]', e);
-          throw new Error("Impossible d'ajouter ce membre (permissions du bot).");
+          throw new Error("Unable to add this member (bot permissions).");
         });
-        await i.reply({ content: `✅ <@${user.id}> a été ajouté au ticket.`, flags: EPH, allowedMentions: { parse: [] } });
-        await i.channel.send({ content: `➕ <@${user.id}> a été ajouté au ticket par <@${i.user.id}>.`, allowedMentions: { parse: [] } }).catch(() => {});
+        await i.reply({ content: `✅ <@${user.id}> has been added to the ticket.`, flags: EPH, allowedMentions: { parse: [] } });
+        await i.channel.send({ content: `➕ <@${user.id}> was added to the ticket by <@${i.user.id}>.`, allowedMentions: { parse: [] } }).catch(() => {});
         return;
       }
-      if (user.id === client.user.id) return i.reply({ content: '❌ Je ne peux pas me retirer du ticket.', flags: EPH });
-      await i.channel.permissionOverwrites.delete(user.id, `Retiré du ticket par ${i.user.tag}`).catch(console.error);
-      await i.reply({ content: `✅ <@${user.id}> a été retiré du ticket.`, flags: EPH, allowedMentions: { parse: [] } });
-      await i.channel.send({ content: `➖ <@${user.id}> a été retiré du ticket par <@${i.user.id}>.`, allowedMentions: { parse: [] } }).catch(() => {});
+      if (user.id === client.user.id) return i.reply({ content: '❌ I cannot withdraw from the ticket.', flags: EPH });
+      await i.channel.permissionOverwrites.delete(user.id, `Removed from ticket by ${i.user.tag}`).catch(console.error);
+      await i.reply({ content: `✅ <@${user.id}> has been removed from the ticket.`, flags: EPH, allowedMentions: { parse: [] } });
+      await i.channel.send({ content: `➖ <@${user.id}> was removed from the ticket by <@${i.user.id}>.`, allowedMentions: { parse: [] } }).catch(() => {});
       return;
     }
 
@@ -4364,26 +4364,26 @@ const handlers = {
     if (sub === 'couleur') {
       const raw = i.options.getString('couleur', true).trim();
       if (!/^#?[0-9a-f]{6}$/i.test(raw)) {
-        return i.reply({ content: '❌ Couleur invalide. Exemple : `#5865F2`.', flags: EPH });
+        return i.reply({ content: '❌ Invalid color. Example: `#5865F2`.', flags: EPH });
       }
       const color = '#' + raw.replace('#', '').toUpperCase();
       const only = i.options.getString('config');
       if (only) {
         const cfg = d.tickets[only];
-        if (!cfg) return i.reply({ content: '❌ Configuration introuvable.', flags: EPH });
+        if (!cfg) return i.reply({ content: '❌ Configuration not found.', flags: EPH });
         cfg.color = color;
         save();
         await i.deferReply({ flags: EPH });
         await refreshPanels(i.guild, only).catch(console.error);
         await refreshSalesPanel(i.guild, false).catch(console.error);
-        return i.editReply(`🎨 Couleur **${color}** appliquée à tous les panels de **${only}**.`);
+        return i.editReply(`🎨 Color **${color}** applied to all panels of **${only}**.`);
       }
       d.panelColor = color;
       save();
       await i.deferReply({ flags: EPH });
       await refreshPanels(i.guild).catch(console.error);
       await refreshSalesPanel(i.guild, false).catch(console.error);
-      return i.editReply(`🎨 Couleur **${color}** appliquée à **tous les panels** du serveur (tickets, vouch, ventes).`);
+      return i.editReply(`🎨 Color **${color}** applied to **all panels** of the server (tickets, vouch, sales).`);
     }
 
     /* ----- Vouch ----- */
@@ -4391,30 +4391,30 @@ const handlers = {
       const salon = i.options.getChannel('salon', true);
       d.vouch.channelId = salon.id;
       save();
-      return i.reply({ content: `⭐ Les vouchs seront envoyés dans <#${salon.id}>.`, flags: EPH });
+      return i.reply({ content: `⭐ Vouchs will be sent to <#${salon.id}>.`, flags: EPH });
     }
     if (sub === 'vouch-activer') {
       d.vouch.enabled = true;
       save();
-      return i.reply({ content: '✅ La commande `/vouch` est activée.', flags: EPH });
+      return i.reply({ content: '✅ The `/vouch` command is enabled.', flags: EPH });
     }
     if (sub === 'vouch-desactiver') {
       d.vouch.enabled = false;
       save();
-      return i.reply({ content: '⛔ La commande `/vouch` est désactivée.', flags: EPH });
+      return i.reply({ content: '⛔ The `/vouch` command is disabled.', flags: EPH });
     }
 
     /* ----- Traduction automatique FR ⇄ EN ----- */
     if (sub === 'traduction-activer' || sub === 'traduction-desactiver') {
       const name = i.options.getString('config', true);
       const cfg = d.tickets[name];
-      if (!cfg) return i.reply({ content: '❌ Configuration introuvable.', flags: EPH });
+      if (!cfg) return i.reply({ content: '❌ Configuration not found.', flags: EPH });
       cfg.translate = sub === 'traduction-activer';
       save();
       return i.reply({
         content: cfg.translate
-          ? `✅ Traduction automatique **activée** pour **${name}**. Les nouveaux tickets traduisent FR ⇄ EN.`
-          : `⛔ Traduction automatique **désactivée** pour **${name}**.`,
+          ? `✅ Automatic translation **enabled** for **${name}**. New tickets translate messages into French and English.`
+          : `⛔ Automatic translation **disabled** for **${name}**.`,
         flags: EPH,
       });
     }
@@ -4428,31 +4428,31 @@ const handlers = {
       save();
       await i.deferReply({ flags: EPH });
       await refreshSalesPanel(i.guild, true).catch(console.error);
-      return i.editReply(`📈 Panel de suivi des ventes envoyé dans <#${salon.id}> (il se met à jour à chaque vente).`);
+      return i.editReply(`📈 Sales tracking panel sent in <#${salon.id}> (it updates with each sale).`);
     }
     if (sub === 'ventes-panel') {
       if (!d.sales.channelId) {
-        return i.reply({ content: '❌ Choisis d’abord un salon avec `/ticket ventes-salon`.', flags: EPH });
+        return i.reply({ content: '❌ First choose a channel with `/ticket ventes-salon`.', flags: EPH });
       }
       await i.deferReply({ flags: EPH });
       const msg = await refreshSalesPanel(i.guild, true).catch(console.error);
-      return i.editReply(msg ? `📈 Panel des ventes mis à jour dans <#${d.sales.channelId}>.` : '❌ Impossible de créer le panel (vérifie mes permissions dans le salon).');
+      return i.editReply(msg ? `📈 Sales panel updated in <#${d.sales.channelId}>.` : '❌ Unable to create the panel (check my permissions in the channel).');
     }
     if (sub === 'ventes-devise') {
       d.sales.currency = i.options.getString('devise', true).trim().slice(0, 8) || '€';
       save();
       await refreshSalesPanel(i.guild, false).catch(console.error);
-      return i.reply({ content: `💱 Devise du suivi des ventes : **${d.sales.currency}**.`, flags: EPH });
+      return i.reply({ content: `💱 Sales tracking currency: **${d.sales.currency}**.`, flags: EPH });
     }
 
     if (sub === 'config-creer') {
       const nom = i.options.getString('nom', true).toLowerCase();
       if (!/^[a-z0-9-]{1,30}$/.test(nom)) {
-        return i.reply({ content: '❌ Nom invalide : lettres minuscules, chiffres et tirets uniquement (30 max).', flags: EPH });
+        return i.reply({ content: '❌ Invalid name: lowercase letters, numbers and hyphens only (30 max).', flags: EPH });
       }
-      if (d.tickets[nom]) return i.reply({ content: '❌ Une configuration porte déjà ce nom.', flags: EPH });
+      if (d.tickets[nom]) return i.reply({ content: '❌ A configuration already has this name.', flags: EPH });
       const staff = i.options.getRole('role-staff', true);
-      if (staff.id === i.guild.id) return i.reply({ content: '❌ Tu ne peux pas choisir @everyone.', flags: EPH });
+      if (staff.id === i.guild.id) return i.reply({ content: '❌ You can\'t choose @everyone.', flags: EPH });
       d.tickets[nom] = {
         name: nom,
         categoryId: i.options.getChannel('categorie', true).id,
@@ -4472,24 +4472,24 @@ const handlers = {
       save();
       return i.reply({
         content:
-          `✅ Configuration **${nom}** créée.\n` +
-          `• Autre rôle staff : \`/ticket staff-ajouter\`\n` +
-          `• Catégories du menu du panel (avec emojis et catégorie du serveur liée) : \`/ticket raison-ajouter\`\n` +
-          `• Envoi du panel avec bannière : \`/ticket panel\`\n` +
-          `• Message d'ouverture des tickets : \`/ticket message\``,
+          `✅ Configuration **${nom}** created.\n` +
+          `• Other staff role: \`/ticket staff-add\`\n` +
+          `• Panel menu categories (with emojis and linked server category): \`/ticket reason-add\`\n` +
+          `• Sending the panel with banner: \`/ticket panel\`\n` +
+          `• Ticket opening message: \`/ticket message\``,
         flags: EPH,
       });
     }
 
     if (sub === 'config-liste') {
       const list = Object.values(d.tickets);
-      if (!list.length) return i.reply({ content: "Aucune configuration. Crée-en une avec `/ticket config-creer`.", flags: EPH });
-      const embed = new EmbedBuilder().setColor('#5865F2').setTitle('🎫 Configurations de tickets').setDescription(
+      if (!list.length) return i.reply({ content: "No configuration. Create one with `/ticket config-creer`.", flags: EPH });
+      const embed = new EmbedBuilder().setColor('#5865F2').setTitle('🎫 Ticket configurations').setDescription(
         list.map((c) =>
-          `**${c.name}**${c.dm ? ' · 📩 mode MP' : ''}\n• Catégorie par défaut : <#${c.categoryId}>\n• Staff : ${c.staffRoles.length ? c.staffRoles.map((r) => `<@&${r}>`).join(' ') : 'aucun'}\n• Logs : ${c.logChannelId ? `<#${c.logChannelId}>` : 'aucun'}\n• Menu du panel : ${c.reasons.length ? c.reasons.map((r) => (r.emoji ? r.emoji + ' ' : '') + r.label + (r.categoryId ? ` → <#${r.categoryId}>` : '') + (r.staffRoleId ? ` (staff : <@&${r.staffRoleId}>)` : '')).join(', ') : 'aucune catégorie'}` +
+          `**${c.name}**${c.dm ? ' · 📩 DM mode' : ''}\n• Default category: <#${c.categoryId}>\n• Staff: ${c.staffRoles.length ? c.staffRoles.map((r) => `<@&${r}>`).join(' ') : 'none'}\n• Logs: ${c.logChannelId ? `<#${c.logChannelId}>` : 'none'}\n• Panel menu: ${c.reasons.length ? c.reasons.map((r) => (r.emoji ? r.emoji + ' ' : '') + r.label + (r.categoryId ? ` → <#${r.categoryId}>` : '') + (r.staffRoleId ? ` (staff : <@&${r.staffRoleId}>)` : '')).join(', ') : 'no category'}` +
           (c.dm
-            ? `\n• Menu MP : ${c.dmChoices.length ? c.dmChoices.map((r) => (r.emoji ? r.emoji + ' ' : '') + r.label + (r.categoryId ? ` → <#${r.categoryId}>` : '') + (r.staffRoleId ? ` (staff : <@&${r.staffRoleId}>)` : '')).join(', ') : 'aucun choix'}` +
-              `\n• Image du MP : ${c.dmImage ? 'oui' : 'non'}`
+            ? `\n• DM menu: ${c.dmChoices.length ? c.dmChoices.map((r) => (r.emoji ? r.emoji + ' ' : '') + r.label + (r.categoryId ? ` → <#${r.categoryId}>` : '') + (r.staffRoleId ? ` (staff : <@&${r.staffRoleId}>)` : '')).join(', ') : 'no choice'}` +
+              `\n• DM image: ${c.dmImage ? 'yes' : 'no'}`
             : '')
         ).join('\n\n').slice(0, 4096));
       return i.reply({ embeds: [embed], flags: EPH, allowedMentions: { parse: [] } });
@@ -4497,25 +4497,25 @@ const handlers = {
 
     const cfgName = i.options.getString('config', true);
     const cfg = d.tickets[cfgName];
-    if (!cfg) return i.reply({ content: '❌ Configuration introuvable.', flags: EPH });
+    if (!cfg) return i.reply({ content: '❌ Configuration not found.', flags: EPH });
 
     if (sub === 'config-supprimer') {
       removeDmImage(cfg);
       delete d.tickets[cfgName];
       save();
-      return i.reply({ content: `🗑️ Configuration **${cfgName}** supprimée. Les anciens panels ne fonctionneront plus.`, flags: EPH });
+      return i.reply({ content: `🗑️ Configuration **${cfgName}** removed. Old panels will no longer work.`, flags: EPH });
     }
 
     if (sub === 'staff-ajouter') {
       const role = i.options.getRole('role', true);
-      if (role.id === i.guild.id) return i.reply({ content: '❌ Tu ne peux pas choisir @everyone.', flags: EPH });
+      if (role.id === i.guild.id) return i.reply({ content: '❌ You can\'t choose @everyone.', flags: EPH });
       if (cfg.staffRoles.includes(role.id)) {
-        return i.reply({ content: '❌ Ce rôle a déjà accès aux tickets de cette configuration.', flags: EPH });
+        return i.reply({ content: '❌ This role already has access to tickets in this configuration.', flags: EPH });
       }
       cfg.staffRoles.push(role.id);
       save();
       return i.reply({
-        content: `✅ <@&${role.id}> peut maintenant voir et répondre aux **nouveaux** tickets de **${cfgName}** (sauf ceux dont la catégorie a son propre rôle staff).`,
+        content: `✅ <@&${role.id}> can now see and respond to **new** tickets from **${cfgName}** (except those whose category has its own staff role).`,
         flags: EPH, allowedMentions: { parse: [] },
       });
     }
@@ -4523,26 +4523,26 @@ const handlers = {
     if (sub === 'staff-retirer') {
       const role = i.options.getRole('role', true);
       if (!cfg.staffRoles.includes(role.id)) {
-        return i.reply({ content: "❌ Ce rôle n'est pas dans le staff de cette configuration.", flags: EPH });
+        return i.reply({ content: "❌ This role is not in the staff of this configuration.", flags: EPH });
       }
       if (cfg.staffRoles.length === 1) {
-        return i.reply({ content: '❌ Il faut garder au moins un rôle staff. Ajoute-en un autre avant de retirer celui-ci.', flags: EPH });
+        return i.reply({ content: '❌ You must keep at least one staff role. Add another one before removing this one.', flags: EPH });
       }
       cfg.staffRoles = cfg.staffRoles.filter((id) => id !== role.id);
       save();
       return i.reply({
-        content: `🗑️ <@&${role.id}> retiré du staff de **${cfgName}** (les tickets déjà ouverts gardent leurs accès).`,
+        content: `🗑️ <@&${role.id}> removed from the **${cfgName}** staff (tickets already opened retain their access).`,
         flags: EPH, allowedMentions: { parse: [] },
       });
     }
 
     if (sub === 'raison-ajouter') {
-      if (cfg.reasons.length >= 125) return i.reply({ content: '❌ 125 catégories maximum par configuration.', flags: EPH });
+      if (cfg.reasons.length >= 125) return i.reply({ content: '❌ Maximum 125 categories per configuration.', flags: EPH });
       const staff = i.options.getRole('role-staff');
-      if (staff && staff.id === i.guild.id) return i.reply({ content: '❌ Tu ne peux pas choisir @everyone.', flags: EPH });
+      if (staff && staff.id === i.guild.id) return i.reply({ content: '❌ You can\'t choose @everyone.', flags: EPH });
       const emojiRaw = (i.options.getString('emoji') || '').trim();
       if (emojiRaw && !parseEmoji(emojiRaw)) {
-        return i.reply({ content: "❌ Emoji invalide. Utilise un emoji normal ou un emoji du serveur (tape `:nom:` puis choisis-le dans la liste).", flags: EPH });
+        return i.reply({ content: "❌ Invalid emoji. Use a normal emoji or a server emoji (type `:nom:` then choose it from the list).", flags: EPH });
       }
       const cat = i.options.getChannel('categorie');
       cfg.reasons.push({
@@ -4555,9 +4555,9 @@ const handlers = {
       });
       save();
       await i.reply({
-        content: `✅ Catégorie ajoutée à **${cfgName}** (${cfg.reasons.length} au total)` +
-          `${cat ? ` — tickets créés dans <#${cat.id}>` : ' — tickets créés dans la catégorie par défaut de la configuration'}` +
-          `${staff ? ` — staff : <@&${staff.id}>` : ''}. Les panels déjà envoyés se mettent à jour automatiquement.`,
+        content: `✅ Category added to **${cfgName}** (total ${cfg.reasons.length})` +
+          `${cat ? ` — tickets created in <#${cat.id}>` : ' — tickets created in the configuration default category'}` +
+          `${staff ? ` — staff : <@&${staff.id}>` : ''}. Panels already sent update automatically.`,
         flags: EPH, allowedMentions: { parse: [] },
       });
       return refreshPanels(i.guild, cfgName).catch(console.error);
@@ -4566,7 +4566,7 @@ const handlers = {
     if (sub === 'raison-modifier') {
       const label = i.options.getString('label', true);
       const r = cfg.reasons.find((x) => x.label.toLowerCase() === label.toLowerCase());
-      if (!r) return i.reply({ content: '❌ Catégorie introuvable.', flags: EPH });
+      if (!r) return i.reply({ content: '❌ Category not found.', flags: EPH });
 
       const emojiRaw = (i.options.getString('emoji') || '').trim();
       if (emojiRaw) {
@@ -4582,7 +4582,7 @@ const handlers = {
       const cat = i.options.getChannel('categorie');
       if (cat) r.categoryId = cat.id;
       save();
-      await i.reply({ content: '✅ Catégorie modifiée. Les panels se mettent à jour automatiquement.', flags: EPH });
+      await i.reply({ content: '✅ Modified category. The panels update automatically.', flags: EPH });
       return refreshPanels(i.guild, cfgName).catch(console.error);
     }
 
@@ -4593,7 +4593,7 @@ const handlers = {
       save();
       const removed = cfg.reasons.length < before;
       await i.reply({
-        content: removed ? '🗑️ Catégorie retirée. Les panels déjà envoyés se mettent à jour automatiquement.' : '❌ Catégorie introuvable.',
+        content: removed ? '🗑️ Category removed. Panels already sent update automatically.' : '❌ Category not found.',
         flags: EPH,
       });
       if (removed) await refreshPanels(i.guild, cfgName).catch(console.error);
@@ -4605,28 +4605,28 @@ const handlers = {
       const panelId = i.options.getString('panel');
       const panel = panelId ? cfg.panels.find((p) => p.messageId === panelId) : null;
       if (panelId && !panel) {
-        return i.reply({ content: '❌ Panel introuvable. Choisis-le dans la liste proposée.', flags: EPH });
+        return i.reply({ content: '❌ Panel not found. Choose it from the list provided.', flags: EPH });
       }
-      const scope = panel ? 'ce panel' : `tous les panels de **${cfgName}**`;
+      const scope = panel ? 'this panel' : `all panels of **${cfgName}**`;
 
       if (i.options.getBoolean('reinitialiser')) {
         if (panel) delete panel.openMsg; else cfg.openMsg = null;
         save();
-        return i.reply({ content: `✅ Message par défaut remis pour ${scope}.`, flags: EPH });
+        return i.reply({ content: `✅ Default message restored for ${scope}.`, flags: EPH });
       }
 
       const cur = panel?.openMsg || cfg.openMsg || {};
       const modalId = `tkmsg_${i.id}`;
       await i.showModal(
-        new ModalBuilder().setCustomId(modalId).setTitle("Message d'ouverture du ticket").addComponents(
-          field('content', 'Texte au-dessus (vide = ping par défaut)', TextInputStyle.Paragraph,
-            { value: cur.content, max: 1000, placeholder: '{user} {staff} @Rôle #salon' }),
+        new ModalBuilder().setCustomId(modalId).setTitle("Ticket opening message").addComponents(
+          field('content', 'Text above (empty = ping by default)', TextInputStyle.Paragraph,
+            { value: cur.content, max: 1000, placeholder: '{user} {staff} @Role #channel' }),
           field('title', 'Titre', TextInputStyle.Short,
             { value: cur.title, max: 256, placeholder: '🎫 Ticket — {category}' }),
-          field('description', 'Description (vide = texte par défaut)', TextInputStyle.Paragraph,
-            { value: cur.description, max: 4000, placeholder: '{user} {username} {server} {category} {sub} {staff} @Rôle #salon' }),
-          field('image', "URL de l'image (optionnel)", TextInputStyle.Short, { value: cur.image, max: 500 }),
-          field('color', 'Couleur hex (ex : #5865F2)', TextInputStyle.Short, { value: cur.color, max: 7 }),
+          field('description', 'Description (empty = default text)', TextInputStyle.Paragraph,
+            { value: cur.description, max: 4000, placeholder: '{user} {username} {server} {category} {sub} {staff} @Role #channel' }),
+          field('image', "Image URL (optional)", TextInputStyle.Short, { value: cur.image, max: 500 }),
+          field('color', 'Hex color (e.g. #5865F2)', TextInputStyle.Short, { value: cur.color, max: 7 }),
         ));
 
       const m = await i.awaitModalSubmit({
@@ -4655,10 +4655,10 @@ const handlers = {
 
       return m.reply({
         content: empty
-          ? `✅ Message par défaut remis pour ${scope}.`
-          : `✅ Message d'ouverture enregistré pour ${scope}. Il s'applique aux **nouveaux** tickets.\n` +
-            'Variables : `{user}` `{username}` `{server}` `{category}` `{sub}` `{config}` `{staff}` — ' +
-            '`@Pseudo`, `@Rôle` et `#salon` deviennent cliquables.',
+          ? `✅ Default message restored for ${scope}.`
+          : `✅ Opening message recorded for ${scope}. It applies to **new** tickets.\n` +
+            'Variables: `{user}` `{username}` `{server}` `{category}` `{sub}` `{config}` `{staff}` —' +
+            '`@Pseudo`, `@Role` and `#channel` become clickable.',
         flags: EPH,
       });
     }
@@ -4667,28 +4667,28 @@ const handlers = {
     if (sub === 'message-boutons') {
       const panelId = i.options.getString('panel');
       const panel = panelId ? cfg.panels.find((p) => p.messageId === panelId) : null;
-      if (panelId && !panel) return i.reply({ content: '❌ Panel introuvable. Choisis-le dans la liste proposée.', flags: EPH });
+      if (panelId && !panel) return i.reply({ content: '❌ Panel not found. Choose it from the list provided.', flags: EPH });
       const claim = (i.options.getString('prendre-en-charge') || '').trim();
       const close = (i.options.getString('fermer') || '').trim();
-      if (!claim && !close) return i.reply({ content: '❌ Indique au moins un texte ("defaut" pour remettre celui par défaut).', flags: EPH });
+      if (!claim && !close) return i.reply({ content: '❌ Indicates at least one text ("default" to reset the default).', flags: EPH });
       const m = panel ? (panel.openMsg ??= {}) : (cfg.openMsg ??= {});
       if (claim) m.claimLabel = claim.toLowerCase() === 'defaut' ? null : claim.slice(0, 80);
       if (close) m.closeLabel = close.toLowerCase() === 'defaut' ? null : close.slice(0, 80);
       save();
-      return i.reply({ content: `✅ Texte des boutons enregistré pour ${panel ? 'ce panel' : `tous les panels de **${cfgName}**`} (nouveaux tickets).`, flags: EPH });
+      return i.reply({ content: `✅ Saved button text for ${panel ? 'this panel' : `all panels of **${cfgName}**`} (new tickets).`, flags: EPH });
     }
 
     /* ----- Couleur / texte du bouton d'un panel déjà envoyé ----- */
     if (sub === 'bouton') {
       const panel = cfg.panels.find((p) => p.messageId === i.options.getString('panel', true));
-      if (!panel) return i.reply({ content: '❌ Panel introuvable. Choisis-le dans la liste proposée.', flags: EPH });
+      if (!panel) return i.reply({ content: '❌ Panel not found. Choose it from the list provided.', flags: EPH });
       const style = i.options.getString('couleur');
       const label = (i.options.getString('texte') || '').trim();
-      if (!style && !label) return i.reply({ content: '❌ Choisis une couleur et/ou un texte.', flags: EPH });
+      if (!style && !label) return i.reply({ content: '❌ Choose a color and/or text.', flags: EPH });
       if (cfg.reasons.length && !panel.button && !cfg.dm) {
         return i.reply({
-          content: '❌ Ce panel utilise un **menu déroulant** (pas de couleur possible). ' +
-            'Renvoie-le avec `/ticket panel` en choisissant `type : Bouton`.',
+          content: '❌ This panel uses a **drop-down menu** (no color possible).' +
+            'Return it with `/ticket panel` by choosing `type : Bouton`.',
           flags: EPH,
         });
       }
@@ -4698,7 +4698,7 @@ const handlers = {
       save();
       await i.deferReply({ flags: EPH });
       await refreshPanels(i.guild, cfgName);
-      return i.editReply(`✅ Bouton mis à jour${style ? ` (couleur : ${BTN_NAMES[style]})` : ''}.`);
+      return i.editReply(`✅ Updated button${style ? ` (color: ${BTN_NAMES[style]})` : ''}.`);
     }
 
     if (sub === 'panel') {
@@ -4717,7 +4717,7 @@ const handlers = {
       const style = i.options.getString('couleur-bouton') || 'Primary';
 
       if (noText && !img && !isUrl(imgUrl)) {
-        return i.reply({ content: '❌ Pour un panel sans texte, ajoute une image (fichier ou lien).', flags: EPH });
+        return i.reply({ content: '❌ For a panel without text, add an image (file or link).', flags: EPH });
       }
       await i.deferReply({ flags: EPH });
 
@@ -4771,12 +4771,12 @@ const handlers = {
         });
         save();
         await i.editReply(
-          `✅ Panel envoyé dans <#${salon.id}>. Il se mettra à jour tout seul.\n` +
-          "Message d'ouverture des tickets de ce panel : `/ticket message`.");
+          `✅ Panel sent to <#${salon.id}>. It will update on its own.\n` +
+          "Ticket opening message: `/ticket message`.");
         if (placeholder) refreshPanels(i.guild, cfgName).catch(console.error);
       } catch (e) {
         console.error(e);
-        await i.editReply("❌ Envoi impossible : vérifie mes permissions dans ce salon, le lien de l'image et les emojis des catégories.");
+        await i.editReply("❌ Unable to send: check my permissions in this channel, the image link and the category emojis.");
       }
     }
   },
@@ -4825,7 +4825,7 @@ async function autocomplete(i) {
   if (f.name === 'sous-panel') {
     const cfg = d.tickets[i.options.getString('config')];
     const list = (cfg?.subPanels || []).map((x) => ({ name: `${x.name} (${x.choices.length} choix)`.slice(0, 100), value: x.id }));
-    if (i.options.getSubcommand(false) === 'lier') list.unshift({ name: '❌ Aucun sous-panel (ticket direct)', value: 'none' });
+    if (i.options.getSubcommand(false) === 'lier') list.unshift({ name: '❌ No subpanel (direct ticket)', value: 'none' });
     return i.respond(list.filter((o) => o.name.toLowerCase().includes(q)).slice(0, 25));
   }
   if (f.name === 'suivant') {
@@ -4833,7 +4833,7 @@ async function autocomplete(i) {
     const cur = cfg && findSub(cfg, i.options.getString('sous-panel'));
     const list = (cfg?.subPanels || []).filter((x) => cur && x !== cur && !subReaches(cfg, x.id, cur.id))
       .map((x) => ({ name: `${x.name} (${x.choices.length} choix)`.slice(0, 100), value: x.id }));
-    list.unshift({ name: '❌ Aucun (ticket direct)', value: 'aucun' });
+    list.unshift({ name: '❌ None (direct ticket)', value: 'aucun' });
     return i.respond(list.filter((o) => o.name.toLowerCase().includes(q)).slice(0, 25));
   }
   if (f.name === 'sous-choix') {
@@ -4845,8 +4845,8 @@ async function autocomplete(i) {
   if (f.name === 'pour') {
     const cfg = d.tickets[i.options.getString('config')];
     const list = cfg
-      ? [{ name: '🌐 Toutes les catégories (par défaut)', value: 'all' },
-        ...subTargets(cfg).map((t) => ({ name: `${t.mp ? '📩 MP · ' : ''}${t.label}`.slice(0, 100), value: t.id }))]
+      ? [{ name: '🌐 All categories (default)', value: 'all' },
+        ...subTargets(cfg).map((t) => ({ name: `${t.mp ? '📩 DM · ' : ''}${t.label}`.slice(0, 100), value: t.id }))]
       : [];
     return i.respond(list.filter((o) => o.name.toLowerCase().includes(q)).slice(0, 25));
   }
@@ -4855,7 +4855,7 @@ async function autocomplete(i) {
     return i.respond(
       Object.entries(d.reactionRoles)
         .map(([id, r]) => ({
-          name: `${r.label} → @${i.guild.roles.cache.get(r.roleId)?.name || 'rôle supprimé'} (#${i.guild.channels.cache.get(r.channelId)?.name || '?'})`.slice(0, 100),
+          name: `${r.label} → @${i.guild.roles.cache.get(r.roleId)?.name || 'deleted role'} (#${i.guild.channels.cache.get(r.channelId)?.name || '?'})`.slice(0, 100),
           value: id,
         }))
         .filter((o) => o.name.toLowerCase().includes(q))
@@ -4870,7 +4870,7 @@ async function autocomplete(i) {
         .sort((a, b) => b[1].endAt - a[1].endAt)
         .slice(0, 25)
         .map(([id, g]) => ({
-          name: `${g.prize} (#${i.guild.channels.cache.get(g.channelId)?.name || '?'})${g.ended ? ' — terminé' : ''}`.slice(0, 100),
+          name: `${g.prize} (#${i.guild.channels.cache.get(g.channelId)?.name || '?'})${g.ended ? ' — ended' : ''}`.slice(0, 100),
           value: id,
         })));
   }
@@ -4921,12 +4921,12 @@ async function autocomplete(i) {
 /*  Événements                                                         */
 /* ------------------------------------------------------------------ */
 client.once(Events.ClientReady, async () => {
-  console.log(`✅ Connecté en tant que ${client.user.tag}`);
+  console.log(`✅ Logged in as ${client.user.tag}`);
 
   // Les commandes sont enregistrées serveur par serveur (pour pouvoir en retirer)
   await client.application.commands.set([]).catch(console.error); // supprime les anciennes commandes globales
   for (const guild of client.guilds.cache.values()) await registerCommands(guild);
-  console.log('✅ Commandes enregistrées');
+  console.log('✅ Commands registered');
 
   client.guilds.cache.forEach(updateCount);
   setInterval(() => client.guilds.cache.forEach(updateCount), 10 * 60_000);
@@ -4944,7 +4944,7 @@ client.once(Events.ClientReady, async () => {
 
   // Mise à jour automatique de tous les systèmes (panels de tickets, autoroles, giveaways, classement, salon commandes)
   for (const guild of client.guilds.cache.values()) await refreshGuild(guild);
-  console.log('✅ Systèmes mis à jour automatiquement');
+  console.log('✅ Systems updated automatically');
 
   // Le classement des invitations se met à jour tout seul toutes les 5 minutes
   setInterval(() => {
@@ -4979,41 +4979,60 @@ client.on(Events.ChannelCreate, (ch) => {
 // Salon des commandes : personne ne lit les messages des autres.
 // Les réponses du bot sont privées et les messages écrits à la main dans ce salon sont supprimés.
 /* ------------------------------------------------------------------ */
-/*  Automatic translation inside tickets (FR ⇄ EN)                    */
+/*  Live translation inside tickets (any language → French + English)  */
 /* ------------------------------------------------------------------ */
 const TR_CACHE = new Map();
-const TR_MARK = (n) => `ZXQTOKEN${n}QXZ`;
 
 function protectTranslation(text) {
   const store = [];
-  const hold = (s) => { const k = TR_MARK(store.length); store.push(s); return k; };
+  const hold = (s) => { const k = `ZXQTOKEN${store.length}QXZ`; store.push(s); return k; };
   const out = String(text)
     .replace(/<a?:[A-Za-z0-9_~]+:\d+>/g, hold)
     .replace(/<@[!&]?\d+>/g, hold)
     .replace(/<#\d+>/g, hold)
     .replace(/\{[A-Za-z0-9_]+\}/g, hold)
     .replace(/https?:\/\/\S+/g, hold);
-  return { out, restore: (s) => String(s).replace(/ZXQTOKEN(\d+)QXZ/g, (_, n) => store[Number(n)] ?? '') };
+  const restore = (s) => {
+    let x = String(s);
+    for (let i = 0; i < 4 && /Z\s*X\s*Q\s*T\s*O\s*K\s*E\s*N/i.test(x); i++) {
+      x = x.replace(/Z\s*X\s*Q\s*T\s*O\s*K\s*E\s*N\s*(\d+)\s*Q\s*X\s*Z/gi, (_, n) => store[Number(n)] ?? '');
+    }
+    return x;
+  };
+  return { out, restore };
 }
 
-async function googleTranslate(text, to) {
-  const key = to + '\u0000' + text;
-  if (TR_CACHE.has(key)) return TR_CACHE.get(key);
+// Reads the two payload shapes returned by the free Google endpoints.
+function parseGoogle(payload) {
+  if (!Array.isArray(payload) || !payload.length) return null;
+  if (Array.isArray(payload[0]) && Array.isArray(payload[0][0])) {
+    // [[["text", ...], ...], null, "fr", ...]
+    const translated = payload[0].map((p) => (Array.isArray(p) ? p[0] || '' : '')).join('');
+    if (!translated) return null;
+    return { translated, detected: String(payload[2] || '').toLowerCase() };
+  }
+  if (Array.isArray(payload[0])) {
+    // [["text", "fr"]]
+    const first = payload[0];
+    const translated = typeof first[0] === 'string' ? first[0] : '';
+    if (!translated) return null;
+    const detected = typeof first[1] === 'string' ? first[1] : (typeof payload[1] === 'string' ? payload[1] : '');
+    return { translated, detected: String(detected).toLowerCase() };
+  }
+  if (typeof payload[0] === 'string') {
+    return { translated: payload[0], detected: String(payload[1] || '').toLowerCase() };
+  }
+  return null;
+}
+
+async function fetchJson(url) {
   if (typeof fetch !== 'function') return null;
-  const url = 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=' +
-    encodeURIComponent(to) + '&dt=t&q=' + encodeURIComponent(String(text).slice(0, 1800));
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 8000);
+  const timer = setTimeout(() => ctrl.abort(), 9000);
   try {
     const r = await fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ZNKBot/1.0)' } });
     if (!r.ok) return null;
-    const j = await r.json();
-    const translated = Array.isArray(j?.[0]) ? j[0].map((p) => p?.[0] || '').join('') : '';
-    if (!translated) return null;
-    const result = { translated, detected: String(j?.[2] || '').toLowerCase() };
-    if (TR_CACHE.size > 3000) TR_CACHE.clear();
-    TR_CACHE.set(key, result);
-    return result;
+    return await r.json();
   } catch {
     return null;
   } finally {
@@ -5021,8 +5040,51 @@ async function googleTranslate(text, to) {
   }
 }
 
-// If live translation is enabled for the ticket, posts the translation publicly:
-//   English message -> 🇫🇷 French translation · French message -> 🇬🇧 English translation
+async function googleTranslate(text, to) {
+  const q = String(text).slice(0, 1800);
+  const key = `${to}\u0000${q}`;
+  if (TR_CACHE.has(key)) return TR_CACHE.get(key);
+  const encoded = encodeURIComponent(q);
+  const lang = encodeURIComponent(to);
+  let result = parseGoogle(await fetchJson(
+    `https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=auto&tl=${lang}&q=${encoded}`,
+  ));
+  if (!result) {
+    result = parseGoogle(await fetchJson(
+      `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${lang}&dt=t&q=${encoded}`,
+    ));
+  }
+  if (!result) return null;
+  if (TR_CACHE.size > 3000) TR_CACHE.clear();
+  TR_CACHE.set(key, result);
+  return result;
+}
+
+function isTranslatable(raw) {
+  if (!raw || raw.length < 2) return false;
+  const s = raw.replace(/<[@#:][^>]*>/g, ' ').replace(/https?:\/\/\S+/g, ' ').trim();
+  if (!s) return false;
+  if (/^[/!?.,;:]/.test(s)) return false; // commands and punctuation-only messages
+  const letters = (s.match(/\p{L}/gu) || []).length;
+  return letters >= 2;
+}
+
+// Detects the source language, then returns the missing translation(s):
+//   French  -> { en }         English -> { fr }
+//   other   -> { fr, en }     (both, so everyone understands the ticket)
+async function translatePair(raw) {
+  const { out, restore } = protectTranslation(raw);
+  const toEnglish = await googleTranslate(out, 'en');
+  if (!toEnglish) return null;
+  const detected = String(toEnglish.detected || '').split(/[-_]/)[0].toLowerCase();
+  const en = restore(toEnglish.translated).trim();
+  if (detected === 'fr') return en ? { en } : null;
+  const toFrench = await googleTranslate(out, 'fr');
+  const fr = toFrench ? restore(toFrench.translated).trim() : '';
+  if (detected === 'en') return fr ? { fr } : null;
+  return (fr || en) ? { fr, en } : null;
+}
+
 async function liveTranslate(message) {
   if (!message.guildId || message.author.bot || message.system) return;
   const d = getG(message.guildId);
@@ -5030,32 +5092,16 @@ async function liveTranslate(message) {
   if (!t) return;
   if (!t.translate && !d.tickets[t.config]?.translate) return;
   const raw = (message.content || '').trim();
-  if (raw.length < 3) return;
-  if (!/[A-Za-zÀ-ÿ]{2}/.test(raw)) return;
-  if (/^(?:https?:\/\/\S+|\/|!|\.)\S*$/i.test(raw)) return;
-  if ((raw.match(/[A-Za-zÀ-ÿ]/g) || []).length < 3) return;
+  if (!isTranslatable(raw)) return;
 
-  const { out, restore } = protectTranslation(raw);
-  const first = await googleTranslate(out, 'fr');
-  if (!first) return;
-  const detected = first.detected || '';
-  let flag = '🇫🇷';
-  let translated = first.translated;
-  if (!detected.startsWith('en') && !detected.startsWith('fr')) {
-    const other = await googleTranslate(out, 'en');
-    if (!other) return;
-    flag = '🌐';
-    translated = other.translated;
-  } else if (detected.startsWith('fr')) {
-    const second = await googleTranslate(out, 'en');
-    if (!second) return;
-    flag = '🇬🇧';
-    translated = second.translated;
-  }
-  translated = restore(translated).trim();
-  if (!translated || translated.toLowerCase() === raw.toLowerCase()) return;
+  const res = await translatePair(raw);
+  if (!res) return;
+  const lines = [];
+  if (res.fr && res.fr.toLowerCase() !== raw.toLowerCase()) lines.push(`🇫🇷 ${res.fr}`);
+  if (res.en && res.en.toLowerCase() !== raw.toLowerCase()) lines.push(`🇬🇧 ${res.en}`);
+  if (!lines.length) return;
   await message.reply({
-    content: `${flag} ${translated}`.slice(0, 2000),
+    content: lines.join('\n').slice(0, 2000),
     allowedMentions: { repliedUser: false, parse: [] },
   }).catch(() => {});
 }
@@ -5091,7 +5137,7 @@ client.on(Events.GuildMemberAdd, async (member) => {
   if (rec) {
     if (rec.until > Date.now()) {
       const role = member.guild.roles.cache.get(d.muteRoleId);
-      if (role) member.roles.add(role, 'Mute en cours').catch(console.error);
+      if (role) member.roles.add(role, 'Mute in progress').catch(console.error);
     } else {
       delete d.muted[member.id];
       save();
@@ -5105,7 +5151,7 @@ client.on(Events.GuildMemberAdd, async (member) => {
       return r && !r.managed && r.editable;
     });
     if (ids.length) {
-      await member.roles.add(ids, "Rôle automatique à l'arrivée").catch(console.error);
+      await member.roles.add(ids, "Automatic role on arrival").catch(console.error);
     }
   }
 
@@ -5147,14 +5193,14 @@ client.on(Events.InteractionCreate, async (i) => {
     if (i.isChatInputCommand()) {
       if (!commandAllowed(i)) return await i.reply(NO_ACCESS);
       if (getG(i.guildId).disabledCommands.includes(i.commandName) && !ALWAYS_ON.has(i.commandName)) {
-        return await i.reply({ content: '❌ Cette commande est désactivée.', flags: EPH });
+        return await i.reply({ content: '❌ This command is disabled.', flags: EPH });
       }
 
       // Commande tapée dans le mauvais salon : message visible uniquement par celui qui l'a envoyée
       const wc = wrongChannel(i);
       if (wc) {
         return await i.reply({
-          content: `❌ Les commandes ne s'utilisent pas ici. Va dans <#${wc}> pour taper \`/${i.commandName}\`.`,
+          content: `❌ Commands are not used here. Go to <#${wc}> to type \`/${i.commandName}\`.`,
           flags: EPH,
         });
       }
@@ -5176,14 +5222,14 @@ client.on(Events.InteractionCreate, async (i) => {
       if (i.customId.startsWith('tk_sale:yes:')) return await saleModal(i, i.customId.split(':')[2]);
       if (i.customId.startsWith('tk_sale:no:')) return await finishClose(i, null);
       if (i.customId === 'tk_close_cancel') {
-        return await i.update({ content: '✅ Fermeture annulée.', embeds: [], components: [] });
+        return await i.update({ content: '✅ Closure canceled.', embeds: [], components: [] });
       }
       if (i.customId === 'gw_join') return await gwJoin(i);
       if (i.customId.startsWith('gw_leave:')) return await gwLeave(i);
     }
   } catch (e) {
     console.error(e);
-    const msg = { content: '❌ Une erreur est survenue.', flags: EPH };
+    const msg = { content: '❌ An error has occurred.', flags: EPH };
     if (i.replied || i.deferred) i.followUp(msg).catch(() => {});
     else if (!i.isAutocomplete()) i.reply(msg).catch(() => {});
   }

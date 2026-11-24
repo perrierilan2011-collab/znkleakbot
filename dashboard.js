@@ -245,7 +245,8 @@ module.exports = function startDashboard(ctx) {
           subPanels: [], subLinks: {}, defaultSubPanelId: null, openPresets: [],
           color: colorOk(b.color) || null,
           logo: urlOk(b.logo) || null,
-          translate: b.translate === true || b.translate === 'true',
+          // live translation is on by default (can be disabled per configuration)
+          translate: ('translate' in b) ? (b.translate === true || b.translate === 'true') : true,
         };
         save();
         return { ok: true, name };

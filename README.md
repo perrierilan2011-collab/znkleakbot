@@ -5,7 +5,8 @@ Bot Discord de tickets, ventes, vouchs, invitations et modération, avec un dash
 ## Nouveautés
 
 - **Ajouter / retirer un membre d'un ticket** : `/ticket ajouter` et `/ticket retirer` (dans le ticket).
-- **Vouch vérifié** : `/vouch` dans un ticket → note de 1 à 5 étoiles → message + image → publication dans un salon dédié avec la photo de profil.
+- **Vouch vérifié** : `/vouch` dans un ticket → note de 1 à 5 étoiles → message → publication dans un salon dédié avec la photo de profil et un logo configurable.
+- **Traduction automatique** : dans les tickets, chaque message reçu est traduit en français et en anglais, quelle que soit la langue d'origine. Un message français reçoit sa traduction anglaise (🇬🇧), un message anglais sa traduction française (🇫🇷), et un message dans une autre langue reçoit les deux. Les mentions, liens et emojis sont conservés. Activable par configuration ou par panel.
 - **Suivi des ventes** : à la fermeture d'un ticket, le bot demande si la vente a été réalisée. Le staff saisit le montant, l'acheteur et le produit. Un panel dédié affiche le nombre de ventes, l'argent généré, le panier moyen et les dernières ventes.
 - **Couleur globale** : une seule couleur pour tous les panels (tickets, vouchs, ventes), réglable depuis le dashboard ou `/ticket couleur`.
 - **Dashboard simplifié** : navigation par sections (Accueil, Tickets, Vouches, Ventes, Apparence, Invitations, Commandes, Sauvegarde).
@@ -57,6 +58,7 @@ Permissions du bot : Gérer les salons, Gérer les rôles, Gérer les messages, 
 - `/ticket panel`, `/ticket message`, `/ticket bouton`
 - `/ticket couleur` (couleur globale ou par configuration)
 - `/ticket vouch-salon`, `vouch-activer`, `vouch-desactiver`
+- `/ticket traduction-activer`, `traduction-desactiver` (traduction automatique toute langue → français + anglais)
 - `/ticket ventes-salon`, `ventes-panel`, `ventes-devise`
 
 ### Vouch
