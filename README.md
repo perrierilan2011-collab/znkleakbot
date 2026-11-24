@@ -126,8 +126,8 @@ In **Tickets → Settings**:
 
 Everything is configured from the dashboard, **Tickets** tab:
 
-- **Categories**: each category has a name, an emoji, a short description and a **panel text** (shown to the left of the button in a multi-button panel). Each category also has a **Next sub-panel** field: when a member clicks that category, the linked sub-panel opens so they can choose an offer. `Default` uses the default sub-panel, `None` opens the ticket directly.
-- **Sub-panels**: a sub-panel is a list of choices; each choice can lead to another sub-panel (`Next`) or open the ticket. The flow can chain as many sub-panels as needed (category → sub-panel → choice → sub-panel → …), and the ticket is only created at the end.
+- **Categories**: each category has a name, an emoji, a short description and a **panel text** (shown to the left of the button in a multi-button panel). Each category also has a **Next sub-panel** field: when a member clicks that category, the linked sub-panel opens so they can choose an offer. `Default` uses the default sub-panel, `None` opens the ticket directly. Use the **↑ / ↓** buttons to reorder the categories: this is the order shown in the Discord menu and buttons, and already-sent panels update automatically.
+- **Sub-panels**: a sub-panel is a list of choices; each choice can lead to another sub-panel (`Next`) or open the ticket. The flow can chain as many sub-panels as needed (category → sub-panel → choice → sub-panel → …), and the ticket is only created at the end. Choices also have **↑ / ↓** buttons to change their order in the menu.
 - **Import a list of choices**: in **Tickets → Sub-panels**, select a sub-panel and use **Import a list of choices**. One item per line, format `Name : price` (or `Name | price`). The price is written into the choice **description**, which is also what `{prix}` / `[prix]` uses in the ticket opening message and ticket name.
 - **Price field on a choice**: each choice also has a **Price** field and a **→ description** button. If the description is empty when you save, the price is used as the description.
 - **Panels** → **Type**:

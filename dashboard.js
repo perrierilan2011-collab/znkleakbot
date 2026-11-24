@@ -599,6 +599,29 @@ module.exports = function startDashboard(ctx) {
       return { ok: true };
     },
 
+    // ---------- Ordre des choix (catégories du menu / choix d'un sous-panel) ----------
+    'POST /api/reorder': async (_r, _q, b) => {
+      const cfg = guildCfg(b.guildId, b.config);
+      const guild = client.guilds.cache.get(b.guildId);
+      let list;
+      if (b.target === 'reasons') list = (cfg.reasons ??= []);
+      else if (b.target === 'choices') {
+        const sp = (cfg.subPanels || []).find((s) => s.id === b.subId);
+        if (!sp) throw new Error('Sous-panel introuvable');
+        list = (sp.choices ??= []);
+      } else throw new Error('Cible inconnue');
+      const i = list.findIndex((x) => x.id === b.id);
+      if (i < 0) throw new Error('Élément introuvable');
+      const j = b.dir === 'up' ? i - 1 : b.dir === 'down' ? i + 1 : Number(b.to);
+      if (!Number.isInteger(j) || j === i || j < 0 || j >= list.length) return { ok: true, moved: false };
+      const [item] = list.splice(i, 1);
+      list.splice(j, 0, item);
+      save();
+      // L'ordre des catégories est visible dans les panels déjà envoyés : on les met à jour.
+      if (b.target === 'reasons') await refreshPanels(guild, cfg.name).catch(console.error);
+      return { ok: true, moved: true, index: j };
+    },
+
     // ---------- Sous-panels ----------
     'POST /api/subpanel': async (_r, _q, b) => {
       const cfg = guildCfg(b.guildId, b.config);

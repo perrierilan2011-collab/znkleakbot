@@ -1168,10 +1168,10 @@ function tkReasons() {
   };
   return `<section class="card">
     <div class="row" style="justify-content:space-between"><h2>Catégories du menu (${t.reasons.length}/125)</h2><span class="muted">Le menu déroulant du panel</span></div>
-    <div class="list">${t.reasons.map((x) => `
+    <div class="list">${t.reasons.map((x, n) => `
       <div class="item"><div class="grow"><b>${esc(x.emoji || '')} ${esc(x.label)}</b>
         <small>${esc(reasonDescPreview(x))} · ${chName(x.categoryId || t.categoryId)}${rs(x).length ? ' · ' + rs(x).map((id) => esc(roleName(id))).join(' ') : ''} · ➜ ${esc(linkLabel(x.id))}</small></div>
-        <div class="row"><button class="mini" onclick="S.reasonEdit='${x.id}';render()">Modifier</button><button class="mini" onclick="reasonDel('${x.id}')">Supprimer</button></div></div>`).join('') || '<div class="empty">Aucune catégorie. Sans catégorie, le panel utilise un simple bouton.</div>'}
+        <div class="row"><button class="mini" title="Monter" ${n === 0 ? 'disabled' : ''} onclick="reasonMove('${x.id}',-1)">↑</button><button class="mini" title="Descendre" ${n === t.reasons.length - 1 ? 'disabled' : ''} onclick="reasonMove('${x.id}',1)">↓</button><button class="mini" onclick="S.reasonEdit='${x.id}';render()">Modifier</button><button class="mini" onclick="reasonDel('${x.id}')">Supprimer</button></div></div>`).join('') || '<div class="empty">Aucune catégorie. Sans catégorie, le panel utilise un simple bouton.</div>'}
     </div>
   </section>
   <section class="card">
@@ -1242,6 +1242,13 @@ async function reasonDel(id) {
   if (!r || !confirm(`Supprimer la catégorie « ${r.label} » ?`)) return;
   try { await api('/api/ticket-reason', { action: 'remove', guildId: S.gid, config: t.name, id }); await afterChange('Catégorie supprimée'); }
   catch (e) { toast(e.message, false); }
+}
+async function reasonMove(id, dir) {
+  const t = TC();
+  try {
+    await api('/api/reorder', { guildId: S.gid, config: t.name, target: 'reasons', id, dir: dir < 0 ? 'up' : 'down' });
+    await afterChange('Ordre des catégories enregistré ✅');
+  } catch (e) { toast(e.message, false); }
 }
 function priceLike(s) {
   return /^[\d.,]+\s*(?:€|\$|£|euros?|eur|usd)?$/i.test(String(s || '').trim());
@@ -1356,10 +1363,10 @@ function choiceCard(sp, ch) {
   const others = (TC().subPanels || []).filter((s) => s.id !== sp.id);
   const cs = (x) => (Array.isArray(x?.staffRoles) && x.staffRoles.length ? x.staffRoles : (x?.staffRoleId ? [x.staffRoleId] : []));
   return `<section class="card"><h2>Choix de « ${esc(sp.name)} » (${sp.choices.length}/125)</h2>
-    <div class="list">${sp.choices.map((c) => `
+    <div class="list">${sp.choices.map((c, n) => `
       <div class="item"><div class="grow"><b>${esc(c.emoji || '')} ${esc(c.label)}</b>
         <small>${esc(c.description || '')}${c.description ? ' · ' : ''}${chName(c.categoryId)}${cs(c).length ? ' · ' + cs(c).map((id) => esc(roleName(id))).join(' ') : ''}${c.nextSubId ? ' · ➜ ' + esc((TC().subPanels || []).find((s) => s.id === c.nextSubId)?.name || '?') : ''}</small></div>
-        <div class="row"><button class="mini" onclick="S.choiceEdit='${c.id}';render()">Modifier</button><button class="mini" onclick="choiceDel('${c.id}')">Supprimer</button></div></div>`).join('') || '<div class="empty">Aucun choix : ce sous-panel ne s’affichera pas.</div>'}</div>
+        <div class="row"><button class="mini" title="Monter" ${n === 0 ? 'disabled' : ''} onclick="choiceMove('${c.id}',-1)">↑</button><button class="mini" title="Descendre" ${n === sp.choices.length - 1 ? 'disabled' : ''} onclick="choiceMove('${c.id}',1)">↓</button><button class="mini" onclick="S.choiceEdit='${c.id}';render()">Modifier</button><button class="mini" onclick="choiceDel('${c.id}')">Supprimer</button></div></div>`).join('') || '<div class="empty">Aucun choix : ce sous-panel ne s’affichera pas.</div>'}</div>
     <h3 style="margin-top:18px">${ch ? 'Modifier « ' + esc(ch.label) + ' »' : 'Ajouter un choix'}</h3>
     <div class="grid2">
       <label class="field"><span>Nom <b class="req">*</b></span><input id="ch_label" maxlength="100" value="${esc(ch?.label || '')}"></label>
@@ -1440,6 +1447,14 @@ async function choiceDel(id) {
   if (!c || !confirm(`Retirer le choix « ${c.label} » ?`)) return;
   try { await api('/api/subpanel-choice', { action: 'remove', guildId: S.gid, config: S.tk, subId: sp.id, id }); S.choiceEdit = null; await afterChange('Choix supprimé'); }
   catch (e) { toast(e.message, false); }
+}
+async function choiceMove(id, dir) {
+  const sp = (TC().subPanels || []).find((x) => x.id === S.sp);
+  if (!sp) return;
+  try {
+    await api('/api/reorder', { guildId: S.gid, config: S.tk, target: 'choices', subId: sp.id, id, dir: dir < 0 ? 'up' : 'down' });
+    await afterChange('Ordre des choix enregistré ✅');
+  } catch (e) { toast(e.message, false); }
 }
 
 /* ---------- Panels envoyés ---------- */
