@@ -1155,11 +1155,21 @@ function tkReasons() {
   const t = TC();
   const r = S.reasonEdit ? t.reasons.find((x) => x.id === S.reasonEdit) : null;
   const rs = (x) => (Array.isArray(x?.staffRoles) && x.staffRoles.length ? x.staffRoles : (x?.staffRoleId ? [x.staffRoleId] : []));
+  const sps = t.subPanels || [];
+  const spName = (id) => sps.find((s) => s.id === id)?.name || '?';
+  // Sous-panel ouvert quand on clique sur la catégorie
+  const linkLabel = (id) => {
+    const v = t.subLinks?.[id];
+    if (v === 'none') return 'ticket direct';
+    if (v) return spName(v);
+    const d = sps.find((s) => s.id === t.defaultSub);
+    return d ? 'défaut : ' + d.name : 'aucun sous-panel';
+  };
   return `<section class="card">
     <div class="row" style="justify-content:space-between"><h2>Catégories du menu (${t.reasons.length}/125)</h2><span class="muted">Le menu déroulant du panel</span></div>
     <div class="list">${t.reasons.map((x) => `
       <div class="item"><div class="grow"><b>${esc(x.emoji || '')} ${esc(x.label)}</b>
-        <small>${esc(reasonDescPreview(x))} · ${chName(x.categoryId || t.categoryId)}${rs(x).length ? ' · ' + rs(x).map((id) => esc(roleName(id))).join(' ') : ''}</small></div>
+        <small>${esc(reasonDescPreview(x))} · ${chName(x.categoryId || t.categoryId)}${rs(x).length ? ' · ' + rs(x).map((id) => esc(roleName(id))).join(' ') : ''} · ➜ ${esc(linkLabel(x.id))}</small></div>
         <div class="row"><button class="mini" onclick="S.reasonEdit='${x.id}';render()">Modifier</button><button class="mini" onclick="reasonDel('${x.id}')">Supprimer</button></div></div>`).join('') || '<div class="empty">Aucune catégorie. Sans catégorie, le panel utilise un simple bouton.</div>'}
     </div>
   </section>
@@ -1181,6 +1191,14 @@ function tkReasons() {
       <label class="field"><span>Catégorie Discord</span><select id="r_cat">${categoryOptions(r?.categoryId || '', '— catégorie par défaut —')}</select></label>
       <label class="field"><span>Rôles staff de cette catégorie</span><small>Maintiens Ctrl pour en choisir plusieurs. Vide = rôles de la configuration.</small><select id="r_staff" multiple size="4">${staffSelect(rs(r))}</select></label>
     </div>
+    <label class="field"><span>Sous-panel suivant</span><small>Quand un membre clique sur cette catégorie, ce sous-panel s’ouvre pour choisir une offre. « Aucun » ouvre directement le ticket.</small>
+      <select id="r_link">
+        <option value="" ${!t.subLinks?.[r?.id] ? 'selected' : ''}>— sous-panel par défaut —</option>
+        <option value="none" ${t.subLinks?.[r?.id] === 'none' ? 'selected' : ''}>Aucun (ouvrir le ticket directement)</option>
+        ${sps.map((s) => `<option value="${s.id}" ${t.subLinks?.[r?.id] === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}
+      </select>
+      ${sps.length ? '' : '<small style="margin-top:6px">Aucun sous-panel pour le moment. <button type="button" class="mini" onclick="S.tab=\'sous\';render()">Créer un sous-panel</button></small>'}
+    </label>
     <label class="field"><span>Accès staff de cette catégorie</span><small>« Tous les rôles » : le membre doit posséder chaque rôle staff de cette catégorie pour voir le ticket.</small>
       <select id="r_mode"><option value="" ${!r?.staffMode ? 'selected' : ''}>Hériter de la configuration</option><option value="any" ${r?.staffMode === 'any' ? 'selected' : ''}>Au moins un rôle suffit</option><option value="all" ${r?.staffMode === 'all' ? 'selected' : ''}>Tous les rôles sont requis</option></select></label>
     <div class="row end">${r ? '<button class="btn ghost" onclick="S.reasonEdit=null;render()">Annuler</button>' : ''}<button class="btn" onclick="reasonSave()">${r ? 'Enregistrer' : 'Ajouter la catégorie'}</button></div>
@@ -1209,6 +1227,7 @@ async function reasonSave() {
       panelText: $('#r_ptext').value,
       price: $('#r_price').value, nameTemplate: $('#r_nametemplate').value,
       categoryId: $('#r_cat').value,
+      subPanelId: $('#r_link').value,
       staffRoles: [...$('#r_staff').selectedOptions].map((o) => o.value),
       staffMode: $('#r_mode').value || null,
     });
@@ -1267,13 +1286,7 @@ function tkSubs() {
       ${sps.map((s) => `<option value="${s.id}" ${t.defaultSub === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}
     </select>
     <h3 style="margin-top:18px">Sous-panel par catégorie</h3>
-    <div class="list">${t.reasons.map((r) => `
-      <div class="item"><div class="grow"><b>${esc(r.emoji || '')} ${esc(r.label)}</b></div>
-        <select style="max-width:260px" onchange="spLink('${r.id}', this.value)">
-          <option value="">— par défaut —</option>
-          <option value="none" ${t.subLinks?.[r.id] === 'none' ? 'selected' : ''}>Aucun</option>
-          ${sps.map((s) => `<option value="${s.id}" ${t.subLinks?.[r.id] === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}
-        </select></div>`).join('') || '<div class="empty">Ajoute d’abord des catégories.</div>'}</div>
+    <p class="muted">Chaque catégorie choisit son sous-panel dans l’onglet <b>Catégories</b>, champ <b>Sous-panel suivant</b>.</p>
   </section>
   <section class="card">
     <div class="row" style="justify-content:space-between"><h2>Mes sous-panels (${sps.length})</h2><button class="btn ghost" onclick="S.sp='new';S.spEdit=false;S.choiceEdit=null;render()">+ Nouveau</button></div>

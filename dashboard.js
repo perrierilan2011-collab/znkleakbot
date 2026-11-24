@@ -534,6 +534,16 @@ module.exports = function startDashboard(ctx) {
       const cfg = guildCfg(b.guildId, b.config);
       const guild = client.guilds.cache.get(b.guildId);
       cfg.reasons ??= [];
+      cfg.subLinks ??= {};
+      // Panel suivant d'une catégorie : sous-panel choisi dans l'onglet Catégories.
+      const setLink = (reasonId) => {
+        if (!('subPanelId' in b)) return;
+        const v = b.subPanelId;
+        if (v === 'none') { cfg.subLinks[reasonId] = 'none'; return; }
+        if (!v) { delete cfg.subLinks[reasonId]; return; }
+        if (!cfg.subPanels?.some((s) => s.id === v)) throw new Error('Sous-panel introuvable');
+        cfg.subLinks[reasonId] = v;
+      };
       if (b.action === 'add') {
         if (cfg.reasons.length >= 125) throw new Error('125 catégories maximum.');
         const label = txt(b.label, 100);
@@ -541,8 +551,9 @@ module.exports = function startDashboard(ctx) {
         if (cfg.reasons.some((r) => r.label.toLowerCase() === label.toLowerCase())) throw new Error('Cette catégorie existe déjà.');
         const staffRoles = (Array.isArray(b.staffRoles) ? b.staffRoles : (b.staffRoleId ? [b.staffRoleId] : []))
           .filter((id) => id !== guild.id && guild.roles.cache.has(id));
+        const id = crypto.randomUUID().slice(0, 8);
         cfg.reasons.push({
-          id: crypto.randomUUID().slice(0, 8), label,
+          id, label,
           description: txt(b.description, 100) || '',
           panelText: txt(b.panelText, 1000) || '',
           price: txt(b.price, 100) || '',
@@ -553,6 +564,7 @@ module.exports = function startDashboard(ctx) {
           staffMode: ['any', 'all'].includes(b.staffMode) ? b.staffMode : null,
           categoryId: b.categoryId && guild.channels.cache.get(b.categoryId)?.type === 4 ? b.categoryId : null,
         });
+        setLink(id);
       } else {
         const r = cfg.reasons.find((x) => x.id === b.id);
         if (!r) throw new Error('Catégorie introuvable');
@@ -579,6 +591,7 @@ module.exports = function startDashboard(ctx) {
             r.staffRoleId = ids[0] || null;
           }
           if ('staffMode' in b) r.staffMode = ['any', 'all'].includes(b.staffMode) ? b.staffMode : null;
+          setLink(r.id);
         } else throw new Error('Action inconnue');
       }
       save();
