@@ -177,6 +177,31 @@ const EPH = MessageFlags.Ephemeral;
 const isUrl = (u) => /^https?:\/\/\S+$/i.test((u || '').trim());
 // Image d'un panel : lien http(s) ou fichier déjà joint au message (attachment://...).
 const isMedia = (u) => isUrl(u) || /^attachment:\/\/\S+$/i.test(String(u || '').trim());
+// Image importée depuis le dashboard (base64) : renvoyée en pièce jointe à l'envoi.
+const isDataImage = (u) => /^data:image\/(?:png|jpe?g|gif|webp);base64,/i.test(String(u || '').trim());
+const mediaOk = (u) => isUrl(u) || isDataImage(u);
+const srcHash = (u) => (u ? crypto.createHash('sha1').update(String(u)).digest('hex').slice(0, 12) : '');
+function dataUrlExt(u) {
+  const m = /^data:image\/(png|jpe?g|gif|webp);base64,/i.exec(String(u || ''));
+  if (!m) return '.png';
+  const k = m[1].toLowerCase();
+  return k === 'jpeg' ? '.jpg' : '.' + k;
+}
+// Transforme une source d'image (lien, attachment:// ou data:) en référence utilisable par Discord.
+// Les images importées (data:) sont ajoutées aux fichiers du message.
+async function imageRef(src, baseName, files = []) {
+  const v = String(src || '').trim();
+  if (!v) return null;
+  if (isMedia(v)) return v;
+  if (isDataImage(v)) {
+    const f = await toFile({ url: v, name: baseName + dataUrlExt(v) }, baseName);
+    files.push(f);
+    return `attachment://${f.name}`;
+  }
+  return null;
+}
+// Logo affiché (panel / message) : logo du panel, sinon celui de la config, sinon le logo global.
+const logoSource = (cfg, d, p) => (p?.showLogo === false ? null : (p?.thumb || cfg?.logo || d?.panelLogo || null));
 
 // Convertit un emoji écrit par l'utilisateur en objet accepté par Discord.
 // Accepte : 🎮  |  <:nitro:123456789012345678>  |  <a:anim:123456789012345678>  |  un ID seul
@@ -342,6 +367,164 @@ async function buildAnnounce(m, img, thumb) {
   return { embed, files, mentions: { users: r.users, roles: r.roles } };
 }
 
+// Boutons-liens : "Label | https://url | emoji" (un par ligne, 25 maximum).
+function parseLinks(raw) {
+  const out = [];
+  for (const line of String(raw || '').replace(/\r/g, '').split('\n')) {
+    const t = line.trim();
+    if (!t) continue;
+    const parts = t.split('|').map((x) => x.trim());
+    let label, url, emoji;
+    if (parts.length === 1) url = parts[0];
+    else { label = parts[0]; url = parts[1]; emoji = parts[2]; }
+    if (!isUrl(url)) continue;
+    out.push({ label: (label || url).slice(0, 80), url: url.slice(0, 512), emoji: emoji || null });
+    if (out.length >= 25) break;
+  }
+  return out;
+}
+function linkRows(links) {
+  const rows = [];
+  for (const part of chunkList(links.slice(0, 25), 5)) {
+    const row = new ActionRowBuilder();
+    for (const l of part) {
+      const b = new ButtonBuilder().setStyle(ButtonStyle.Link).setURL(l.url).setLabel(l.label || 'Open');
+      const e = parseEmoji(l.emoji);
+      if (e) b.setEmoji(e);
+      row.addComponents(b);
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+// Lignes de restock : "Variante | Prix | Stock" (8 lignes maximum = 24 champs embed).
+function parseStockRows(raw) {
+  const out = [];
+  for (const line of String(raw || '').replace(/\r/g, '').split('\n')) {
+    const t = line.trim();
+    if (!t) continue;
+    const p = t.split('|').map((x) => x.trim());
+    if (!p[0]) continue;
+    out.push({ variant: p[0], price: p[1] || '—', stock: p[2] || '—' });
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+function productModal(modalId) {
+  return new ModalBuilder().setCustomId(modalId).setTitle('New product').addComponents(
+    field('titre', 'Title', TextInputStyle.Short, { max: 256, placeholder: '🎯 NEW PRODUCT: ...' }),
+    field('texte', 'Description (Markdown, @Pseudo @Role #channel)', TextInputStyle.Paragraph, {
+      required: true, max: 4000, placeholder: '### What’s included?\n- ...\n- ...',
+    }),
+    field('liens', 'Link buttons: Label | https://url | emoji (one per line)', TextInputStyle.Paragraph, {
+      max: 2000, placeholder: 'Check / Purchase | https://... | 🛒\nVideo Showcase | https://... | ▶️',
+    }),
+    field('image_url', 'Image URL (if no file)', TextInputStyle.Short, { max: 500 }),
+    field('footer', 'Footer', TextInputStyle.Short, { max: 2048 }),
+  );
+}
+function restockModal(modalId) {
+  return new ModalBuilder().setCustomId(modalId).setTitle('New restock').addComponents(
+    field('titre', 'Title', TextInputStyle.Short, { max: 256, placeholder: 'Buy Now' }),
+    field('lignes', 'Rows: Variant | Price | Stock (one per line)', TextInputStyle.Paragraph, {
+      required: true, max: 4000, placeholder: 'Rockstar Activation Codes [Automatic Delivery] | $0.11 | 439',
+    }),
+    field('liens', 'Link buttons: Label | https://url | emoji (one per line)', TextInputStyle.Paragraph, {
+      max: 2000, placeholder: 'Buy Now | https://... | 🛒',
+    }),
+    field('image_url', 'Image URL (if no file)', TextInputStyle.Short, { max: 500 }),
+    field('footer', 'Footer', TextInputStyle.Short, { max: 2048 }),
+  );
+}
+
+// /product et /restock : même logique (embed + image + logo + boutons-liens).
+async function catalogPost(i, kind) {
+  const salon = i.options.getChannel('salon', true);
+  const mentionOpt = i.options.get('mention');
+  const ping = i.options.getString('ping');
+  const couleur = i.options.getString('couleur');
+  const logoOn = i.options.getBoolean('logo') ?? true;
+  const img = i.options.getAttachment('image');
+  const thumb = i.options.getAttachment('miniature');
+
+  if (ping && !i.member.permissions.has(PermissionFlagsBits.MentionEveryone)) {
+    return i.reply({ content: '❌ You need permission to mention @everyone.', flags: EPH });
+  }
+
+  const modalId = `${kind}_${i.id}`;
+  await i.showModal(kind === 'product' ? productModal(modalId) : restockModal(modalId));
+  const m = await i.awaitModalSubmit({
+    time: 15 * 60_000,
+    filter: (x) => x.customId === modalId && x.user.id === i.user.id,
+  }).catch(() => null);
+  if (!m) return;
+
+  await m.deferReply({ flags: EPH });
+  try {
+    const d = getG(i.guildId);
+    const files = [];
+    const embed = new EmbedBuilder()
+      .setColor(parseColor(couleur, d.panelColor || '#5865F2'))
+      .setTimestamp();
+
+    const titre = m.fields.getTextInputValue('titre').trim();
+    if (titre) embed.setTitle(titre.slice(0, 256));
+    const footer = m.fields.getTextInputValue('footer').trim();
+    if (footer) embed.setFooter({ text: footer.slice(0, 2048) });
+
+    let mentions = { users: [], roles: [] };
+    if (kind === 'product') {
+      const texte = m.fields.getTextInputValue('texte').trim();
+      if (texte) {
+        const r = await rich(m.guild, texte);
+        mentions = r;
+        embed.setDescription(r.text.slice(0, 4096));
+      }
+    } else {
+      const rows = parseStockRows(m.fields.getTextInputValue('lignes'));
+      if (!rows.length) return m.editReply('❌ Add at least one row: Variant | Price | Stock');
+      for (const row of rows) {
+        embed.addFields(
+          { name: 'Variant', value: row.variant.slice(0, 1024), inline: true },
+          { name: 'Price', value: row.price.slice(0, 1024), inline: true },
+          { name: 'Stock', value: row.stock.slice(0, 1024), inline: true },
+        );
+      }
+    }
+
+    // Grande image : fichier, lien ou image importée depuis le dashboard.
+    let imageUrl = null;
+    if (img) {
+      const f = await toFile(img, 'image');
+      files.push(f);
+      imageUrl = `attachment://${f.name}`;
+    } else {
+      imageUrl = await imageRef(m.fields.getTextInputValue('image_url'), 'image', files);
+    }
+    if (imageUrl) embed.setImage(imageUrl);
+
+    // Logo : fichier, sinon logo global (page Apparence) si la case est cochée.
+    let logo = null;
+    if (thumb) {
+      const f = await toFile(thumb, 'miniature');
+      files.push(f);
+      logo = `attachment://${f.name}`;
+    } else if (logoOn) {
+      logo = await imageRef(d.panelLogo, 'logo', files);
+    }
+    if (logo) embed.setThumbnail(logo);
+
+    const links = parseLinks(m.fields.getTextInputValue('liens'));
+    const { content, allowed } = buildMentions(ping, mentionOpt, mentions);
+    await salon.send({ content, embeds: [embed], components: linkRows(links), files, allowedMentions: allowed });
+    await m.editReply(`✅ ${kind === 'product' ? 'Product' : 'Restock'} sent in <#${salon.id}>.`);
+  } catch (e) {
+    console.error(e);
+    await m.editReply('❌ Unable to send (check my permissions in this channel and the image links).');
+  }
+}
+
+
 // extra = { users[], roles[] } : personnes / rôles mentionnés dans le texte, ils sont aussi notifiés
 function buildMentions(ping, mentionOpt, extra = {}) {
   const parts = [];
@@ -375,6 +558,7 @@ const CMD_CATEGORIES = {
   moderation:  { label: '🛡️ Moderation', commands: ['ban', 'unban', 'mute', 'unmute', 'sanctions-actives', 'historique-sanctions'] },
   giveaways:   { label: '🎉 Giveaways', commands: ['giveaway'] },
   annonces:    { label: '📢 Announcements & roles', commands: ['annonce', 'autorole', 'role-arrivee', 'bienvenue'] },
+  boutique:    { label: '🛍️ Shop (product & restock)', commands: ['product', 'restock'] },
   invitations: { label: '📈 Invitations (admin)', commands: ['invites-config', 'lien-invite', 'qui-a-invite', 'classement-invites', 'classement-invites-maj'] },
   tickets:     { label: '🎫 Tickets', commands: ['ticket', 'setup-paiement'] },
   souspanel:   { label: '🗂️ Sub-panels', commands: ['sous-panel'] },
@@ -1010,6 +1194,45 @@ const commands = [
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
     .setDMPermission(false),
 
+  // ---------- Boutique : produit + restock ----------
+  new SlashCommandBuilder()
+    .setName('product')
+    .setDescription('Publish a product announcement (custom text, image, unlimited link buttons)')
+    .addSubcommand((s) =>
+      s.setName('creer').setDescription('Send a product announcement')
+        .addChannelOption((o) =>
+          o.setName('salon').setDescription('Channel where to post the product')
+            .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(true))
+        .addAttachmentOption((o) => o.setName('image').setDescription('Large image (file)'))
+        .addAttachmentOption((o) => o.setName('miniature').setDescription('Logo at top right (file)'))
+        .addStringOption((o) => o.setName('couleur').setDescription('Hex color, e.g. #00D4FF').setMaxLength(7))
+        .addBooleanOption((o) => o.setName('logo').setDescription('Show the server logo (default: yes)'))
+        .addMentionableOption((o) => o.setName('mention').setDescription('Role or member to mention'))
+        .addStringOption((o) =>
+          o.setName('ping').setDescription('Global mention')
+            .addChoices({ name: '@everyone', value: 'everyone' }, { name: '@here', value: 'here' })))
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
+    .setDMPermission(false),
+
+  new SlashCommandBuilder()
+    .setName('restock')
+    .setDescription('Publish a restock / Buy Now panel (variant, price, stock, image, links)')
+    .addSubcommand((s) =>
+      s.setName('creer').setDescription('Send a restock panel')
+        .addChannelOption((o) =>
+          o.setName('salon').setDescription('Channel where to post the restock')
+            .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(true))
+        .addAttachmentOption((o) => o.setName('image').setDescription('Large image (file)'))
+        .addAttachmentOption((o) => o.setName('miniature').setDescription('Logo at top right (file)'))
+        .addStringOption((o) => o.setName('couleur').setDescription('Hex color, e.g. #00D4FF').setMaxLength(7))
+        .addBooleanOption((o) => o.setName('logo').setDescription('Show the server logo (default: yes)'))
+        .addMentionableOption((o) => o.setName('mention').setDescription('Role or member to mention'))
+        .addStringOption((o) =>
+          o.setName('ping').setDescription('Global mention')
+            .addChoices({ name: '@everyone', value: 'everyone' }, { name: '@here', value: 'here' })))
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
+    .setDMPermission(false),
+
   // ---------- Message privé de masse ----------
   new SlashCommandBuilder()
     .setName('message-mp')
@@ -1268,6 +1491,7 @@ const commands = [
         .addStringOption((o) => o.setName('placeholder').setDescription('Menu text (eg: Choose a category...)').setMaxLength(100))
         .addStringOption((o) => o.setName('footer').setDescription('Pied de page (ex : YouGate)').setMaxLength(200))
         .addBooleanOption((o) => o.setName('sans-texte').setDescription("Panel with only the image and the button (obligatory image)"))
+        .addBooleanOption((o) => o.setName('logo').setDescription('Show the server logo (default: yes)'))
         .addBooleanOption((o) =>
           o.setName('traduction').setDescription('Automatic translation (any language → French + English) in tickets opened from this panel'))
         .addStringOption((o) =>
@@ -1515,13 +1739,14 @@ function reasonButton(cfg, r, style) {
 
 // Construit le panel multi-boutons. Avec discord.js récent : container V2 (bouton à droite de chaque texte).
 // Sinon : embed classique + boutons sous le texte.
-function buildMultiPanel(guild, cfg, p, { image = null, files = null } = {}) {
+async function buildMultiPanel(guild, cfg, p, { image = null, files = null } = {}) {
   const d = getG(guild.id);
   const color = parseColor(cfg.color || d.panelColor, '#ED4245');
   const title = (p.title || `🎫 Support — ${cfg.name}`).slice(0, 256);
   const desc = (p.customDesc ? (p.desc || '') : '').slice(0, 1500);
-  const imageUrl = isMedia(image) ? image.trim() : (isMedia(p.image) ? p.image.trim() : null);
-  const thumb = p.thumb ?? (isUrl(cfg.logo) ? cfg.logo.trim() : (isUrl(d.panelLogo) ? d.panelLogo.trim() : null));
+  const outFiles = [...(files || [])];
+  const imageUrl = await imageRef(image || p.image, 'banner', outFiles);
+  const thumb = await imageRef(logoSource(cfg, d, p), 'logo', outFiles);
   const reasons = (cfg.reasons || []).slice(0, multiLimit(p, imageUrl, thumb, desc));
 
   if (HAS_V2 && p.v2 !== false) {
@@ -1553,7 +1778,7 @@ function buildMultiPanel(guild, cfg, p, { image = null, files = null } = {}) {
     if (p.footer) container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# ${String(p.footer).slice(0, 2000)}`));
     container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
     const payload = { components: [container], flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: [] } };
-    if (files && files.length) payload.files = files;
+    if (outFiles.length) payload.files = outFiles;
     return payload;
   }
 
@@ -1573,7 +1798,7 @@ function buildMultiPanel(guild, cfg, p, { image = null, files = null } = {}) {
   const rows = chunkList(reasons, 5).slice(0, 5).map((part) =>
     new ActionRowBuilder().addComponents(part.map((r) => reasonButton(cfg, r, p.btnStyle))));
   const payload = { embeds: [embed], components: rows, allowedMentions: { parse: [] } };
-  if (files && files.length) payload.files = files;
+  if (outFiles.length) payload.files = outFiles;
   return payload;
 }
 
@@ -1581,14 +1806,14 @@ function multiPanelSig(guild, cfg, p) {
   const d = getG(guild.id);
   const desc = (p.customDesc ? (p.desc || '') : '').slice(0, 1500);
   const imageUrl = isMedia(p.image) ? p.image.trim() : null;
-  const thumb = p.thumb ?? (isUrl(cfg.logo) ? cfg.logo.trim() : (isUrl(d.panelLogo) ? d.panelLogo.trim() : null));
+  const logo = logoSource(cfg, d, p);
   return sig({
     v2: p.v2 !== false && HAS_V2,
     color: parseColor(cfg.color || d.panelColor, '#ED4245'),
     title: p.title || '', desc,
-    image: p.image || null, thumb: p.thumb || null, style: p.btnStyle || 'Primary',
+    image: p.image || null, logo: srcHash(logo), showLogo: p.showLogo !== false, style: p.btnStyle || 'Primary',
     noText: !!p.noText, footer: p.footer || null,
-    reasons: (cfg.reasons || []).slice(0, multiLimit(p, imageUrl, thumb, desc)).map((r) => [r.id, r.label, r.description || '', r.panelText || '', r.emoji || '']),
+    reasons: (cfg.reasons || []).slice(0, multiLimit(p, imageUrl, logo ? 'x' : null, desc)).map((r) => [r.id, r.label, r.description || '', r.panelText || '', r.emoji || '']),
   });
 }
 
@@ -1609,11 +1834,12 @@ async function refreshPanels(guild, cfgName) {
         const s = multiPanelSig(guild, cfg, p);
         if (p.sig === s) continue;
         try {
-          const payload = buildMultiPanel(guild, cfg, p);
-          // Bannière / miniature envoyées en fichier : on réutilise les pièces jointes du message
+          const payload = await buildMultiPanel(guild, cfg, p);
+          // Bannière / logo envoyés en fichier : on réutilise les pièces jointes du message
           // pour que les références attachment://... restent valides après la modification.
-          const usesFiles = [p.image, p.thumb].some((u) => String(u || '').startsWith('attachment://'));
-          if (usesFiles && msg.attachments.size) payload.files = [...msg.attachments.values()];
+          const have = new Set((payload.files || []).map((f) => f.name));
+          const keep = [...msg.attachments.values()].filter((a) => !have.has(a.name));
+          if (keep.length) payload.files = [...(payload.files || []), ...keep];
           await msg.edit(payload);
           p.sig = s;
           save();
@@ -1628,20 +1854,27 @@ async function refreshPanels(guild, cfgName) {
       // Couleur globale (ou couleur propre à la configuration) appliquée à tous les panels
       const color = parseColor(cfg.color || d.panelColor, '#ED4245');
       // Logo : celui du panel, sinon celui de la configuration, sinon le logo global du serveur
-      const thumb = p.thumb ?? (isUrl(cfg.logo) ? cfg.logo.trim() : (isUrl(d.panelLogo) ? d.panelLogo.trim() : null));
-      const s = sig({ rows: rows.map((r) => r.toJSON()), desc, color, thumb });
+      const logo = logoSource(cfg, d, p);
+      const s = sig({ rows: rows.map((r) => r.toJSON()), desc, color, logo: srcHash(logo) });
       if (p.sig === s) continue;
 
       const payload = { components: rows };
+      const files = [];
+      const logoRef = await imageRef(logo, 'logo', files);
       if (msg.embeds[0]) {
         const e = EmbedBuilder.from(msg.embeds[0]).setColor(color);
         if (desc && msg.embeds[0].description !== desc) e.setDescription(desc);
-        if (thumb) {
-          if (msg.embeds[0].thumbnail?.url !== thumb) e.setThumbnail(thumb);
+        if (logoRef) {
+          if (msg.embeds[0].thumbnail?.url !== logoRef) e.setThumbnail(logoRef);
         } else if (msg.embeds[0].thumbnail) {
           e.setThumbnail(null);
         }
         payload.embeds = [e];
+      }
+      if (files.length || logoRef?.startsWith('attachment://')) {
+        const have = new Set(files.map((f) => f.name));
+        const keep = [...msg.attachments.values()].filter((a) => !have.has(a.name));
+        if (files.length || keep.length) payload.files = [...files, ...keep];
       }
       try {
         await msg.edit(payload);
@@ -1724,12 +1957,16 @@ async function buildOpenMessage(guild, user, cfg, panel, reason, staffRoles, sub
     // Toujours l'un sous l'autre : le nom au-dessus, la valeur en dessous.
     if (name && value) embed.addFields({ name, value, inline: false });
   }
-  if (isUrl(m.image)) embed.setImage(m.image.trim());
-  if (isUrl(m.thumbnail)) embed.setThumbnail(m.thumbnail.trim());
+  const files = [];
+  const imgRef = await imageRef(m.image, 'image', files);
+  if (imgRef) embed.setImage(imgRef);
+  const thumbRef = await imageRef(m.thumbnail, 'thumbnail', files);
+  if (thumbRef) embed.setThumbnail(thumbRef);
 
   return {
     content: (rc ? rc.text : `<@${user.id}> ${staffMention}`).slice(0, 2000) || undefined,
     embeds: [embed],
+    files,
     allowedMentions: {
       users: [...new Set([user.id, ...(rc?.users || [])])].slice(0, 100),
       roles: [...new Set([...staffRoles, ...(rc?.roles || [])])].slice(0, 100),
@@ -2006,15 +2243,18 @@ function subSummary(cfg) {
 }
 
 // Message + menu du sous-panel (envoyé en réponse éphémère sur le serveur, ou dans le MP)
-function buildSubMessage(guild, user, cfg, sub, customId, reason) {
+async function buildSubMessage(guild, user, cfg, sub, customId, reason) {
   const ctx = { guild, user, cfg, choice: reason };
+  const files = [];
   const embed = new EmbedBuilder()
     .setColor(parseColor(sub.color, cfg.color || getG(guild.id).panelColor || '#5865F2'))
     .setTitle(dmVars(sub.title || reason?.label || sub.name, ctx).slice(0, 256))
     .setDescription(dmVars(sub.description || 'Specify your request in the menu below.', ctx).slice(0, 4096))
     .setTimestamp();
-  if (isUrl(sub.image)) embed.setImage(sub.image.trim());
-  if (isUrl(sub.thumbnail)) embed.setThumbnail(sub.thumbnail.trim());
+  const subImg = await imageRef(sub.image, 'image', files);
+  if (subImg) embed.setImage(subImg);
+  const subThumb = await imageRef(sub.thumbnail, 'thumbnail', files);
+  if (subThumb) embed.setThumbnail(subThumb);
   if (sub.footer) embed.setFooter({ text: dmVars(sub.footer, ctx).slice(0, 2048) });
   const menuRows = chunkList(sub.choices).slice(0, 5).map((part, n) => new ActionRowBuilder().addComponents(
     new StringSelectMenuBuilder()
@@ -2027,14 +2267,14 @@ function buildSubMessage(guild, user, cfg, sub, customId, reason) {
         if (e) o.emoji = e;
         return o;
       }))));
-  return { embeds: [embed], components: menuRows };
+  return { embeds: [embed], components: menuRows, files };
 }
 
 // Mode normal : le membre a choisi une catégorie -> on lui montre le sous-panel (réponse éphémère)
 async function showSub(i, cfg, sub, reasonId, panel) {
   const reason = reasonId ? cfg.reasons.find((r) => r.id === reasonId) : null;
   const cid = `tk_sub:${cfg.name}:${reasonId || '-'}:${sub.id}:${panel?.messageId || '-'}`;
-  const m = await i.editReply(buildSubMessage(i.guild, i.user, cfg, sub, cid, reason));
+  const m = await i.editReply(await buildSubMessage(i.guild, i.user, cfg, sub, cid, reason));
   rememberFlow(m.id, []);
 }
 
@@ -2050,7 +2290,7 @@ async function subChoose(i) {
   const next = nextSub(cfg, choice);
   if (next && path.length < 50) {
     rememberFlow(i.message.id, path);
-    return i.update(buildSubMessage(i.guild, i.user, cfg, next, `tk_sub:${cfgName}:${rid}:${next.id}:${pid}`, choice));
+    return i.update(await buildSubMessage(i.guild, i.user, cfg, next, `tk_sub:${cfgName}:${rid}:${next.id}:${pid}`, choice));
   }
   subFlows.delete(i.message.id);
   // Le menu disparaît tout de suite : un seul ticket par menu
@@ -2079,7 +2319,7 @@ async function dmChoose(i) {
   const choice = cfg.dmChoices.find((r) => r.id === i.values[0]);
   const sub = choice && resolveSub(cfg, choice.id);
   if (sub) {
-    const m = buildSubMessage(guild, i.user, cfg, sub, `tk_dmsub:${cfgName}:${guildId}:${choice.id}:${sub.id}`, choice);
+    const m = await buildSubMessage(guild, i.user, cfg, sub, `tk_dmsub:${cfgName}:${guildId}:${choice.id}:${sub.id}`, choice);
     return i.update({ ...m, attachments: [] });
   }
   return dmFinish(i, guild, data, cfg, key, choice, null);
@@ -2105,7 +2345,7 @@ async function dmSubChoose(i) {
   const next = nextSub(cfg, subChoice);
   if (next && path.length < 50) { // un autre sous-panel suit : le MP reste valable
     rememberFlow(i.message.id, path);
-    const m = buildSubMessage(guild, i.user, cfg, next, `tk_dmsub:${cfgName}:${guildId}:${choiceId}:${next.id}`, subChoice);
+    const m = await buildSubMessage(guild, i.user, cfg, next, `tk_dmsub:${cfgName}:${guildId}:${choiceId}:${next.id}`, subChoice);
     return i.update({ ...m, attachments: [] });
   }
   subFlows.delete(i.message.id);
@@ -2306,7 +2546,9 @@ async function vouchPanel(i) {
       '> Your vouch proves the deal went smoothly.'
     )
     .setFooter({ text: 'One review per ticket and per member.' });
-  if (isUrl(d.vouch.logo)) embed.setThumbnail(d.vouch.logo.trim());
+  const files = [];
+  const logo = await imageRef(d.vouch.logo, 'logo', files);
+  if (logo) embed.setThumbnail(logo);
   const row = new ActionRowBuilder().addComponents(
     ...[1, 2, 3, 4, 5].map((n) => new ButtonBuilder()
       .setCustomId(`vouch:star:${n}`)
@@ -2314,7 +2556,7 @@ async function vouchPanel(i) {
       .setEmoji('⭐')
       .setStyle(n >= 4 ? ButtonStyle.Success : n === 3 ? ButtonStyle.Primary : ButtonStyle.Secondary)),
   );
-  return i.reply({ embeds: [embed], components: [row], flags: EPH });
+  return i.reply({ embeds: [embed], components: [row], files, flags: EPH });
 }
 
 async function vouchModal(i, stars) {
@@ -2387,11 +2629,13 @@ async function vouchSubmit(m) {
         ? vars(d.vouch.footer)
         : `${m.guild.name} • Customer feedback • <t:${Math.floor(vouch.at / 1000)}:D>`).slice(0, 2048),
     });
-  if (isUrl(d.vouch.logo)) embed.setThumbnail(d.vouch.logo.trim());
+  const vFiles = [];
+  const vLogo = await imageRef(d.vouch.logo, 'logo', vFiles);
+  if (vLogo) embed.setThumbnail(vLogo);
 
   let sent = null;
   try {
-    sent = await ch.send({ embeds: [embed], allowedMentions: { parse: [] } });
+    sent = await ch.send({ embeds: [embed], files: vFiles, allowedMentions: { parse: [] } });
   } catch (e) {
     console.error('[vouch]', e.message);
   }
@@ -2980,6 +3224,8 @@ const HELP = [
   ] },
   { title: '📢 Announcements & roles', level: 'full', lines: [
     '`/annonce` — send an announcement (title, text, images, mentions). Type @User, @Role or #channel: they become clickable',
+    '`/product creer` — product announcement: custom text, image, logo and unlimited link buttons',
+    '`/restock creer` — restock panel: variant / price / stock, image, logo and link buttons',
     '`/autorole creer` · `liste` · `supprimer` — reaction that gives a role',
     '`/role-arrivee ajouter` · `retirer` · `liste` — role automatically given to new members',
     '`/bienvenue configurer` · `activer` · `desactiver` · `test`',
@@ -3926,6 +4172,16 @@ const handlers = {
       console.error(e);
       await m.editReply("❌ Unable to send ad (check my permissions in this channel and image links).");
     }
+  },
+
+  /* ---------- /product ---------- */
+  async product(i) {
+    return catalogPost(i, 'product');
+  },
+
+  /* ---------- /restock ---------- */
+  async restock(i) {
+    return catalogPost(i, 'restock');
   },
 
   /* ---------- /message-mp ---------- */
@@ -4883,6 +5139,7 @@ const handlers = {
       const multi = type === 'boutons';
       const btnLabel = (i.options.getString('bouton-texte') || '').trim().slice(0, 80) || null;
       const style = i.options.getString('couleur-bouton') || 'Primary';
+      const showLogo = i.options.getBoolean('logo') ?? true;
 
       if (noText && !img && !isUrl(imgUrl)) {
         return i.reply({ content: '❌ For a panel without text, add an image (file or link).', flags: EPH });
@@ -4895,7 +5152,7 @@ const handlers = {
         const limit = multiLimit(
           { v2: HAS_V2, noText, footer },
           img || isUrl(imgUrl) ? 'x' : null,
-          thumb || isUrl(thumbUrl) || isUrl(cfg.logo) || isUrl(d.panelLogo) ? 'x' : null,
+          showLogo && (thumb || thumbUrl || mediaOk(cfg.logo) || mediaOk(d.panelLogo)) ? 'x' : null,
           customDesc && String(customDesc).trim() ? 'x' : '',
         );
         if (cfg.reasons.length > limit) {
@@ -4919,7 +5176,8 @@ const handlers = {
             files.push(f);
             panelImage = `attachment://${f.name}`;
           }
-          let panelThumb = isUrl(thumbUrl) ? thumbUrl : (isUrl(cfg.logo) ? cfg.logo.trim() : (isUrl(d.panelLogo) ? d.panelLogo.trim() : null));
+          // Logo propre au panel uniquement : le logo global est résolu à l'affichage (et peut être retiré).
+          let panelThumb = isUrl(thumbUrl) ? thumbUrl : null;
           if (thumb) {
             const f = await toFile(thumb, 'miniature');
             files.push(f);
@@ -4938,8 +5196,9 @@ const handlers = {
             btnStyle: style,
             translate: !!panelTranslate,
             thumb: panelThumb,
+            showLogo,
           };
-          const sent = await salon.send(buildMultiPanel(i.guild, cfg, panel, { files }));
+          const sent = await salon.send(await buildMultiPanel(i.guild, cfg, panel, { files }));
           panel.messageId = sent.id;
           panel.sig = multiPanelSig(i.guild, cfg, panel);
           cfg.panels.push(panel);
@@ -4970,20 +5229,19 @@ const handlers = {
         } else if (isUrl(imgUrl)) {
           embed.setImage(imgUrl);
         }
+        let explicitThumb = isUrl(thumbUrl) ? thumbUrl : null;
         if (thumb) {
           const f = await toFile(thumb, 'miniature');
           files.push(f);
-          embed.setThumbnail(`attachment://${f.name}`);
-        } else {
-          const logo = isUrl(thumbUrl) ? thumbUrl : (isUrl(cfg.logo) ? cfg.logo.trim() : (isUrl(d.panelLogo) ? d.panelLogo.trim() : null));
-          if (logo) embed.setThumbnail(logo);
+          explicitThumb = `attachment://${f.name}`;
         }
+        const logo = showLogo ? await imageRef(explicitThumb || cfg.logo || d.panelLogo, 'logo', files) : null;
+        if (logo) embed.setThumbnail(logo);
 
         const rows = panelRows(cfg, { button: asButton, label: btnLabel, style });
         const sent = await salon.send({ embeds: [embed], files, components: rows });
         // texte figé : le bot ne modifiera jamais le texte (ni l'absence de texte) de ce panel
         const fixed = !!customDesc || noText;
-        const panelThumb = thumb ? (thumb.url || null) : (isUrl(thumbUrl) ? thumbUrl : (isUrl(cfg.logo) ? cfg.logo.trim() : (isUrl(d.panelLogo) ? d.panelLogo.trim() : null)));
         cfg.panels.push({
           channelId: salon.id,
           messageId: sent.id,
@@ -4992,8 +5250,13 @@ const handlers = {
           btnLabel,
           btnStyle: style,
           translate: !!panelTranslate,
-          thumb: panelThumb,
-          sig: sig({ rows: rows.map((r) => r.toJSON()), desc: fixed ? null : panelDesc(cfg, asButton), thumb: panelThumb }),
+          thumb: explicitThumb,
+          showLogo,
+          sig: sig({
+            rows: rows.map((r) => r.toJSON()),
+            desc: fixed ? null : panelDesc(cfg, asButton),
+            logo: srcHash(showLogo ? (explicitThumb || cfg.logo || d.panelLogo) : null),
+          }),
         });
         save();
         await i.editReply(

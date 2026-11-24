@@ -149,6 +149,7 @@ const S = {
   newTk: false, reasonEdit: null, sp: null, spEdit: false, choiceEdit: null,
   omScope: 'config:', advCmd: null, advSub: null, advResult: null,
   emojiTarget: null, emojiTab: 'server', serverEmojis: null,
+  uploads: {}, shop: {},
 };
 
 /* ---------- API ---------- */
@@ -348,6 +349,8 @@ const NAV = [
   ['tickets', '🎫', 'Tickets'],
   ['vouch', '⭐', 'Vouches'],
   ['sales', '📈', 'Ventes'],
+  ['products', '🛍️', 'Produits'],
+  ['restock', '📦', 'Restock'],
   ['appearance', '🎨', 'Apparence'],
   ['invites', '📨', 'Invitations'],
   ['advanced', '⌨️', 'Commandes'],
@@ -363,7 +366,7 @@ function render() {
     const err = $('#errBanner');
     if (err) err.hidden = true;
     renderNav();
-    const pages = { home: pageHome, tickets: pageTickets, vouch: pageVouch, sales: pageSales, appearance: pageAppearance, invites: pageInvites, advanced: pageAdvanced, backup: pageBackup };
+    const pages = { home: pageHome, tickets: pageTickets, vouch: pageVouch, sales: pageSales, products: () => pageShop('product'), restock: () => pageShop('restock'), appearance: pageAppearance, invites: pageInvites, advanced: pageAdvanced, backup: pageBackup };
     $('#main').innerHTML = (pages[S.page] || pageHome)();
     if (S.page === 'advanced' || (S.page === 'tickets' && S.tab === 'commands')) fillMembers();
     if (S.page === 'backup') refreshBackupBoxes();
@@ -381,6 +384,52 @@ const fmtMoney = (n, cur) => `${Number(n || 0).toLocaleString('fr-FR', { maximum
 const fmtDate = (t) => t ? new Date(t).toLocaleString('fr-FR') : '—';
 const colorOf = (c) => /^#?[0-9a-f]{6}$/i.test(String(c || '').trim()) ? '#' + String(c).trim().replace('#', '') : '#5865F2';
 const blank = (v) => v === undefined || v === null || v === '';
+
+/* ---------- Images : lien ou import direct depuis le site ---------- */
+function imgField(id, value, label, hint = '') {
+  const v = String(value || '');
+  if (v.startsWith('data:image/')) S.uploads[id] = v;
+  const url = v.startsWith('data:') ? '' : v;
+  return `<label class="field"><span>${esc(label)}</span>${hint ? `<small>${esc(hint)}</small>` : ''}
+    <input id="${id}" maxlength="500" value="${esc(url)}" placeholder="https://…">
+    <div class="row" style="gap:8px;margin-top:6px;align-items:center">
+      <input type="file" accept="image/*" style="max-width:220px" onchange="uploadPick(this,'${id}')">
+      <button type="button" class="mini" onclick="uploadClear('${id}')">Retirer</button>
+      <span class="muted" id="${id}_state">${S.uploads[id] ? 'Fichier importé ✓' : ''}</span>
+    </div></label>`;
+}
+function uploadPick(input, id) {
+  const f = input.files && input.files[0];
+  if (!f) return;
+  if (!/^image\//.test(f.type)) return toast('Choisis un fichier image.', false);
+  if (f.size > 4 * 1024 * 1024) return toast('Image trop lourde (4 Mo maximum).', false);
+  const rd = new FileReader();
+  rd.onload = () => {
+    S.uploads[id] = String(rd.result);
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+    const st = document.getElementById(id + '_state');
+    if (st) st.textContent = 'Fichier importé ✓ (' + f.name + ')';
+  };
+  rd.readAsDataURL(f);
+}
+function uploadClear(id) {
+  delete S.uploads[id];
+  const el = document.getElementById(id);
+  if (el) el.value = '';
+  const st = document.getElementById(id + '_state');
+  if (st) st.textContent = '';
+}
+function imgValue(id) {
+  const el = document.getElementById(id);
+  const url = el ? el.value.trim() : '';
+  return { url, data: url ? '' : (S.uploads[id] || '') };
+}
+function uploadName(data) {
+  const m = /^data:image\/(png|jpe?g|gif|webp)/i.exec(String(data || ''));
+  const ext = !m ? 'png' : (m[1].toLowerCase() === 'jpeg' ? 'jpg' : m[1].toLowerCase());
+  return 'image.' + ext;
+}
 
 function channelOptions(selected, types = null, empty = '— choisir un salon —') {
   const list = (S.g?.channels || []).filter((c) => !types || types.includes(c.type));
@@ -516,7 +565,7 @@ function tkConfig() {
       <label class="field"><span>Couleur propre à cette configuration</span><small>Vide = couleur globale du serveur</small><input id="c_color" maxlength="7" value="${esc(t.color || '')}" placeholder="#5865F2"></label>
     </div>
     <div class="grid2">
-      <label class="field"><span>Logo propre à cette configuration</span><small>Vide = logo global (page Apparence)</small><input id="c_logo" maxlength="500" value="${esc(t.logo || '')}" placeholder="https://…"></label>
+      ${imgField('c_logo', t.logo, 'Logo propre à cette configuration', 'Lien ou fichier importé. Vide = logo global de la page Apparence.')}
       <label class="field"><span>Traduction automatique</span><small>Traduit chaque message reçu en français et en anglais, quelle que soit la langue d'origine.</small>
         <select id="c_translate"><option value="false" ${!t.translate ? 'selected' : ''}>Désactivée</option><option value="true" ${t.translate ? 'selected' : ''}>Activée</option></select></label>
     </div>
@@ -532,12 +581,13 @@ function tkConfig() {
 async function tkSaveConfig() {
   const t = TC();
   const staffRoles = [...$('#c_staff').selectedOptions].map((o) => o.value);
+  const cl = imgValue('c_logo');
   try {
     await api('/api/ticket-config', {
       action: 'update', guildId: S.gid, name: t.name,
       categoryId: $('#c_category').value, staffRoles, logChannelId: $('#c_logs').value,
       placeholder: $('#c_placeholder').value, color: $('#c_color').value.trim(),
-      logo: $('#c_logo').value.trim(), translate: $('#c_translate').value === 'true',
+      logo: cl.data || cl.url, translate: $('#c_translate').value === 'true',
     });
     await afterChange('Configuration enregistrée ✅');
   } catch (e) { toast(e.message, false); }
@@ -684,8 +734,8 @@ function spForm(sp) {
       <label class="field"><span>Couleur (optionnel)</span><input id="sp_color" maxlength="7" value="${esc(sp?.color || '')}" placeholder="#5865F2"></label>
     </div>
     <div class="grid2">
-      <label class="field"><span>Image (URL)</span><input id="sp_img" maxlength="500" value="${esc(sp?.image || '')}" placeholder="https://…"></label>
-      <label class="field"><span>Miniature (URL)</span><input id="sp_thumb" maxlength="500" value="${esc(sp?.thumbnail || '')}" placeholder="https://…"></label>
+      ${imgField('sp_img', sp?.image, 'Image (lien ou fichier)')}
+      ${imgField('sp_thumb', sp?.thumbnail, 'Miniature (lien ou fichier)')}
     </div>
     <label class="field"><span>Pied de page</span><input id="sp_footer" maxlength="2048" value="${esc(sp?.footer || '')}"></label>
     <label class="row" style="margin-bottom:12px"><input type="checkbox" id="sp_payment" ${sp?.payment ? 'checked' : ''}> <span>💳 Ce sous-panel est un mode de paiement (variable <span class="code">{paiement}</span>)</span></label>
@@ -694,10 +744,11 @@ function spForm(sp) {
 }
 async function spSave() {
   const sp = S.sp && S.sp !== 'new' ? (TC().subPanels || []).find((x) => x.id === S.sp) : null;
+  const si = imgValue('sp_img'), st = imgValue('sp_thumb');
   const fields = {
     name: $('#sp_name').value, title: $('#sp_title').value, description: $('#sp_desc').value,
-    placeholder: $('#sp_ph').value, color: $('#sp_color').value, image: $('#sp_img').value,
-    thumbnail: $('#sp_thumb').value, footer: $('#sp_footer').value, payment: $('#sp_payment').checked,
+    placeholder: $('#sp_ph').value, color: $('#sp_color').value, image: si.data || si.url,
+    thumbnail: st.data || st.url, footer: $('#sp_footer').value, payment: $('#sp_payment').checked,
   };
   try {
     if (sp) {
@@ -773,7 +824,7 @@ function tkPanels() {
   return `<section class="card"><h2>Panels envoyés (${t.panels.length})</h2>
     <div class="list">${t.panels.map((p, n) => `
       <div class="item"><div class="grow"><b>Panel ${n + 1} — ${chName(p.channelId)}</b>
-        <small>${p.multi ? 'Plusieurs boutons' : p.button ? 'Bouton' : 'Menu déroulant'}${p.btnLabel ? ' · ' + esc(p.btnLabel) : ''} · message ${p.messageId}${p.translate ? ' · 🌐 traduction' : ''}${p.thumb ? ' · 🖼️ logo' : ''}</small></div>
+        <small>${p.multi ? 'Plusieurs boutons' : p.button ? 'Bouton' : 'Menu déroulant'}${p.btnLabel ? ' · ' + esc(p.btnLabel) : ''} · message ${p.messageId}${p.translate ? ' · 🌐 traduction' : ''}${p.showLogo !== false && (p.thumb || S.g.panelLogo) ? ' · 🖼️ logo' : ' · sans logo'}</small></div>
         <button class="mini" onclick="panelDelete('${p.messageId}')">Supprimer</button></div>`).join('') || '<div class="empty">Aucun panel envoyé.</div>'}</div>
   </section>
   <section class="card"><h2>Envoyer un panel</h2>
@@ -784,13 +835,14 @@ function tkPanels() {
     <label class="field"><span>Titre</span><input id="p_title" value="🎫 Support — ${esc(t.name)}" maxlength="256"></label>
     <label class="field"><span>Description</span><textarea id="p_desc" maxlength="4000" placeholder="Clique sur le bouton ci-dessous pour ouvrir un ticket."></textarea></label>
     <div class="grid2">
-      <label class="field"><span>Image (URL)</span><input id="p_image" maxlength="500" placeholder="https://…"></label>
+      ${imgField('p_image', '', 'Image (lien ou fichier)', 'Grande image / bannière du panel.')}
       <label class="field"><span>Couleur</span><input id="p_color" maxlength="7" placeholder="${esc(S.g.panelColor)}"></label>
     </div>
     <div class="grid2">
-      <label class="field"><span>Logo en haut à droite (URL)</span><small>Vide = logo global (page Apparence)</small><input id="p_thumb" maxlength="500" placeholder="https://…"></label>
+      ${imgField('p_thumb', '', 'Logo (lien ou fichier)', 'Vide = logo global de la page Apparence.')}
       <label class="field"><span>Texte du menu</span><input id="p_placeholder" maxlength="150" placeholder="Choisir une catégorie..."></label>
     </div>
+    <label class="check"><input type="checkbox" id="p_logo" checked> Afficher le logo du serveur (page Apparence) sur ce panel</label>
     <div class="grid2">
       <label class="field"><span>Texte du bouton</span><input id="p_btn" maxlength="80" placeholder="Ouvrir un ticket"></label>
       <label class="field"><span>Couleur du bouton</span><select id="p_style"><option value="Primary">Bleu</option><option value="Secondary">Gris</option><option value="Success">Vert</option><option value="Danger">Rouge</option></select></label>
@@ -809,19 +861,24 @@ async function panelSend() {
   if (type === 'menu' && !t.reasons.length) return toast('Ajoute d’abord des catégories pour un menu.', false);
   if (type === 'boutons' && !t.reasons.length) return toast('Ajoute d’abord des catégories pour un panel multi-boutons.', false);
   const noText = $('#p_notext').checked;
-  if (noText && !$('#p_image').value.trim()) return toast('Pour un panel sans texte, ajoute une image (URL).', false);
+  const imgV = imgValue('p_image');
+  const thumbV = imgValue('p_thumb');
+  if (noText && !imgV.url && !imgV.data) return toast('Pour un panel sans texte, ajoute une image (lien ou fichier).', false);
   const options = {
     config: t.name, salon: ch, titre: $('#p_title').value, description: $('#p_desc').value,
-    couleur: $('#p_color').value, 'image-url': $('#p_image').value,
-    'miniature-url': $('#p_thumb').value,
+    couleur: $('#p_color').value, 'image-url': imgV.url,
+    'miniature-url': thumbV.url, logo: $('#p_logo').checked,
     'sans-texte': noText, traduction: $('#p_translate').checked,
     placeholder: $('#p_placeholder').value, footer: $('#p_footer').value,
     type: $('#p_type').value, 'bouton-texte': $('#p_btn').value, 'couleur-bouton': $('#p_style').value,
   };
+  if (imgV.data) options.image = { url: imgV.data, name: uploadName(imgV.data) };
+  if (thumbV.data) options.miniature = { url: thumbV.data, name: uploadName(thumbV.data) };
   try {
     const r = await api('/api/run', { guildId: S.gid, command: 'ticket', sub: 'panel', options });
     const txt = r.replies?.[0]?.content || 'Panel envoyé ✅';
     toast(txt.replace(/[*`]/g, '').slice(0, 220), !txt.startsWith('❌'));
+    if (!txt.startsWith('❌')) { delete S.uploads.p_image; delete S.uploads.p_thumb; }
     await afterChange();
   } catch (e) { toast(e.message, false); }
 }
@@ -899,8 +956,8 @@ function tkMessage() {
     </div>
     <label class="field"><span>Description</span><textarea id="om_desc" maxlength="4000" style="min-height:130px">${esc(m.description || '')}</textarea></label>
     <div class="grid2">
-      <label class="field"><span>Image (URL)</span><input id="om_image" maxlength="500" value="${esc(m.image || '')}"></label>
-      <label class="field"><span>Miniature (URL)</span><input id="om_thumb" maxlength="500" value="${esc(m.thumbnail || '')}"></label>
+      ${imgField('om_image', m.image, 'Image (lien ou fichier)')}
+      ${imgField('om_thumb', m.thumbnail, 'Miniature (lien ou fichier)')}
     </div>
     <label class="field"><span>Pied de page</span><input id="om_footer" maxlength="2048" value="${esc(m.footer || '')}"></label>
     <h3 style="margin-top:18px">Champs personnalisés</h3>
@@ -932,9 +989,10 @@ function tkMessage() {
   </section>`;
 }
 function omRead() {
+  const img = imgValue('om_image'), th = imgValue('om_thumb');
   const m = {
     content: $('#om_content').value, title: $('#om_title').value, description: $('#om_desc').value,
-    image: $('#om_image').value, thumbnail: $('#om_thumb').value, footer: $('#om_footer').value,
+    image: img.data || img.url, thumbnail: th.data || th.url, footer: $('#om_footer').value,
     color: $('#om_color').value, claimLabel: $('#om_claim').value, closeLabel: $('#om_close').value,
     claimEmoji: $('#om_claim_e').value, closeEmoji: $('#om_close_e').value,
   };
@@ -1078,6 +1136,147 @@ async function salesReset() {
 }
 
 /* ================================================================== */
+/*  BOUTIQUE : PRODUITS + RESTOCK                                      */
+/* ================================================================== */
+function shopState(kind) {
+  if (!S.shop[kind]) S.shop[kind] = {
+    links: [{ label: '', url: '', emoji: '' }],
+    rows: [{ variant: '', price: '', stock: '' }],
+  };
+  return S.shop[kind];
+}
+function shopLinkRow(kind, l, i) {
+  return `<div class="row shop-link" style="gap:8px;align-items:flex-end;margin-bottom:8px">
+    <label class="field" style="flex:1.2;margin:0"><span>Texte</span><input class="sl-label" maxlength="80" value="${esc(l.label)}" placeholder="Check / Purchase"></label>
+    <label class="field" style="flex:2;margin:0"><span>Lien</span><input class="sl-url" maxlength="500" value="${esc(l.url)}" placeholder="https://…"></label>
+    <label class="field" style="flex:0 0 84px;margin:0"><span>Emoji</span><input class="sl-emoji" maxlength="64" value="${esc(l.emoji)}" placeholder="🛒"></label>
+    <button type="button" class="mini" onclick="shopLinkDel('${kind}',${i})" title="Retirer">✕</button>
+  </div>`;
+}
+function shopLinksRead(kind) {
+  return $$(`#shop_links_${kind} .shop-link`).map((row) => ({
+    label: row.querySelector('.sl-label').value.trim(),
+    url: row.querySelector('.sl-url').value.trim(),
+    emoji: row.querySelector('.sl-emoji').value.trim(),
+  })).filter((l) => l.url);
+}
+function shopLinksSync(kind) {
+  const box = document.getElementById('shop_links_' + kind);
+  if (!box) return;
+  const rows = $$(`#shop_links_${kind} .shop-link`);
+  if (!rows.length) return;
+  shopState(kind).links = rows.map((row) => ({
+    label: row.querySelector('.sl-label').value,
+    url: row.querySelector('.sl-url').value,
+    emoji: row.querySelector('.sl-emoji').value,
+  }));
+}
+function renderShopLinks(kind) {
+  const box = document.getElementById('shop_links_' + kind);
+  if (box) box.innerHTML = shopState(kind).links.map((l, i) => shopLinkRow(kind, l, i)).join('');
+}
+function shopLinkAdd(kind) { shopLinksSync(kind); shopState(kind).links.push({ label: '', url: '', emoji: '' }); renderShopLinks(kind); }
+function shopLinkDel(kind, i) {
+  shopLinksSync(kind);
+  shopState(kind).links.splice(i, 1);
+  if (!shopState(kind).links.length) shopState(kind).links.push({ label: '', url: '', emoji: '' });
+  renderShopLinks(kind);
+}
+function shopStockRow(kind, r, i) {
+  return `<div class="row shop-stock" style="gap:8px;align-items:flex-end;margin-bottom:8px">
+    <label class="field" style="flex:2;margin:0"><span>Variante</span><input class="sr-variant" maxlength="200" value="${esc(r.variant)}" placeholder="Rockstar Activation Codes"></label>
+    <label class="field" style="flex:0 0 110px;margin:0"><span>Prix</span><input class="sr-price" maxlength="40" value="${esc(r.price)}" placeholder="$0.11"></label>
+    <label class="field" style="flex:0 0 100px;margin:0"><span>Stock</span><input class="sr-stock" maxlength="40" value="${esc(r.stock)}" placeholder="439"></label>
+    <button type="button" class="mini" onclick="shopRowDel('${kind}',${i})" title="Retirer">✕</button>
+  </div>`;
+}
+function shopRowsRead(kind) {
+  return $$('#shop_rows .shop-stock').map((row) => ({
+    variant: row.querySelector('.sr-variant').value.trim(),
+    price: row.querySelector('.sr-price').value.trim(),
+    stock: row.querySelector('.sr-stock').value.trim(),
+  })).filter((r) => r.variant);
+}
+function shopRowsSync(kind) {
+  const rows = $$('#shop_rows .shop-stock');
+  if (!rows.length) return;
+  shopState(kind).rows = rows.map((row) => ({
+    variant: row.querySelector('.sr-variant').value,
+    price: row.querySelector('.sr-price').value,
+    stock: row.querySelector('.sr-stock').value,
+  }));
+}
+function renderShopRows(kind) {
+  const box = document.getElementById('shop_rows');
+  if (box) box.innerHTML = shopState(kind).rows.map((r, i) => shopStockRow(kind, r, i)).join('');
+}
+function shopRowAdd(kind) { shopRowsSync(kind); shopState(kind).rows.push({ variant: '', price: '', stock: '' }); renderShopRows(kind); }
+function shopRowDel(kind, i) {
+  shopRowsSync(kind);
+  shopState(kind).rows.splice(i, 1);
+  if (!shopState(kind).rows.length) shopState(kind).rows.push({ variant: '', price: '', stock: '' });
+  renderShopRows(kind);
+}
+function pageShop(kind) {
+  const isP = kind === 'product';
+  const st = shopState(kind);
+  return head(isP ? 'Produits' : 'Restock',
+    isP ? 'Annonce produit : texte libre, image, logo et autant de boutons-liens que tu veux.'
+      : 'Panel restock : variantes, prix, stock, image, logo et boutons-liens.') +
+    `<section class="card"><h2>${isP ? 'Nouvelle annonce produit' : 'Nouveau restock'}</h2>
+      <div class="grid2">
+        <label class="field"><span>Salon <b class="req">*</b></span><select id="shop_channel">${channelOptions('', [0, 5])}</select></label>
+        <label class="field"><span>Couleur</span><div class="row" style="gap:8px"><input id="shop_color" maxlength="7" placeholder="${esc(S.g.panelColor)}" style="flex:1"><input type="color" id="shop_picker" value="${colorOf(S.g.panelColor)}" oninput="$('#shop_color').value=this.value" style="max-width:58px"></div></label>
+      </div>
+      <label class="field"><span>Titre</span><input id="shop_title" maxlength="256" placeholder="${isP ? '🎯 NEW PRODUCT: …' : 'Buy Now'}"></label>
+      ${isP
+        ? `<label class="field"><span>Description</span><small>Markdown accepté : titres, listes, **gras**, @Pseudo, @Rôle, #salon.</small><textarea id="shop_text" style="min-height:220px" maxlength="4000"></textarea></label>`
+        : `<h3>Variantes (8 maximum)</h3><div id="shop_rows">${st.rows.map((r, i) => shopStockRow(kind, r, i)).join('')}</div><button type="button" class="mini" onclick="shopRowAdd('${kind}')">+ Ajouter une variante</button>`}
+      <h3>Boutons-liens (25 maximum)</h3>
+      <div id="shop_links_${kind}">${st.links.map((l, i) => shopLinkRow(kind, l, i)).join('')}</div>
+      <button type="button" class="mini" onclick="shopLinkAdd('${kind}')">+ Ajouter un lien</button>
+      <div class="grid2" style="margin-top:14px">
+        ${imgField('shop_image', '', 'Image (lien ou fichier)', 'Grande image affichée sous le texte.')}
+        <label class="field"><span>Pied de page</span><input id="shop_footer" maxlength="2048"></label>
+      </div>
+      <label class="check"><input type="checkbox" id="shop_logo" checked> Afficher le logo du serveur (page Apparence)</label>
+      <div class="row" style="margin-top:14px"><button class="btn" onclick="shopSend('${kind}')">Envoyer dans Discord</button></div>
+      <div class="alert info" style="margin-top:14px">${isP
+        ? 'Chaque bouton : <b>Texte | https://lien | emoji</b> (emoji optionnel).'
+        : 'Chaque variante : <b>Variante | Prix | Stock</b>. Les boutons-liens s’ajoutent en dessous.'}</div>
+    </section>`;
+}
+async function shopSend(kind) {
+  const isP = kind === 'product';
+  const ch = $('#shop_channel').value;
+  if (!ch) return toast('Choisis un salon.', false);
+  const links = shopLinksRead(kind);
+  const img = imgValue('shop_image');
+  const options = { salon: ch, couleur: $('#shop_color').value.trim(), logo: $('#shop_logo').checked };
+  if (img.data) options.image = { url: img.data, name: uploadName(img.data) };
+  const modal = {
+    titre: $('#shop_title').value,
+    liens: links.map((l) => [l.label, l.url, l.emoji].filter((x) => x && String(x).trim()).join(' | ')).join('\n'),
+    image_url: img.url,
+    footer: $('#shop_footer').value,
+  };
+  if (isP) {
+    modal.texte = $('#shop_text').value;
+    if (!modal.texte.trim()) return toast('Ajoute une description.', false);
+  } else {
+    modal.lignes = shopRowsRead(kind).map((r) => [r.variant, r.price, r.stock].join(' | ')).join('\n');
+    if (!modal.lignes.trim()) return toast('Ajoute au moins une variante.', false);
+  }
+  try {
+    const r = await api('/api/run', { guildId: S.gid, command: kind, sub: 'creer', options, modal });
+    const t = r.replies?.[0]?.content || 'Message envoyé ✅';
+    toast(t.replace(/[*`]/g, '').slice(0, 220), !t.startsWith('❌'));
+    if (!t.startsWith('❌')) delete S.uploads.shop_image;
+    await afterChange();
+  } catch (e) { toast(e.message, false); }
+}
+
+/* ================================================================== */
 /*  APPARENCE                                                          */
 /* ================================================================== */
 function pageAppearance() {
@@ -1092,8 +1291,8 @@ function pageAppearance() {
       <div class="swatches">${presets.map((p) => `<button class="swatch" style="background:${p}" title="${p}" onclick="$('#a_color').value='${p}';$('#a_picker').value='${p}'"></button>`).join('')}</div>
       <h3>Logos (coin haut droit)</h3>
       <div class="grid2">
-        <label class="field"><span>Logo des panels de tickets</span><small>Appliqué aux panels existants et aux nouveaux</small><input id="a_panel_logo" maxlength="500" value="${esc(S.g.panelLogo || '')}" placeholder="https://…"></label>
-        <label class="field"><span>Logo des vouchs</span><small>Affiché en haut à droite de chaque vouch</small><input id="a_vouch_logo" maxlength="500" value="${esc(S.g.vouch.logo || '')}" placeholder="https://…"></label>
+        ${imgField('a_panel_logo', S.g.panelLogo, 'Logo des panels de tickets', 'Lien ou fichier importé. Appliqué aux panels existants et aux nouveaux.')}
+        ${imgField('a_vouch_logo', S.g.vouch.logo, 'Logo des vouchs', 'Affiché en haut à droite de chaque vouch.')}
       </div>
       <div class="row" style="margin-top:16px"><button class="btn" onclick="appearanceSave()">Appliquer</button></div>
       <div class="alert info" style="margin-top:14px">La couleur et les logos sont enregistrés dans Supabase et restaurés après un redéploiement. Les panels déjà envoyés sont mis à jour automatiquement.</div>
@@ -1109,9 +1308,10 @@ function pageAppearance() {
 }
 async function appearanceSave() {
   try {
+    const pl = imgValue('a_panel_logo'), vl = imgValue('a_vouch_logo');
     await api('/api/guild-settings', {
       guildId: S.gid, panelColor: $('#a_color').value.trim(),
-      panelLogo: $('#a_panel_logo').value.trim(), vouchLogo: $('#a_vouch_logo').value.trim(),
+      panelLogo: pl.data || pl.url, vouchLogo: vl.data || vl.url,
     });
     await afterChange('Apparence appliquée ✅');
   } catch (e) { toast(e.message, false); }

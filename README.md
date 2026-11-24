@@ -11,7 +11,7 @@ Bot Discord de tickets, ventes, vouchs, invitations et modération, avec un dash
 - **Traduction automatique** : dans les tickets, chaque message reçu est traduit en français et en anglais, quelle que soit la langue d'origine. Un message français reçoit sa traduction anglaise (🇬🇧), un message anglais sa traduction française (🇫🇷), et un message dans une autre langue reçoit les deux. Les mentions, liens et emojis sont conservés. Activable par configuration ou par panel.
 - **Suivi des ventes** : à la fermeture d'un ticket, le bot demande si la vente a été réalisée. Le staff saisit le montant, l'acheteur et le produit. Un panel dédié affiche le nombre de ventes, l'argent généré, le panier moyen et les dernières ventes.
 - **Couleur globale** : une seule couleur pour tous les panels (tickets, vouchs, ventes), réglable depuis le dashboard ou `/ticket couleur`.
-- **Dashboard simplifié** : navigation par sections (Accueil, Tickets, Vouches, Ventes, Apparence, Invitations, Commandes, Sauvegarde).
+- **Dashboard simplifié** : navigation par sections (Accueil, Tickets, Vouches, Ventes, Produits, Restock, Apparence, Invitations, Commandes, Sauvegarde).
 - **Tickets réorganisés** : onglets Réglages, Catégories, Sous-panels, Panels, Message d'ouverture.
 - **Sauvegarde Supabase complète** : `supabase.sql` contient la table principale, l'historique et des vues pour lire les invitations, panels, vouchs et ventes.
 
@@ -62,6 +62,24 @@ Permissions du bot : Gérer les salons, Gérer les rôles, Gérer les messages, 
 - `/ticket vouch-salon`, `vouch-activer`, `vouch-desactiver`
 - `/ticket traduction-activer`, `traduction-desactiver` (traduction automatique toute langue → français + anglais)
 - `/ticket ventes-salon`, `ventes-panel`, `ventes-devise`
+
+### Produits & Restock
+
+Deux annonces de boutique entièrement personnalisables, disponibles en commande et depuis le dashboard (pages **Produits** et **Restock**) :
+
+- `/product creer` — **annonce produit** : titre, description libre en Markdown, image, logo, pied de page et **autant de boutons-liens que tu veux** (25 maximum, limite Discord). Chaque bouton s'écrit `Texte | https://lien | emoji` (emoji optionnel).
+- `/restock creer` — **tableau de restock** : lignes `Variante | Prix | Stock`, image, logo, pied de page et boutons-liens.
+
+Options communes : `salon`, `couleur`, `logo` (coché par défaut, décochable pour masquer le logo) et mentions (`mention`, `ping`). Depuis le dashboard, les lignes, les liens et les images se saisissent directement (boutons d'ajout/suppression) sans passer par une commande.
+
+### Images : lien ou import
+
+Partout où une image est demandée (panels de tickets, sous-panels, message d'ouverture, produits, restock, logos du serveur, vouch), tu peux :
+
+- coller un **lien** (`https://…`) ;
+- ou **importer un fichier** depuis le dashboard (4 Mo maximum). Le fichier est envoyé avec le message Discord (pièce jointe), donc il ne dépend d'aucun hébergement externe.
+
+Le **logo global** se règle dans **Apparence** et s'applique à tous les panels, messages et annonces. La case « logo » est cochée par défaut partout : décoche-la pour publier un message sans logo.
 
 ### Panels de tickets
 

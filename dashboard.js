@@ -17,6 +17,12 @@ const MODALS = {
     F('description', 'Description', 1, 4000), F('image', "URL de l'image", 0, 500), F('color', 'Couleur hex', 0, 7)],
   'ticket/message': [F('content', 'Texte au-dessus', 1, 1000), F('title', 'Titre', 0, 256), F('description', 'Description', 1, 4000),
     F('image', "URL de l'image", 0, 500), F('color', 'Couleur hex', 0, 7)],
+  'product/creer': [F('titre', 'Titre', 0, 256), F('texte', 'Description (Markdown)', 1, 4000, 1),
+    F('liens', 'Boutons-liens : Libellé | https://url | emoji', 1, 2000), F('image_url', "URL de l'image", 0, 500),
+    F('footer', 'Pied de page', 0, 2048)],
+  'restock/creer': [F('titre', 'Titre', 0, 256), F('lignes', 'Variantes : Variante | Prix | Stock', 1, 4000, 1),
+    F('liens', 'Boutons-liens : Libellé | https://url | emoji', 1, 2000), F('image_url', "URL de l'image", 0, 500),
+    F('footer', 'Pied de page', 0, 2048)],
 };
 
 module.exports = function startDashboard(ctx) {
@@ -102,7 +108,12 @@ module.exports = function startDashboard(ctx) {
       getMember: (n) => guild.members.cache.get(o[n]) || null,
       getChannel: (n, r) => { const v = need(o[n], n, r); return v ? guild.channels.cache.get(v) || null : null; },
       getRole: (n, r) => { const v = need(o[n], n, r); return v ? guild.roles.cache.get(v) || null : null; },
-      getAttachment: (n) => (o[n] ? { url: o[n], name: 'image.png', contentType: 'image/png' } : null),
+      getAttachment: (n) => {
+        const v = o[n];
+        if (!v) return null;
+        if (typeof v === 'string') return { url: v, name: 'image.png', contentType: 'image/png' };
+        return { url: v.url, name: v.name || 'image.png', contentType: v.contentType || 'image/png' };
+      },
       get: (n) => (o[n] ? { name: n, value: o[n], role: guild.roles.cache.get(o[n]) || null, user: guild.members.cache.get(o[n])?.user || null } : null),
       getFocused: () => '',
     };
@@ -136,6 +147,13 @@ module.exports = function startDashboard(ctx) {
   // ---------- Édition directe : message d'ouverture des tickets et sous-panels ----------
   const txt = (v, max) => { const t = String(v ?? '').replace(/\r/g, '').trim(); return t ? t.slice(0, max) : undefined; };
   const urlOk = (v) => { const t = String(v ?? '').trim(); return /^https?:\/\/\S+$/i.test(t) ? t.slice(0, 500) : undefined; };
+  // Lien http(s) ou image importée depuis le dashboard (base64).
+  const imgOk = (v) => {
+    const t = String(v ?? '').trim();
+    if (/^https?:\/\/\S+$/i.test(t)) return t.slice(0, 500);
+    if (/^data:image\/(?:png|jpe?g|gif|webp);base64,/i.test(t) && t.length <= 6e6) return t;
+    return undefined;
+  };
   const colorOk = (v) => { const t = String(v ?? '').trim(); return /^#?[0-9a-f]{6}$/i.test(t) ? '#' + t.replace('#', '') : undefined; };
   const cleanOpenMsg = (m) => {
     const infoLabels = {};
@@ -147,7 +165,7 @@ module.exports = function startDashboard(ctx) {
     }
     const out = {
       content: txt(m.content, 1000), title: txt(m.title, 256), description: txt(m.description, 4000),
-      image: urlOk(m.image), thumbnail: urlOk(m.thumbnail), color: colorOk(m.color), footer: txt(m.footer, 2048),
+      image: imgOk(m.image), thumbnail: imgOk(m.thumbnail), color: colorOk(m.color), footer: txt(m.footer, 2048),
       claimLabel: txt(m.claimLabel, 80), closeLabel: txt(m.closeLabel, 80), claimEmoji: txt(m.claimEmoji, 64), closeEmoji: txt(m.closeEmoji, 64),
       showInfo: typeof m.showInfo === 'boolean' ? m.showInfo : undefined,
       timestamp: m.timestamp === false ? false : undefined,
@@ -227,7 +245,7 @@ module.exports = function startDashboard(ctx) {
           dm: !!t.dm, openMsg: t.openMsg || null, openMsgId: t.openMsgId || null,
           color: t.color || null, placeholder: t.placeholder || null, logo: t.logo || null, translate: !!t.translate,
           openPresets: (t.openPresets || []).map((p) => ({ id: p.id, name: p.name, openMsg: p.openMsg || null })),
-          panels: (t.panels || []).map((p) => ({ channelId: p.channelId, messageId: p.messageId, button: !!p.button, multi: !!p.multi, btnLabel: p.btnLabel || null, btnStyle: p.btnStyle || null, openMsg: p.openMsg || null, openMsgId: p.openMsgId || null, translate: !!p.translate, thumb: p.thumb || null })),
+          panels: (t.panels || []).map((p) => ({ channelId: p.channelId, messageId: p.messageId, button: !!p.button, multi: !!p.multi, showLogo: p.showLogo !== false, btnLabel: p.btnLabel || null, btnStyle: p.btnStyle || null, openMsg: p.openMsg || null, openMsgId: p.openMsgId || null, translate: !!p.translate, thumb: p.thumb || null })),
           reasons: (t.reasons || []).map((r) => ({ id: r.id, label: r.label, emoji: r.emoji, description: r.description, panelText: r.panelText || '', categoryId: r.categoryId, staffRoleId: r.staffRoleId, openMsg: r.openMsg || null, openMsgId: r.openMsgId || null })),
           dmChoices: (t.dmChoices || []).map((r) => ({ id: r.id, label: r.label, emoji: r.emoji, openMsg: r.openMsg || null, openMsgId: r.openMsgId || null })),
           subPanels: t.subPanels || [], subLinks: t.subLinks || {}, defaultSub: t.defaultSubPanelId || null,
@@ -255,7 +273,7 @@ module.exports = function startDashboard(ctx) {
           dm: false, dmMigrated: true, dmChoices: [], dmTexts: null, dmImage: null,
           subPanels: [], subLinks: {}, defaultSubPanelId: null, openPresets: [],
           color: colorOk(b.color) || null,
-          logo: urlOk(b.logo) || null,
+          logo: imgOk(b.logo) || null,
           // live translation is on by default (can be disabled per configuration)
           translate: ('translate' in b) ? (b.translate === true || b.translate === 'true') : true,
         };
@@ -283,7 +301,7 @@ module.exports = function startDashboard(ctx) {
         if ('logChannelId' in b) cfg.logChannelId = b.logChannelId && guild.channels.cache.has(b.logChannelId) ? b.logChannelId : null;
         if ('placeholder' in b) cfg.placeholder = txt(b.placeholder, 150) || null;
         if ('color' in b) cfg.color = colorOk(b.color) || null;
-        if ('logo' in b) cfg.logo = urlOk(b.logo) || null;
+        if ('logo' in b) cfg.logo = imgOk(b.logo) || null;
         if ('translate' in b) cfg.translate = b.translate === true || b.translate === 'true';
         save();
         if (b.refresh !== false) await refreshPanels(guild, name).catch(console.error);
@@ -304,10 +322,10 @@ module.exports = function startDashboard(ctx) {
         recolor = true;
       }
       if ('panelLogo' in b) {
-        d.panelLogo = urlOk(b.panelLogo) || null;
+        d.panelLogo = imgOk(b.panelLogo) || null;
         recolor = true; // le logo est appliqué aux panels existants
       }
-      if ('vouchLogo' in b) d.vouch.logo = urlOk(b.vouchLogo) || null;
+      if ('vouchLogo' in b) d.vouch.logo = imgOk(b.vouchLogo) || null;
       if ('vouchTitle' in b) d.vouch.title = txt(b.vouchTitle, 256) || null;
       if ('vouchFooter' in b) d.vouch.footer = txt(b.vouchFooter, 2048) || null;
       if ('vouchDetails' in b) d.vouch.details = String(b.vouchDetails ?? '').replace(/\r/g, '').trim().slice(0, 2000);
@@ -417,7 +435,7 @@ module.exports = function startDashboard(ctx) {
           id: crypto.randomUUID().slice(0, 8), name,
           title: txt(b.title, 256) || null, description: txt(b.description, 4000) || null,
           placeholder: txt(b.placeholder, 100) || null, color: colorOk(b.color) || null,
-          image: urlOk(b.image) || null, thumbnail: urlOk(b.thumbnail) || null,
+          image: imgOk(b.image) || null, thumbnail: imgOk(b.thumbnail) || null,
           footer: txt(b.footer, 2048) || null, payment: !!b.payment, choices: [],
         };
         cfg.subPanels.push(sp);
@@ -445,8 +463,8 @@ module.exports = function startDashboard(ctx) {
         if ('description' in b) sp.description = txt(b.description, 4000) || null;
         if ('placeholder' in b) sp.placeholder = txt(b.placeholder, 100) || null;
         if ('color' in b) sp.color = colorOk(b.color) || null;
-        if ('image' in b) sp.image = urlOk(b.image) || null;
-        if ('thumbnail' in b) sp.thumbnail = urlOk(b.thumbnail) || null;
+        if ('image' in b) sp.image = imgOk(b.image) || null;
+        if ('thumbnail' in b) sp.thumbnail = imgOk(b.thumbnail) || null;
         if ('footer' in b) sp.footer = txt(b.footer, 2048) || null;
         if ('payment' in b) sp.payment = !!b.payment;
         save();
