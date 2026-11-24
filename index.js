@@ -413,10 +413,10 @@ function parseStockRows(raw) {
 function productModal(modalId) {
   return new ModalBuilder().setCustomId(modalId).setTitle('New product').addComponents(
     field('titre', 'Title', TextInputStyle.Short, { max: 256, placeholder: '🎯 NEW PRODUCT: ...' }),
-    field('texte', 'Description (Markdown, @Pseudo @Role #channel)', TextInputStyle.Paragraph, {
+    field('texte', 'Description (Markdown, @role #chan)', TextInputStyle.Paragraph, {
       required: true, max: 4000, placeholder: '### What’s included?\n- ...\n- ...',
     }),
-    field('liens', 'Link buttons: Label | https://url | emoji (one per line)', TextInputStyle.Paragraph, {
+    field('liens', 'Buttons: Label | https://url | emoji', TextInputStyle.Paragraph, {
       max: 2000, placeholder: 'Check / Purchase | https://... | 🛒\nVideo Showcase | https://... | ▶️',
     }),
     field('image_url', 'Image URL (if no file)', TextInputStyle.Short, { max: 500 }),
@@ -429,7 +429,7 @@ function restockModal(modalId) {
     field('lignes', 'Rows: Variant | Price | Stock (one per line)', TextInputStyle.Paragraph, {
       required: true, max: 4000, placeholder: 'Rockstar Activation Codes [Automatic Delivery] | $0.11 | 439',
     }),
-    field('liens', 'Link buttons: Label | https://url | emoji (one per line)', TextInputStyle.Paragraph, {
+    field('liens', 'Buttons: Label | https://url | emoji', TextInputStyle.Paragraph, {
       max: 2000, placeholder: 'Buy Now | https://... | 🛒',
     }),
     field('image_url', 'Image URL (if no file)', TextInputStyle.Short, { max: 500 }),
