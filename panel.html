@@ -1,460 +1,1075 @@
 <!DOCTYPE html>
 <html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ZNK Bot — Panel</title>
+<title>ZNK Bot — Dashboard</title>
 <style>
-:root{--bg:#0e0f11;--p1:#141518;--p2:#1b1c20;--bd:#27292e;--tx:#e6e7ea;--mu:#8b8e96;--ac:#4f8cff;--ac2:#4f8cff;--ok:#2e9e5b;--ko:#d9475c}
-*{box-sizing:border-box;margin:0}
-body{font:13.5px/1.5 Inter,-apple-system,"Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--tx);height:100vh;display:flex;overflow:hidden}
-[hidden]{display:none!important}button{font:inherit}
-aside{width:244px;background:var(--p1);border-right:1px solid var(--bd);display:flex;flex-direction:column;flex-shrink:0}
-.logo{padding:16px 16px 12px;font-weight:700;font-size:15px;letter-spacing:-.01em}.logo small{font-weight:400;color:var(--mu);margin-left:6px}
-aside select,aside input{margin:0 12px 8px;width:calc(100% - 24px)}
-#nav{overflow:auto;padding:4px 8px 12px;flex:1}
-.cat{font-size:11.5px;font-weight:600;color:var(--mu);margin:16px 8px 4px}
-.ni{display:flex;justify-content:space-between;align-items:center;padding:6px 9px;border-radius:6px;cursor:pointer;color:#b4b7bf}
-.ni:hover{background:var(--p2);color:var(--tx)}.ni.on{background:var(--p2);color:#fff;box-shadow:inset 2px 0 var(--ac)}
-.ni.cm{font:12.5px ui-monospace,Consolas,monospace}.ni em{font-style:normal;font-size:10.5px;color:var(--ko)}
-.sbf{border-top:1px solid var(--bd);padding:8px}
-.sbw{margin:0 12px 8px;padding:8px 10px;border:1px solid #5a2a33;border-radius:6px;color:#f08a99;font-size:12px}
-main{flex:1;overflow:auto;padding:24px 28px;display:grid;grid-template-columns:minmax(340px,1fr) minmax(340px,1fr);gap:16px;align-content:start}
-.card{background:var(--p1);border:1px solid var(--bd);border-radius:8px;padding:18px}
-.head{grid-column:1/-1;background:none;border:0;border-bottom:1px solid var(--bd);border-radius:0;padding:0 0 14px}.head h1{font-size:20px;font-weight:650;letter-spacing:-.01em}.head p{color:var(--mu);margin-top:2px}
-.bd{display:inline-block;font-size:11px;padding:1px 7px;border-radius:4px;background:var(--p2);border:1px solid var(--bd);color:var(--mu);margin:8px 6px 0 0}.bd.r{color:#f08a99;border-color:#5a2a33}
-.tabs{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:14px;border-bottom:1px solid var(--bd);padding-bottom:10px}
-.tab{background:none;border:1px solid transparent;color:var(--mu);padding:4px 10px;border-radius:6px;cursor:pointer}.tab:hover{color:var(--tx)}.tab.on{background:var(--p2);border-color:var(--bd);color:#fff}
-.f{display:block;margin-bottom:14px}.f span{font-weight:600}.f small{display:block;color:var(--mu);font-size:12px;margin-bottom:4px}.req{color:var(--ko);margin-left:3px}
-input,select,textarea{width:100%;background:var(--bg);border:1px solid var(--bd);color:var(--tx);border-radius:6px;padding:7px 10px;font:inherit;outline:0}
-input:focus,select:focus,textarea:focus{border-color:var(--ac)}textarea{min-height:110px;resize:vertical}
-.combo{position:relative}.dd{position:absolute;z-index:9;left:0;right:0;top:100%;margin-top:4px;background:var(--p2);border:1px solid var(--bd);border-radius:6px;max-height:220px;overflow:auto}
-.dd div,.dd i{display:block;padding:7px 10px;cursor:pointer;color:var(--mu)}.dd div{color:var(--tx)}.dd div:hover{background:#4f8cff26}
-h3{font-size:13.5px;font-weight:600;color:var(--tx);margin:4px 0 10px}
-.run{width:100%;margin-top:6px;border:0;border-radius:6px;padding:9px 12px;font-weight:600;color:#fff;cursor:pointer;background:var(--ac)}
-.run:hover{filter:brightness(1.1)}.run:disabled{opacity:.5;cursor:wait}
-.sticky{position:sticky;top:0;align-self:start}
-.slash{font:12px ui-monospace,Consolas,monospace;background:var(--bg);border:1px solid var(--bd);border-radius:6px;padding:7px 10px;margin-bottom:12px;color:#9db8f5;word-break:break-all}
-.where{font-size:12px;color:var(--mu);margin:0 0 8px}
-.dc{background:#313338;border-radius:12px;padding:16px;color:#dbdee1;font:14px/1.4 "gg sans",system-ui,sans-serif;margin-bottom:12px}
-.dc .m{display:flex;gap:12px}.av{width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,var(--ac),var(--ac2));flex-shrink:0;display:grid;place-items:center;font-weight:800;color:#fff}
-.nm{font-weight:600;color:#fff}.tg{background:#5865f2;color:#fff;font-size:10px;border-radius:4px;padding:1px 5px;margin-left:5px;vertical-align:middle}.dt{color:#949ba4;font-size:12px;margin-left:6px}
-.mc{min-width:0;flex:1;word-wrap:break-word}.mc code{background:#1e1f22;border-radius:4px;padding:1px 4px;font-size:13px}.mc pre{background:#1e1f22;border-radius:6px;padding:8px;margin:4px 0;white-space:pre-wrap}.mc a{color:#00a8fc}
-.pill{background:#5865f24d;color:#c9cdfb;border-radius:4px;padding:0 3px;font-weight:500}
-.emb{position:relative;display:flex;justify-content:space-between;gap:12px;background:#2b2d31;border-left:4px solid #5865f2;border-radius:4px;padding:10px 14px;margin-top:6px;max-width:520px}
-.eb{min-width:0;flex:1}.et{font-weight:700;color:#fff;margin-bottom:4px;font-size:16px}.ed{font-size:14px}.ea{font-weight:600;font-size:13px;margin-bottom:4px}
-.ef{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}.ef>div{flex:1 1 100%}.ef>div.in{flex:1 1 30%}.ef b{display:block;font-size:13px;color:#fff}
-.ei{max-width:100%;border-radius:4px;margin-top:10px;display:block}.eth{width:72px;height:72px;object-fit:cover;border-radius:4px}.fileimg{margin-top:8px;color:#949ba4;font-size:12px}.efoot{font-size:12px;color:#949ba4;margin-top:8px}
-.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}.b{border-radius:4px;padding:6px 14px;font-size:14px;font-weight:500;color:#fff}.sel{background:#1e1f22;border:1px solid #3f4147;border-radius:4px;padding:8px 12px;color:#949ba4;min-width:260px;display:flex;justify-content:space-between}
-.rx{display:inline-block;margin-top:6px;background:#5865f233;border:1px solid #5865f2;border-radius:8px;padding:1px 8px}
-.empty{color:var(--mu);text-align:center;padding:18px}
-#toasts{position:fixed;right:18px;bottom:18px;display:flex;flex-direction:column;gap:8px;z-index:99}.toast{padding:9px 14px;border-radius:6px;color:#fff;animation:u .2s}.toast.ok{background:var(--ok)}.toast.ko{background:var(--ko)}@keyframes u{from{transform:translateY(8px);opacity:0}}
-#login{position:fixed;inset:0;background:var(--bg);display:grid;place-items:center;z-index:100}#login .card{width:320px;text-align:center}#login h1{margin-bottom:14px}#login input{margin-bottom:12px}
-.rr{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--bd)}.rr small{display:block;color:var(--mu)}
-.mini{background:var(--p2);border:1px solid var(--bd);border-radius:6px;padding:3px 8px;cursor:pointer;color:var(--tx);margin-left:4px}.mini:hover{border-color:var(--ac)}
-.opt{display:flex;gap:8px;padding:8px 10px;border-radius:4px}.opt small{display:block;color:#949ba4}.opt.new{background:#5865f233}.menu{background:#2b2d31;border-radius:6px;padding:6px;margin-top:6px;max-width:420px}
-.ce{width:22px;height:22px;vertical-align:-5px;object-fit:contain}.ew{position:relative;display:flex;gap:6px}.ew .mini{margin:0;font-size:16px}
-.ep{position:absolute;z-index:30;top:100%;left:0;margin-top:6px;width:330px;max-height:320px;overflow:auto;background:#1b1c20;border:1px solid var(--bd);border-radius:12px;padding:10px;box-shadow:0 14px 40px #000a}
-.ep h3{margin:10px 0 6px}.eg{display:flex;flex-wrap:wrap;gap:4px}.eg button{background:none;border:0;border-radius:6px;padding:4px;cursor:pointer;font-size:20px;color:var(--tx)}.eg button:hover{background:#4f8cff44}
-.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-@media(max-width:900px){body{flex-direction:column;height:auto;overflow:auto}aside{width:100%;max-height:44vh}main{grid-template-columns:1fr;padding:14px;overflow:visible}.sticky{position:static}}
+:root{
+  --bg:#0c0d10;--panel:#14161b;--panel2:#1a1d24;--line:#272b34;--text:#e8eaf0;--muted:#8d93a1;
+  --accent:#4f8cff;--ok:#2fb56b;--danger:#e05263;--warn:#d9a33a;--radius:12px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font:14px/1.55 Inter,-apple-system,"Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+[hidden]{display:none!important}
+button,input,select,textarea{font:inherit;color:inherit}
+a{color:var(--accent);text-decoration:none}
+h1{font-size:22px;letter-spacing:-.02em}h2{font-size:16px;margin-bottom:12px}h3{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:16px 0 8px}
+small,.muted{color:var(--muted);font-size:12px}
+#app{display:flex;min-height:100vh}
+aside{width:232px;flex-shrink:0;background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
+.brand{padding:18px 18px 10px;font-size:16px;font-weight:700;letter-spacing:-.01em}.brand span{color:var(--muted);font-weight:400;font-size:12px;margin-left:6px}
+aside select{margin:0 12px 12px;width:calc(100% - 24px)}
+nav{flex:1;overflow:auto;padding:6px 8px}
+.nav-item{display:flex;align-items:center;gap:10px;width:100%;background:none;border:0;color:#b7bcc8;border-radius:8px;padding:9px 10px;cursor:pointer;text-align:left;font-weight:500}
+.nav-item:hover{background:var(--panel2);color:#fff}
+.nav-item.on{background:var(--panel2);color:#fff;box-shadow:inset 3px 0 var(--accent)}
+.side-foot{border-top:1px solid var(--line);padding:10px 14px;font-size:11px;color:var(--muted);line-height:1.4}
+main{flex:1;min-width:0;padding:26px 30px 60px;max-width:1400px;margin:0 auto;width:100%}
+.page-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:20px;flex-wrap:wrap}
+.page-head p{color:var(--muted);margin-top:3px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:18px;margin-bottom:16px}
+.grid{display:grid;gap:14px}
+.stats{grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:18px}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px}
+.stat .ico{font-size:20px}.stat b{display:block;font-size:24px;letter-spacing:-.02em;margin-top:6px}.stat span{color:var(--muted);font-size:12px}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.field{display:block;margin-bottom:14px}
+.field>span{display:block;font-weight:600;font-size:13px;margin-bottom:2px}
+.field small{display:block;margin-bottom:5px}
+.req{color:var(--danger);margin-left:3px}
+input,select,textarea{width:100%;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:9px 11px;outline:0}
+input:focus,select:focus,textarea:focus{border-color:var(--accent)}
+textarea{min-height:90px;resize:vertical}
+input[type=color]{padding:3px;height:40px;cursor:pointer}
+input[type=checkbox]{width:auto;accent-color:var(--accent)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;background:var(--accent);color:#fff;border:0;border-radius:8px;padding:9px 15px;font-weight:600;cursor:pointer}
+.btn:hover{filter:brightness(1.1)}.btn:disabled{opacity:.55;cursor:wait}
+.btn.ghost{background:var(--panel2);border:1px solid var(--line);color:var(--text)}
+.btn.ghost:hover{border-color:var(--accent)}
+.btn.danger{background:var(--danger)}.btn.danger.ghost{background:none;color:var(--danger);border:1px solid #62303a}
+.btn.ok{background:var(--ok)}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.row.end{justify-content:flex-end}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 16px}
+.tab{background:var(--panel);border:1px solid var(--line);color:var(--muted);border-radius:8px;padding:8px 13px;cursor:pointer;font-weight:600;font-size:13px}
+.tab:hover{color:var(--text)}.tab.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.ticket-bar{display:flex;align-items:end;gap:14px;flex-wrap:wrap}
+.ticket-bar label{min-width:240px;flex:1}
+.list{display:flex;flex-direction:column;gap:8px}
+.item{display:flex;justify-content:space-between;align-items:center;gap:12px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:10px 12px}
+.item .grow{min-width:0;flex:1}.item b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.item small{display:block;overflow:hidden;text-overflow:ellipsis}
+.pill{display:inline-block;background:var(--panel2);border:1px solid var(--line);color:var(--muted);border-radius:999px;padding:2px 9px;font-size:11px;white-space:nowrap}
+.pill.ok{color:#7ee2aa;border-color:#2c5b43}.pill.ko{color:#ff9aaa;border-color:#633039}
+.mini{background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:5px 9px;cursor:pointer;font-size:12px}
+.mini:hover{border-color:var(--accent)}
+.empty{text-align:center;color:var(--muted);padding:26px 14px}
+.swatches{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.swatch{width:30px;height:30px;border-radius:50%;border:2px solid transparent;cursor:pointer}
+.swatch:hover{border-color:#fff}
+.vouch{display:flex;gap:12px;align-items:flex-start;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:11px}
+.vouch img{width:38px;height:38px;border-radius:50%;object-fit:cover;background:#333;flex-shrink:0}
+.vouch .grow{min-width:0}.stars{color:#f1c40f;letter-spacing:1px}
+.code{font-family:ui-monospace,Consolas,monospace;background:var(--bg);border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:12px}
+.alert{border-radius:9px;padding:10px 13px;margin-bottom:14px;font-size:13px;border:1px solid}
+.alert.info{background:#16233a;border-color:#2b4773;color:#b9cdf2}
+.alert.warn{background:#2b2413;border-color:#5c4a1d;color:#f0d79b}
+.alert.ko{background:#2d171c;border-color:#5e2c35;color:#f2aab7}
+#toasts{position:fixed;right:18px;bottom:18px;display:flex;flex-direction:column;gap:8px;z-index:100}
+.toast{padding:10px 15px;border-radius:9px;color:#fff;box-shadow:0 8px 30px #0008;animation:up .18s ease}
+.toast.ok{background:var(--ok)}.toast.ko{background:var(--danger)}
+@keyframes up{from{transform:translateY(8px);opacity:0}}
+#login{position:fixed;inset:0;background:var(--bg);display:grid;place-items:center;z-index:200;padding:20px}
+#login .card{width:340px;max-width:100%}
+.result{margin-top:14px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:12px;white-space:pre-wrap;word-break:break-word;font-size:13px}
+@media(max-width:1000px){.stats{grid-template-columns:1fr 1fr}.cols,.grid2{grid-template-columns:1fr}}
+@media(max-width:760px){#app{flex-direction:column}aside{width:100%;height:auto;position:static}nav{display:flex;flex-wrap:wrap}main{padding:18px}.stats{grid-template-columns:1fr 1fr}}
 </style></head><body>
-<div id="login" hidden><form class="card" onsubmit="login(event)"><h1 class="logo" style="padding:0 0 4px">ZNK Panel</h1><input id="pw" type="password" placeholder="Mot de passe" autofocus><button class="run">Se connecter</button></form></div>
-<aside><div class="logo">ZNK<small>Panel</small></div><select id="guild" onchange="loadGuild(this.value)"></select><input id="q" placeholder="Rechercher une commande" oninput="nav()"><div id="sbbar" class="sbw" hidden></div><div id="nav"></div><div class="sbf"><div class="ni" id="nbk" onclick="bk()">Sauvegarde</div></div></aside>
-<main id="main"><div class="empty" style="grid-column:1/-1">Choisis une commande dans le menu de gauche.</div></main>
+
+<div id="login" hidden>
+  <form class="card" onsubmit="login(event)">
+    <h1 style="margin-bottom:4px">ZNK Panel</h1>
+    <p class="muted" style="margin-bottom:16px">Entre le mot de passe du dashboard.</p>
+    <input id="pw" type="password" placeholder="Mot de passe" autofocus>
+    <button class="btn" style="width:100%;margin-top:10px">Se connecter</button>
+  </form>
+</div>
+
+<div id="app" hidden>
+  <aside>
+    <div class="brand">ZNK<span>Dashboard</span></div>
+    <select id="guild" onchange="loadGuild(this.value)"></select>
+    <nav id="nav"></nav>
+    <div class="side-foot" id="sbStatus">Connexion…</div>
+  </aside>
+  <main id="main"></main>
+</div>
 <div id="toasts"></div>
+
 <script>
-const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
-const S={vals:{},modal:{}};
-const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const toast=(m,ok=true)=>{const t=document.createElement('div');t.className='toast '+(ok?'ok':'ko');t.textContent=m;$('#toasts').append(t);setTimeout(()=>t.remove(),4500)};
-const api=async(p,b)=>{const r=await fetch(p,b?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}:{});const j=await r.json().catch(()=>({}));if(r.status===401){$('#login').hidden=false;throw new Error(j.error||'Connexion requise')}if(!r.ok)throw new Error(j.error||'Erreur');return j};
-async function login(e){e.preventDefault();try{await api('/api/login',{password:$('#pw').value});$('#login').hidden=true;boot()}catch(x){toast(x.message,false)}}
-async function boot(){const me=await fetch('/api/me').then(r=>r.json());if(!me.authed)return $('#login').hidden=false;
- [S.schema,S.guilds]=await Promise.all([api('/api/schema'),api('/api/guilds')]);
- $('#guild').innerHTML=S.guilds.map(g=>`<option value="${g.id}">${esc(g.name)} (${g.members})</option>`).join('');
- if(S.guilds[0])await loadGuild(S.guilds[0].id)}
-async function loadGuild(id){sbCheck();S.gid=id;S.g=await api('/api/guild?id='+id);nav();if(S.view=='tk')tkRender();else if(S.view=='sp')spRender();else if(S.view=='om')omRender();else if(S.view=='bk')bk();else if(S.cmd)render()}
-const NOEMO=s=>String(s).replace(/^[^\p{L}\p{N}]+/u,'');
-function nav(){const q=$('#q').value.toLowerCase(),d=S.g?.disabled||[];
- const it=(on,fn,l)=>`<div class="ni ${on?'on':''}" onclick="${fn}">${l}</div>`,
-  cmd=c=>`<div class="ni cm ${S.cmd?.name==c.name?'on':''}" onclick="pick('${c.name}')">/${c.name}${d.includes(c.name)?'<em>désactivée</em>':''}</div>`,
-  cs=k=>S.schema.commands.filter(c=>c.category==k&&c.name.includes(q));
- let h='';
- if(!q)h+=`<div class="cat">Tickets</div>`+it(S.view=='tk','tk()','Configurations')+it(S.view=='sp','sp()','Sous-panels')+it(S.view=='om','om()','Message d’ouverture');
- const tc=cs('tickets');if(tc.length)h+=`<div class="cat">${q?'Tickets':'Commandes tickets'}</div>`+tc.map(cmd).join('');
- for(const [k,l] of Object.entries(S.schema.categories)){if(k=='tickets'||k=='souspanel')continue;const c=cs(k);if(c.length)h+=`<div class="cat">${esc(NOEMO(l))}</div>`+c.map(cmd).join('')}
- $('#nav').innerHTML=h;$('#nbk').classList.toggle('on',S.view=='bk')}
-function pick(n){S.view=null;S.cmd=S.schema.commands.find(c=>c.name==n);S.sub=S.cmd.options?.find(o=>o.type==1)||null;S.res=null;nav();render()}
-const subs=()=>S.cmd.options.filter(o=>o.type==1),def=()=>S.sub||S.cmd,key=()=>S.cmd.name+(S.sub?'/'+S.sub.name:''),MODAL=()=>S.schema.modals[key()];
-function field(o){const r=o.required?'<b class="req">*</b>':'',t=o.type;let i;
- const sel=(l)=>`<select data-o="${o.name}">${l}</select>`;
- if(o.choices?.length)i=sel('<option value="">—</option>'+o.choices.map(c=>`<option value="${esc(c.value)}">${esc(c.name)}</option>`).join(''));
- else if(t==5)i=sel('<option value="">Non précisé</option><option value="true">Oui</option><option value="false">Non</option>');
- else if(t==7){const ok=o.channel_types;i=sel('<option value="">— choisir un salon —</option>'+S.g.channels.filter(c=>!ok||ok.includes(c.type)).map(c=>`<option value="${c.id}">${c.type==4?'📁 ':'# '}${esc(c.name)}</option>`).join(''))}
- else if(t==8)i=sel('<option value="">— choisir un rôle —</option>'+S.g.roles.map(x=>`<option value="${x.id}">@${esc(x.name)}</option>`).join(''));
- else if(o.autocomplete||t==6||t==9)i=`<div class="combo"><input data-o="${o.name}" data-src="${o.autocomplete?'ac':t==6?'user':'mention'}" autocomplete="off" placeholder="${o.autocomplete?'Choisir ou saisir…':'Rechercher un membre…'}"><div class="dd" hidden></div></div>`;
- else if(t==4||t==10)i=`<input data-o="${o.name}" type="number" ${o.min_value!=null?`min="${o.min_value}"`:''} ${o.max_value!=null?`max="${o.max_value}"`:''}>`;
- else if(t==11)i=`<input data-o="${o.name}" placeholder="https://… (lien de l'image)">`;
- else if(o.name=='emoji')i=`<div class="ew"><input data-o="emoji" placeholder="🎮 ou emoji du serveur"><button type="button" class="mini epb" onclick="emojiPick(this)" title="Choisir un emoji">😀</button></div>`;
- else i=`<input data-o="${o.name}" ${o.max_length?`maxlength="${o.max_length}"`:''}>`;
- return `<label class="f"><span>${esc(o.name)}${r}</span><small>${esc(o.description)}</small>${i}</label>`}
-function mfield(f){return `<label class="f"><span>${esc(f.label)}${f.req?'<b class="req">*</b>':''}</span>${f.long?`<textarea data-m="${f.id}" maxlength="${f.max}"></textarea>`:`<input data-m="${f.id}" maxlength="${f.max}">`}</label>`}
-function render(){const c=S.cmd,fl=c.flags,off=S.g.disabled.includes(c.name),m=MODAL();
- $('#main').innerHTML=`<div class="head card"><h1>/${c.name}</h1><p>${esc(c.description)}</p>
-  ${fl.owner?'<span class="bd r">Propriétaire uniquement</span>':''}${fl.public?'<span class="bd">Ouverte à tous</span>':''}${fl.always?'<span class="bd">Toujours active</span>':''}${off?'<span class="bd r">Désactivée</span>':''}</div>
-  <div class="card"><div class="tabs">${subs().map(s=>`<button class="tab ${S.sub?.name==s.name?'on':''}" onclick="S.sub=subs().find(x=>x.name=='${s.name}');render()" title="${esc(s.description)}">${s.name}</button>`).join('')}</div>
-  ${S.sub?`<p class="where" style="margin-bottom:14px">${esc(S.sub.description)}</p>`:''}
-  ${(def().options||[]).filter(o=>o.type!=1).map(field).join('')}
-  ${m?`<h3>✏️ Contenu du message</h3>${m.map(mfield).join('')}`:''}
-  ${!(def().options||[]).filter(o=>o.type!=1).length&&!m?'<p class="where">Aucune option : clique simplement sur Exécuter.</p>':''}
-  <button class="run" id="go" onclick="run()">▶ Exécuter la commande</button></div>
-  <div class="sticky"><h3>👁️ Aperçu</h3><div id="pv"></div><div id="res"></div></div>`;
- if(key()=='bienvenue/configurer'){const w=S.g.welcome||{};for(const k of['content','title','description','image','color'])if($(`[data-m=${k}]`))$(`[data-m=${k}]`).value=w[k]||''}
+'use strict';
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => [...document.querySelectorAll(s)];
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const S = {
+  guilds: [], schema: null, gid: null, g: null, page: 'home', tab: 'config', tk: null,
+  newTk: false, reasonEdit: null, sp: null, spEdit: false, choiceEdit: null,
+  omScope: 'config:', advCmd: null, advSub: null, advResult: null,
+};
 
- if(S.pre){for(const [k,v] of Object.entries(S.pre)){const e=$(`[data-o=${k}]`);if(e){e.value=v;e.dataset.v=v}}S.pre=null}
- sync()}
-function collect(){const vals={},modal={};$$('[data-o]').forEach(e=>{const v=e.dataset.v!==undefined?e.dataset.v:e.value;if(v!=='')vals[e.dataset.o]=v});$$('[data-m]').forEach(e=>modal[e.dataset.m]=e.value);return{vals,modal}}
-function sync(){if(!S.cmd)return;Object.assign(S,collect());preview()}
-async function fill(el){const q=el.value.toLowerCase(),dd=el.nextElementSibling;let l=[];
- try{if(el.dataset.src=='ac')l=await api('/api/autocomplete',{guildId:S.gid,command:S.cmd.name,sub:S.sub?.name,option:el.dataset.o,value:el.value,options:collect().vals});
-  else{if(el.dataset.src=='mention')l=S.g.roles.filter(r=>r.name.toLowerCase().includes(q)).slice(0,8).map(r=>({name:'@'+r.name,value:r.id}));
-   l=l.concat((await api(`/api/members?id=${S.gid}&q=${encodeURIComponent(el.value)}`)).map(x=>({name:`${x.name} (${x.tag})`,value:x.id})))}}catch{}
- dd.innerHTML=l.length?l.map(x=>`<div data-v="${esc(x.value)}" data-n="${esc(x.name)}">${esc(x.name)}</div>`).join(''):'<i>Aucun résultat</i>';dd.hidden=false}
-document.addEventListener('focusin',e=>{if(e.target.dataset?.src)fill(e.target)});
-document.addEventListener('input',e=>{const t=e.target;if(t.dataset?.src){delete t.dataset.v;clearTimeout(t._t);t._t=setTimeout(()=>fill(t),250)}if(t.closest('#main'))sync()});
-document.addEventListener('change',e=>{if(e.target.closest('#main'))sync()});
-document.addEventListener('click',e=>{const d=e.target.closest('.dd div');if(d){const i=d.closest('.combo').querySelector('input');i.value=d.dataset.n;i.dataset.v=d.dataset.v;sync()}$$('.dd').forEach(x=>x.hidden=true)});
-/* ---------- rendu façon Discord ---------- */
-const emo=s=>{const m=/^<(a?):(\w+):(\d+)>$/.exec(String(s||'').trim());return m?`<img class="ce" src="https://cdn.discordapp.com/emojis/${m[3]}.${m[1]?'gif':'png'}?size=48" alt=":${esc(m[2])}:">`:esc(s||'')};
-const hex=n=>typeof n=='number'?'#'+n.toString(16).padStart(6,'0'):n;
-const col=c=>/^#?[0-9a-f]{6}$/i.test((c||'').trim())?'#'+c.trim().replace('#',''):'#5865F2';
-const url=u=>/^https?:\/\/\S+$/i.test((u||'').trim())?u.trim():null;
-function mdr(t){let h=esc(String(t??'').replace(/\\n/g,'\n'));
- h=h.replace(/&lt;@&amp;(\d+)&gt;/g,(_,i)=>`<span class="pill">@${esc(S.g.roles.find(r=>r.id==i)?.name||'rôle')}</span>`)
-  .replace(/&lt;#(\d+)&gt;/g,(_,i)=>`<span class="pill">#${esc(S.g.channels.find(c=>c.id==i)?.name||'salon')}</span>`)
-  .replace(/&lt;@!?(\d+)&gt;/g,'<span class="pill">@membre</span>').replace(/&lt;(a?):(\w+):(\d+)&gt;/g,(_,a,n,i)=>`<img class="ce" src="https://cdn.discordapp.com/emojis/${i}.${a?'gif':'png'}?size=48" alt=":${n}:">`).replace(/&lt;t:\d+(?::\w)?&gt;/g,'<span class="pill">date</span>');
- for(const r of [...S.g.roles].sort((a,b)=>b.name.length-a.name.length))h=h.replace(new RegExp('(?<![\\w<])@'+r.name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'(?![\\w-])','gi'),`<span class="pill">@${esc(r.name)}</span>`);
- for(const c of [...S.g.channels].sort((a,b)=>b.name.length-a.name.length))h=h.replace(new RegExp('(?<![\\w&])#'+c.name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'(?![\\w-])','gi'),`<span class="pill">#${esc(c.name)}</span>`);
- return h.replace(/```(?:\w+\n)?([\s\S]*?)```/g,'<pre>$1</pre>').replace(/`([^`\n]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<b>$1</b>').replace(/__([^_]+)__/g,'<u>$1</u>')
-  .replace(/\*([^*\n]+)\*/g,'<i>$1</i>').replace(/~~([^~]+)~~/g,'<s>$1</s>').replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>')
-  .replace(/^#{1,3} (.+)$/gm,'<b style="font-size:17px">$1</b>').replace(/\n/g,'<br>')}
-const img=u=>u?(typeof u=='string'?url(u):url(u.url)):null;
-function emb(e){const c=typeof e.color=='number'?hex(e.color):(e.color||'#5865F2'),im=img(e.image),th=img(e.thumbnail);
- return `<div class="emb" style="border-left-color:${esc(c)}"><div class="eb">${e.author?`<div class="ea">${esc(e.author.name)}</div>`:''}${e.title?`<div class="et">${mdr(e.title)}</div>`:''}${e.description?`<div class="ed">${mdr(e.description)}</div>`:''}
- ${e.fields?.length?`<div class="ef">${e.fields.map(f=>`<div class="${f.inline?'in':''}"><b>${mdr(f.name)}</b>${mdr(f.value)}</div>`).join('')}</div>`:''}
- ${im?`<img class="ei" src="${esc(im)}">`:e.image?'<div class="fileimg">🖼️ image jointe</div>':''}
- ${e.footer||e.timestamp?`<div class="efoot">${esc(e.footer?.text||'')}${e.footer&&e.timestamp?' • ':''}${e.timestamp?'aujourd’hui':''}</div>`:''}</div>${th?`<img class="eth" src="${esc(th)}">`:''}</div>`}
-const BC={1:'#5865f2',2:'#4e5058',3:'#248046',4:'#da373c',5:'#4e5058'};
-function comps(cs){return (cs||[]).map(r=>`<div class="btns">${(r.components||[]).map(x=>x.type==2?`<span class="b" style="background:${BC[x.style]||BC[1]}">${x.emoji?.name?emo(x.emoji.name)+' ':''}${esc(x.label||'')}</span>`:`<span class="sel">${esc(x.placeholder||'Choisir…')}<span>⌄</span></span>`).join('')}</div>`).join('')}
-function msg(m,name='ZNK Bot'){return `<div class="dc"><div class="m"><div class="av">Z</div><div class="mc"><span class="nm">${esc(name)}</span><span class="tg">BOT</span><span class="dt">aujourd’hui</span>
- ${m.content?`<div>${mdr(m.content)}</div>`:''}${(m.embeds||[]).map(emb).join('')}${comps(m.components)}${m.files?.length?`<div class="fileimg">📎 ${m.files.map(esc).join(', ')}</div>`:''}${(m.reactions||[]).map(r=>`<span class="rx">${emo(r)} 1</span>`).join('')}</div></div></div>`}
-function vars(t,x){return String(t??'').replace(/\{(\w+)\}/g,(_,k)=>x[k]??`{${k}}`)}
-function mentions(v){const p=[];if(v.ping)p.push('@'+v.ping);if(v.mention){const r=S.g.roles.find(x=>x.id==v.mention);p.push(r?'<@&'+r.id+'>':'<@'+v.mention+'>')}return p.join(' ')}
-function preview(){const c=S.cmd,v=S.vals,m=S.modal,k=key(),ch=id=>'#'+(S.g.channels.find(x=>x.id==id)?.name||'salon');
- const slash='/'+k.replace('/',' ')+' '+Object.entries(v).map(([a,b])=>`${a}: ${b}`).join(' ');
- let where='',ms=[],note='';
- const ann=()=>({title:m.titre,description:m.texte,color:col(m.couleur),footer:m.footer?{text:m.footer}:null,timestamp:1,image:url(m.image_url)||v.image,thumbnail:v.miniature});
- if(k=='annonce'||k=='autorole/creer'){where=ch(v.salon);ms=[{content:mentions(v),embeds:[ann()],reactions:k=='autorole/creer'&&v.emoji?[v.emoji]:[]}]}
- else if(k=='message-mp'){where='Message privé envoyé à chaque membre';ms=[{embeds:[{title:m.titre,description:m.texte,color:col(m.couleur),footer:{text:'Envoyé depuis '+S.g.name},timestamp:1}]}]}
- else if(k=='bienvenue/configurer'){const x={user:'<@0>',username:'Toi',server:S.g.name,count:S.g.count};where=ch(v.salon||S.g.welcome?.channelId);ms=[{content:vars(m.content,x),embeds:[{title:vars(m.title,x),description:vars(m.description,x),color:col(m.color),image:url(m.image)}]}]}
- else if(k=='ticket/message'){const x={user:'<@0>',username:'Toi',server:S.g.name,category:'Exemple',config:'support',staff:'@Staff'};where='Dans le ticket à son ouverture';ms=[{content:vars(m.content,x),embeds:[{title:vars(m.title||'🎫 Ticket — {category}',x),description:vars(m.description||'Un membre du staff va te répondre.',x),color:col(m.color),image:url(m.image)}]}]}
- else if(k=='ticket/panel'){where=ch(v.salon);const bt={Primary:1,Secondary:2,Success:3,Danger:4},bs={'Bleu':1,'Gris':2,'Vert':3,'Rouge':4};const nt=v['sans-texte']=='true';
-  ms=[{embeds:[nt?{image:url(v['image-url'])||v.image}:{title:v.titre||'🎫 Support',description:v.description||'Clique ci-dessous pour ouvrir un ticket.',color:col(v.couleur),footer:v.footer?{text:v.footer}:null,image:url(v['image-url'])||v.image,thumbnail:v.miniature}],components:[{components:[v.type=='menu'?{type:3,placeholder:v.placeholder||'Choisir une catégorie...'}:{type:2,style:bt[v['couleur-bouton']]||1,label:v['bouton-texte']||'Ouvrir un ticket',emoji:{name:'🎫'}}]}]}]}
- else if(k=='ticket/raison-ajouter'){where='Menu du panel (catégorie)';note='nouvelle entrée du menu';ms=[{components:[{components:[{type:3,placeholder:`${v.emoji||'📁'} ${v.label||'Nouvelle catégorie'}${v.description?' — '+v.description:''}`}]}]}]}
- else if(k=='giveaway/creer'){note='aperçu indicatif';where=ch(v.salon);ms=[{content:mentions(v),embeds:[{title:'🎉 '+(v.lot||'…'),description:(v.description||'')+`\n\n**Fin :** dans ${v.duree||'…'} ${v.unite||''}\n**Gagnants :** ${v.gagnants||1}\n**Participants :** 0`,color:'#F1C40F',image:v.image}],components:[{components:[{type:2,style:1,label:'🎉 Participer'}]}]}]}
- else if(k=='setup-paiement'){note='aperçu indicatif';where=ch(v.salon);const mo=(v.moyens||'PayPal, Wero').split(',').map(x=>x.trim()).filter(Boolean);ms=[{embeds:[{title:v.titre||'💳 Paiement',description:v.description||'Choisis ton moyen de paiement pour ouvrir un ticket.',color:'#5865F2'}],components:[{components:[{type:3,placeholder:'Moyen : '+mo.join(' · ')}]}]}]}
- $('#pv').innerHTML=`<div class="slash">${esc(slash)}</div>`+(ms.length?`<p class="where">📍 ${esc(where)}${note?` — ${note}`:''}</p>`+ms.map(x=>msg(x)).join(''):'<div class="empty card" style="padding:14px">Cette commande répond directement : exécute-la pour voir la réponse du bot ici.</div>');
- $('#res').innerHTML=S.res?`<h3>🤖 Réponse du bot</h3>${S.res.map(x=>msg(x)).join('')}${S.running?'<p class="where">⏳ L’opération continue en arrière-plan sur le bot.</p>':''}`:''}
-const DANGER=/^(ban|message-mp|giveaway\/(annuler|terminer)|ticket\/config-supprimer|sous-panel\/supprimer|commandes\/desactiver|invites-config\/reset)$/;
-async function run(){const{vals,modal}=collect(),m=MODAL();
- for(const o of def().options||[])if(o.type!=1&&o.required&&!vals[o.name])return toast(`Champ requis : ${o.name}`,false);
- for(const f of m||[])if(f.req&&!modal[f.id]?.trim())return toast(`Champ requis : ${f.label}`,false);
- if(DANGER.test(key())&&!confirm('Confirmer cette action sur le serveur ?'))return;
- const b=$('#go');b.disabled=true;b.textContent='⏳ Exécution…';
- try{const r=await api('/api/run',{guildId:S.gid,command:S.cmd.name,sub:S.sub?.name,options:vals,modal:m?modal:null});S.res=r.replies;S.running=r.running;preview();toast(r.running?'Lancé : le bot continue en arrière-plan':'Commande exécutée ✅');api('/api/guild?id='+S.gid).then(g=>{S.g=g;nav()}).catch(()=>{})}
- catch(e){toast(e.message,false)}finally{b.disabled=false;b.textContent='▶ Exécuter la commande'}}
-/* ---------- Gestion des tickets : configs existantes + catégories du menu ---------- */
-function tk(){S.view='tk';S.cmd=null;S.edit=null;if(!S.g.tickets.find(t=>t.name==S.tk))S.tk=S.g.tickets[0]?.name;nav();tkRender()}
-const TC=()=>S.g.tickets.find(t=>t.name==S.tk);
-const cn=id=>{const c=S.g.channels.find(x=>x.id==id);return c?(c.type==4?'📁 ':'# ')+esc(c.name):'—'},rn=id=>'@'+esc(S.g.roles.find(r=>r.id==id)?.name||'rôle');
-function tkGo(sn){pick('ticket');S.sub=S.cmd.options.find(o=>o.name==sn);S.pre={config:S.tk};render()}
-function tkRender(){const ts=S.g.tickets,t=TC(),e=S.edit!=null?t?.reasons[S.edit]:null;
- let h=`<div class="head card"><h1>🎫 Gestion des tickets</h1><p>Toutes tes configurations existantes sont synchronisées avec le bot.</p></div>`;
- if(!t)h+=`<div class="card empty" style="grid-column:1/-1">Aucune configuration de ticket.<br><br><button class="tab on" onclick="pick('ticket');S.sub=S.cmd.options.find(o=>o.name=='config-creer');render()">➕ Créer une configuration</button></div>`;
- else h+=`<div class="card"><label class="f"><span>Configuration</span><select onchange="S.tk=this.value;S.edit=null;tkRender()">${ts.map(x=>`<option ${x.name==S.tk?'selected':''}>${esc(x.name)}</option>`).join('')}</select></label>
-  <p class="where">📁 Catégorie par défaut : ${cn(t.categoryId)}<br>👥 Staff : ${t.staffRoles.map(rn).join(', ')||'—'}<br>📝 Logs : ${cn(t.logChannelId)}<br>🎟️ Tickets créés : ${t.counter}${t.dm?'<br>📩 Ouverture par MP active':''}</p>
-  <h3>📌 Panels envoyés (${t.panels.length})</h3>${t.panels.map((p,n)=>`<p class="where">Panel ${n+1} · ${cn(p.channelId)} · ${p.button?'bouton':'menu'}</p>`).join('')||'<p class="where">Aucun panel envoyé.</p>'}
-  <div class="tabs"><button class="tab on" onclick="tkGo('panel')">📨 Envoyer un panel</button><button class="tab" onclick="om()">💬 Message d'ouverture</button><button class="tab" onclick="tkGo('staff-ajouter')">👥 Ajouter un staff</button><button class="tab" onclick="sp()">🗂️ Sous panel</button><button class="tab" onclick="pick('ticket');S.sub=S.cmd.options.find(o=>o.name=='config-creer');render()">➕ Nouvelle config</button></div></div>
- <div class="card"><h3>📋 Catégories du menu du panel — ${t.reasons.length}/25</h3>
-  ${t.reasons.map((r,n)=>`<div class="rr"><div>${emo(r.emoji||'📁')} <b>${esc(r.label)}</b><small>${esc(r.description||'')}${r.description?' · ':''}${cn(r.categoryId||t.categoryId)}${r.staffRoleId?' · '+rn(r.staffRoleId):''}</small></div><span><button class="mini" onclick="S.edit=${n};tkRender()">✏️</button><button class="mini" onclick="tkDel(${n})">🗑️</button></span></div>`).join('')||'<p class="where">Aucune catégorie : le panel utilisera un simple bouton.</p>'}
-  <h3 style="margin-top:18px">${e?'✏️ Modifier « '+esc(e.label)+' »':'➕ Créer une catégorie'}</h3>
-  <div class="two"><label class="f"><span>Nom<b class="req">*</b></span><input id="tk_label" maxlength="100" value="${esc(e?.label||'')}" oninput="tkPrev()"></label><label class="f"><span>Emoji</span><div class="ew"><input id="tk_emoji" placeholder="🎮 ou emoji du serveur" value="${esc(e?.emoji||'')}" oninput="tkPrev()"><button type="button" class="mini epb" onclick="emojiPick(this)" title="Choisir un emoji">😀</button></div></label></div>
-  <label class="f"><span>Description courte</span><input id="tk_desc" maxlength="100" value="${esc(e?.description||'')}" oninput="tkPrev()"></label>
-  <label class="f"><span>Catégorie du serveur</span><small>Où les tickets de ce choix seront créés</small><select id="tk_cat"><option value="">— catégorie par défaut de la config —</option>${S.g.channels.filter(c=>c.type==4).map(c=>`<option value="${c.id}" ${e?.categoryId==c.id?'selected':''}>📁 ${esc(c.name)}</option>`).join('')}</select></label>
-  ${e?'':`<label class="f"><span>Rôle staff</span><small>Remplace les rôles staff de la config pour ce choix</small><select id="tk_role"><option value="">— rôles de la config —</option>${S.g.roles.map(r=>`<option value="${r.id}">@${esc(r.name)}</option>`).join('')}</select></label>`}
-  <button class="run" onclick="tkSave()">${e?'💾 Enregistrer les modifications':'➕ Ajouter la catégorie'}</button>${e?'<button class="tab" style="margin-top:8px" onclick="S.edit=null;tkRender()">Annuler</button>':''}</div>
- ${bulkCard('reasons')}
- <div class="sticky"><h3>👁️ Aperçu du menu</h3><div id="tkpv"></div></div>`;
- $('#main').innerHTML=h;if(t)tkPrev()}
-function tkPrev(){const t=TC();if(!t)return;const v=id=>$('#'+id)?.value.trim()||'',ed=S.edit!=null;
- const o=t.reasons.map((r,n)=>({...r,cur:ed&&n==S.edit}));
- const d={emoji:v('tk_emoji'),label:v('tk_label'),description:v('tk_desc')};
- if(ed)Object.assign(o[S.edit],{emoji:d.emoji||o[S.edit].emoji,label:d.label||o[S.edit].label,description:d.description});else if(d.label)o.push({...d,cur:true});
- $('#tkpv').innerHTML=`<div class="dc"><div class="m"><div class="av">Z</div><div class="mc"><span class="nm">ZNK Bot</span><span class="tg">BOT</span>${t.panels.length?'':'<div class="fileimg">(aucun panel envoyé pour l’instant)</div>'}<div class="sel" style="margin-top:8px">Choisir une catégorie... <span>⌄</span></div>
- <div class="menu">${o.map(r=>`<div class="opt ${r.cur?'new':''}"><span>${emo(r.emoji||'')}</span><div><b>${esc(r.label)}</b>${r.description?`<small>${esc(r.description)}</small>`:''}</div></div>`).join('')||'<div class="opt">Aucun choix</div>'}</div></div></div></div>`}
-async function tkRun(sub,options){try{const r=await api('/api/run',{guildId:S.gid,command:'ticket',sub,options}),c=r.replies[0]?.content||'OK';toast(c.replace(/[*`]/g,'').slice(0,180),!c.startsWith('❌'));S.g=await api('/api/guild?id='+S.gid)}catch(e){toast(e.message,false)}}
-async function tkSave(){const t=TC(),v=id=>$('#'+id)?.value.trim()||'';if(!v('tk_label'))return toast('Le nom est obligatoire',false);
- const o={config:t.name},ed=S.edit!=null;if(ed){o.label=t.reasons[S.edit].label;o['nouveau-nom']=v('tk_label')}else o.label=v('tk_label');
- for(const [k,id] of [['emoji','tk_emoji'],['description','tk_desc'],['categorie','tk_cat'],['role-staff','tk_role']])if(v(id))o[k]=v(id);
- await tkRun(ed?'raison-modifier':'raison-ajouter',o);S.edit=null;nav();tkRender()}
-async function tkDel(n){const t=TC(),r=t.reasons[n];if(!confirm(`Supprimer la catégorie « ${r.label} » ?`))return;await tkRun('raison-retirer',{config:t.name,label:r.label});nav();tkRender()}
-/* ---------- Sous panel : un 2e menu proposé après le choix d'une catégorie du panel ---------- */
-function sp(){S.view='sp';S.cmd=null;S.sp=null;S.spEdit=false;S.ch=null;if(!S.g.tickets.find(t=>t.name==S.tk))S.tk=S.g.tickets[0]?.name;nav();spRender()}
-const spTargets=t=>{const ids=new Set(t.reasons.map(r=>r.id));return[...t.reasons.map(r=>({...r,mp:false})),...(t.dmChoices||[]).filter(r=>!ids.has(r.id)).map(r=>({...r,mp:true}))]};
-const spCur=()=>(TC()?.subPanels||[]).find(s=>s.id==S.sp);
-function spRender(){const t=TC();
- let h=`<div class="head card"><h1>🗂️ Sous panel</h1><p>Un sous-panel est un 2ᵉ menu proposé après le choix d'une catégorie du panel. Mets-en un <b>différent par catégorie</b>, ou le <b>même pour toutes</b>.</p></div>`;
- if(!t){$('#main').innerHTML=h+`<div class="card empty" style="grid-column:1/-1">Aucune configuration de ticket.<br><br><button class="tab on" onclick="tk()">🎫 Aller à la gestion des tickets</button></div>`;return}
- const sps=t.subPanels||[],cur=spCur(),ce=cur&&S.ch!=null?cur.choices[S.ch]:null,es=cur&&S.spEdit?cur:null,def=sps.find(s=>s.id==t.defaultSub)?.name,tg=spTargets(t);
- const opts=(sel,none)=>`<option value="">${none}</option>`+(none.startsWith('↩️')?'<option value="none" '+(sel=='none'?'selected':'')+'>❌ Aucun sous-panel</option>':'')+sps.map(s=>`<option value="${s.id}" ${sel==s.id?'selected':''}>${esc(s.name)}</option>`).join('');
- h+=`<div class="card"><label class="f"><span>Configuration</span><select onchange="S.tk=this.value;S.sp=null;S.ch=null;S.spEdit=false;spRender()">${S.g.tickets.map(x=>`<option ${x.name==S.tk?'selected':''}>${esc(x.name)}</option>`).join('')}</select></label>
-  <h3>🌐 Le même sous-panel pour toutes les catégories</h3><p class="where">S'applique à chaque catégorie qui n'a pas son propre sous-panel (et aux panels à simple bouton).</p>
-  <select onchange="spLink('all',this.value)">${opts(t.defaultSub,'— aucun —')}</select>
-  <h3 style="margin-top:18px">🔗 Un sous-panel différent par catégorie</h3>
-  ${tg.map(r=>`<div class="rr"><div>${emo(r.emoji||'📁')} <b>${esc(r.label)}</b>${r.mp?'<small>📩 menu MP</small>':''}</div><select style="max-width:55%" onchange="spLink('${r.id}',this.value)">${opts(t.subLinks?.[r.id],'↩️ Par défaut'+(def?' ('+esc(def)+')':''))}</select></div>`).join('')||'<p class="where">Aucune catégorie dans le menu du panel. Ajoutes-en dans « Gestion des tickets » : chacune pourra avoir son sous-panel.</p>'}</div>`;
- h+=`<div class="card"><h3>🗂️ Mes sous-panels — ${sps.length}/100</h3>
-  ${sps.map(s=>`<div class="rr" ${s.id==S.sp?'style="background:#4f8cff1a"':''}><div><b>${esc(s.name)}</b>${s.payment?' 💳':''}<small>${s.choices.length} choix${s.choices.length?' : '+s.choices.map(c=>esc(c.label)).join(', '):''}</small></div><span><button class="mini" title="Gérer les choix" onclick="S.sp='${s.id}';S.ch=null;S.spEdit=false;spRender()">📋</button><button class="mini" title="Modifier les textes" onclick="S.sp='${s.id}';S.ch=null;S.spEdit=true;spRender()">✏️</button><button class="mini" title="Supprimer" onclick="spDel('${s.id}')">🗑️</button></span></div>`).join('')||'<p class="where">Aucun sous-panel. Crée le premier ci-dessous.</p>'}
-  <h3 style="margin-top:18px">${es?'✏️ Modifier « '+esc(es.name)+' »':'➕ Créer un sous-panel'}</h3>
-  <label class="f"><span>Nom<b class="req">*</b></span><input id="sp_name" maxlength="60" value="${esc(es?.name||'')}" oninput="spPrev()"></label>
-  <label class="f"><span>Titre du message</span><input id="sp_title" maxlength="256" value="${esc(es?.title||'')}" oninput="spPrev()"></label>
-  <label class="f"><span>Texte du message</span><textarea id="sp_text" maxlength="4000" oninput="spPrev()">${esc(es?.description||'')}</textarea></label>
-  <div class="two"><label class="f"><span>Texte du menu</span><input id="sp_ph" maxlength="100" placeholder="Choisir une option..." value="${esc(es?.placeholder||'')}" oninput="spPrev()"></label><label class="f"><span>Couleur hex</span><input id="sp_col" maxlength="7" placeholder="#5865F2" value="${esc(es?.color||'')}" oninput="spPrev()"></label></div>
-  <div class="two"><label class="f"><span>Image (URL)</span><input id="sp_img" maxlength="500" placeholder="https://…" value="${esc(es?.image||'')}" oninput="spPrev()"></label><label class="f"><span>Miniature (URL)</span><input id="sp_thumb" maxlength="500" placeholder="https://…" value="${esc(es?.thumbnail||'')}" oninput="spPrev()"></label></div>
-  <label class="f"><span>Pied de page</span><small>Variables : {user} {username} {server} {config} {category}</small><input id="sp_foot" maxlength="2048" value="${esc(es?.footer||'')}" oninput="spPrev()"></label>
-  <label style="display:flex;gap:8px;align-items:center;margin-bottom:14px"><input type="checkbox" id="sp_pay" style="width:auto" ${es?.payment?'checked':''}> <span>💳 Ce sous-panel est un <b>mode de paiement</b><br><small style="color:var(--mu)">Le choix du membre s'affiche où tu veux avec la variable <code>{paiement}</code></small></span></label>
-  <button class="run" onclick="spSave()">${es?'💾 Enregistrer':'➕ Créer le sous-panel'}</button>${es?'<button class="tab" style="margin-top:8px" onclick="S.spEdit=false;spRender()">Annuler</button>':''}</div>`;
- if(cur)h+=`<div class="card"><h3>📋 Choix de « ${esc(cur.name)} » — ${cur.choices.length}/25</h3>
-  ${cur.choices.map((c,n)=>`<div class="rr"><div>${emo(c.emoji||'📁')} <b>${esc(c.label)}</b><small>${esc(c.description||'')}${c.description?' · ':''}${cn(c.categoryId||t.categoryId)}${c.staffRoleId?' · '+rn(c.staffRoleId):''}${c.nextSubId&&sps.find(s=>s.id==c.nextSubId)?' · ➜ <b>'+esc(sps.find(s=>s.id==c.nextSubId).name)+'</b>':''}</small></div><span><button class="mini" onclick="S.ch=${n};spRender()">✏️</button><button class="mini" onclick="spChDel(${n})">🗑️</button></span></div>`).join('')||'<p class="where">Aucun choix : ce sous-panel ne s\'affichera pas tant qu\'il est vide.</p>'}
-  <h3 style="margin-top:18px">${ce?'✏️ Modifier « '+esc(ce.label)+' »':'➕ Ajouter un choix'}</h3>
-  <div class="two"><label class="f"><span>Nom<b class="req">*</b></span><input id="sp_c_label" maxlength="100" value="${esc(ce?.label||'')}" oninput="spPrev()"></label><label class="f"><span>Emoji</span><div class="ew"><input id="sp_c_emoji" placeholder="🎮 ou emoji du serveur" value="${esc(ce?.emoji||'')}" oninput="spPrev()"><button type="button" class="mini epb" onclick="emojiPick(this)" title="Choisir un emoji">😀</button></div></label></div>
-  <label class="f"><span>Description courte</span><input id="sp_c_desc" maxlength="100" value="${esc(ce?.description||'')}" oninput="spPrev()"></label>
-  <label class="f"><span>Catégorie du serveur</span><small>Où les tickets de ce choix seront créés</small><select id="sp_c_cat"><option value="">— celle du menu / de la config —</option>${S.g.channels.filter(c=>c.type==4).map(c=>`<option value="${c.id}" ${ce?.categoryId==c.id?'selected':''}>📁 ${esc(c.name)}</option>`).join('')}</select></label>
-  <label class="f"><span>Rôle staff</span><small>Remplace les rôles staff pour ce choix</small><select id="sp_c_role"><option value="">— rôles de la config —</option>${S.g.roles.map(r=>`<option value="${r.id}" ${ce?.staffRoleId==r.id?'selected':''}>@${esc(r.name)}</option>`).join('')}</select></label>
-  <label class="f"><span>➡️ Sous-panel suivant</span><small>Proposé après ce choix (et ainsi de suite, autant de niveaux que tu veux). Vide = le ticket s'ouvre.</small><select id="sp_c_next"><option value="">— aucun (ticket direct) —</option>${sps.filter(s=>s.id!=cur.id).map(s=>`<option value="${s.id}" ${ce?.nextSubId==s.id?'selected':''}>${esc(s.name)}</option>`).join('')}</select></label>
-  <button class="run" onclick="spChSave()">${ce?'💾 Enregistrer le choix':'➕ Ajouter le choix'}</button>${ce?'<button class="tab" style="margin-top:8px" onclick="S.ch=null;spRender()">Annuler</button>':''}</div>`;
- h+=(cur?nextAllCard(cur):'')+(cur?bulkCard(cur.id):'')+`<div class="sticky"><h3>👁️ Aperçu du sous-panel</h3><div id="sppv"></div></div>`;
- $('#main').innerHTML=h;spPrev()}
-function spPrev(){const t=TC(),cur=spCur(),v=id=>$('#'+id)?.value.trim()||'';if(!t)return;
- if(!cur)return $('#sppv').innerHTML='<p class="where">Clique sur 📋 à côté d\'un sous-panel pour voir son aperçu et gérer ses choix.</p>';
- const ed=S.spEdit,col=/^#?[0-9a-f]{6}$/i.test(v('sp_col'))?'#'+v('sp_col').replace('#',''):(!ed&&cur.color)||'#5865F2';
- const ttl=ed?(v('sp_title')||cur.name):(cur.title||cur.name),txt=ed?v('sp_text'):cur.description,ph=ed?v('sp_ph'):cur.placeholder,im=ed?v('sp_img'):cur.image,ft=ed?v('sp_foot'):cur.footer;
- const o=cur.choices.map((c,n)=>({...c,cur:S.ch==n}));
- if(S.ch!=null&&o[S.ch])Object.assign(o[S.ch],{emoji:v('sp_c_emoji')||o[S.ch].emoji,label:v('sp_c_label')||o[S.ch].label,description:v('sp_c_desc')});
- else if(v('sp_c_label'))o.push({emoji:v('sp_c_emoji'),label:v('sp_c_label'),description:v('sp_c_desc'),cur:true});
- $('#sppv').innerHTML=`<div class="dc"><div class="m"><div class="av">Z</div><div class="mc"><span class="nm">ZNK Bot</span><span class="tg">BOT</span>
-  <div class="emb" style="border-left-color:${esc(col)}"><div class="eb"><div class="et">${esc(ttl)}</div><div class="ed">${mdr(txt||'Précise ta demande dans le menu ci-dessous.')}</div>${url(im)?`<img class="ei" src="${esc(url(im))}">`:''}${ft?`<div class="efoot">${esc(ft)}</div>`:''}</div></div>
-  <div class="sel" style="margin-top:8px">${esc(ph||'Choisir une option...')} <span>⌄</span></div>
-  <div class="menu">${o.map(r=>`<div class="opt ${r.cur?'new':''}"><span>${emo(r.emoji||'')}</span><div><b>${esc(r.label)}</b>${r.description?`<small>${esc(r.description)}</small>`:''}${r.nextSubId&&(t.subPanels||[]).find(s=>s.id==r.nextSubId)?`<small>➜ ${esc((t.subPanels||[]).find(s=>s.id==r.nextSubId).name)}</small>`:''}</div></div>`).join('')||'<div class="opt">Aucun choix</div>'}</div></div></div></div>`}
-async function spRun(sub,o){try{const r=await api('/api/run',{guildId:S.gid,command:'sous-panel',sub,options:{config:S.tk,...o}}),c=r.replies[0]?.content||'OK',ok=!c.startsWith('❌');toast(c.replace(/[*`]/g,'').slice(0,200),ok);S.g=await api('/api/guild?id='+S.gid);return ok}catch(e){toast(e.message,false);return false}}
-async function spLink(pour,v){await spRun(v?'lier':'delier',v?{'sous-panel':v,pour}:{pour});spRender()}
-async function spSave(){const cur=spCur(),v=id=>$('#'+id)?.value.trim()||'';if(!v('sp_name'))return toast('Le nom est obligatoire',false);
- const F={name:v('sp_name').slice(0,60),title:v('sp_title'),description:v('sp_text'),placeholder:v('sp_ph'),color:v('sp_col'),image:v('sp_img'),thumbnail:v('sp_thumb'),footer:v('sp_foot'),payment:!!$('#sp_pay')?.checked};
- try{
-  if(cur&&S.spEdit){await api('/api/subpanel-update',{guildId:S.gid,config:S.tk,subId:cur.id,fields:F});S.spEdit=false;toast('Sous-panel enregistré ✅')}
-  else{if(!await spRun('creer',{nom:F.name}))return;S.g=await api('/api/guild?id='+S.gid);
-   const n=(TC().subPanels||[]).find(s=>s.name==F.name);
-   if(n){const{name,...rest}=F;await api('/api/subpanel-update',{guildId:S.gid,config:S.tk,subId:n.id,fields:rest});S.sp=n.id;S.ch=null}toast('Sous-panel créé ✅')}
-  S.g=await api('/api/guild?id='+S.gid)}catch(e){return toast(e.message,false)}
- nav();spRender()}
-async function spDel(id){const s=(TC().subPanels||[]).find(x=>x.id==id);if(!s||!confirm(`Supprimer le sous-panel « ${s.name} » ? Il sera retiré de toutes les catégories.`))return;
- if(await spRun('supprimer',{'sous-panel':id})&&S.sp==id){S.sp=null;S.ch=null;S.spEdit=false}spRender()}
-async function spChSave(){const cur=spCur(),ed=S.ch!=null?cur.choices[S.ch]:null,v=id=>$('#'+id)?.value.trim()||'';if(!v('sp_c_label'))return toast('Le nom du choix est obligatoire',false);
- const o={'sous-panel':cur.id};if(ed){o['sous-choix']=ed.id;if(v('sp_c_label')!=ed.label)o['nouveau-nom']=v('sp_c_label')}else o.label=v('sp_c_label');
- for(const[k,id]of[['emoji','sp_c_emoji'],['description','sp_c_desc'],['categorie','sp_c_cat'],['role-staff','sp_c_role'],['suivant','sp_c_next']])if(v(id))o[k]=v(id);
- if(ed){if(!v('sp_c_emoji')&&ed.emoji)o.emoji='aucun';if(!v('sp_c_desc')&&ed.description)o.description='aucun';if(!v('sp_c_next')&&ed.nextSubId)o.suivant='aucun'}
- if(await spRun(ed?'choix-modifier':'choix-ajouter',o))S.ch=null;nav();spRender()}
-async function spChDel(n){const cur=spCur(),c=cur.choices[n];if(!confirm(`Retirer le choix « ${c.label} » ?`))return;await spRun('choix-retirer',{'sous-panel':cur.id,'sous-choix':c.id});S.ch=null;spRender()}
-/* ---------- Message d'ouverture du ticket : le panel affiché dans le salon à l'ouverture, modifiable à 100 % ---------- */
-const OM_VARS=['{user}','{username}','{server}','{category}','{sub}','{sub1}','{sub2}','{sub3}','{config}','{staff}','{number}','{paiement}','{prix}','{order}'];
-const chn=id=>S.g.channels.find(c=>c.id==id)?.name||'salon',omHas=m=>!!m&&Object.keys(m).length>0;
-function om(){S.view='om';S.cmd=null;if(!S.g.tickets.find(t=>t.name==S.tk))S.tk=S.g.tickets[0]?.name;S.omS='config:';nav();omRender()}
-const omRs=(t,o)=>(o?.openMsg&&Object.keys(o.openMsg).length?o.openMsg:o?.openMsgId&&(t.openPresets||[]).find(p=>p.id==o.openMsgId)?.openMsg)||null;
-function omScopes(t){const L=[{type:'config',id:'',label:'🌐 Toute la configuration « '+t.name+' »',own:omRs(t,t),pid:t.openMsgId}];
- t.panels.forEach((p,n)=>L.push({type:'panel',id:p.messageId,label:`📌 Panel ${n+1} — #${chn(p.channelId)}`,own:omRs(t,p),pid:p.openMsgId}));
- const ids=new Set(t.reasons.map(r=>r.id));
- [...t.reasons,...(t.dmChoices||[]).filter(r=>!ids.has(r.id))].forEach(r=>L.push({type:'reason',id:r.id,label:'📋 Catégorie : '+r.label,own:omRs(t,r),pid:r.openMsgId,cat:r.label}));
- (t.subPanels||[]).forEach(sp=>sp.choices.forEach(c=>L.push({type:'sub',id:sp.id+'/'+c.id,label:`🗂️ Sous-panel ${sp.name} › ${c.label}`,own:omRs(t,c),pid:c.openMsgId,sub:c.label})));
- L.splice(1,0,...(t.openPresets||[]).map(p=>({type:'preset',id:p.id,label:'Modèle : '+p.name,own:p.openMsg||null})));
- L.forEach(x=>x.key=x.type+':'+x.id);return L}
-// message dont l'élément hérite quand il n'a pas le sien (même ordre de priorité que le bot)
-function omInherit(t,sc){if(sc.type=='config')return null;
- if(sc.type!='panel'){const p=t.panels.find(p=>omHas(omRs(t,p)));if(p)return{msg:omRs(t,p),from:'un panel'}}
- return omHas(omRs(t,t))?{msg:omRs(t,t),from:'la configuration'}:null}
-function omRender(keep){const t=TC();
- let h=`<div class="head card"><h1>💬 Message d'ouverture du ticket</h1><p>Le panel (texte, embed, image, champs, boutons) que le bot envoie dans le salon <b>dès l'ouverture d'un ticket</b>. Modifiable en entier : pour toute la configuration, ou différent pour un panel, une catégorie ou un choix de sous-panel.</p></div>`;
- if(!t){$('#main').innerHTML=h+`<div class="card empty" style="grid-column:1/-1">Aucune configuration de ticket.<br><br><button class="tab on" onclick="tk()">🎫 Aller à la gestion des tickets</button></div>`;return}
- const sc=omScopes(t);if(!sc.find(x=>x.key==S.omS))S.omS='config:';const cur=sc.find(x=>x.key==S.omS),inh=omHas(cur.own)?null:omInherit(t,cur);
- if(!keep){S.omD=JSON.parse(JSON.stringify(omHas(cur.own)?cur.own:inh?.msg||{}));S.omInh=!omHas(cur.own)&&!!inh}
- const d=S.omD||{},V=(k)=>esc(d[k]||''),P=(id,k)=>`id="${id}" class="omf" value="${V(k)}" oninput="omPrev()"`;
- h+=`<div class="card"><div class="two"><label class="f"><span>Configuration</span><select onchange="omGo(()=>{S.tk=this.value;S.omS='config:'})">${S.g.tickets.map(x=>`<option ${x.name==S.tk?'selected':''}>${esc(x.name)}</option>`).join('')}</select></label>
-  <label class="f"><span>Message à modifier</span><select onchange="omGo(()=>{S.omS=this.value})">${sc.map(x=>`<option value="${esc(x.key)}" ${x.key==S.omS?'selected':''}>${omHas(x.own)?'● ':'○ '}${esc(x.label)}</option>`).join('')}</select></label></div>
-  <p class="where">${omHas(cur.own)?'✅ Cet élément a son <b>propre message</b>.':inh?`ℹ️ Pas de message propre : il utilise celui de <b>${inh.from}</b> (repris ci-dessous). Modifie puis enregistre pour le personnaliser.`:'ℹ️ Aucun message personnalisé : le message par défaut du bot est utilisé.'}<br>● = message personnalisé · le plus précis gagne : <b>choix de sous-panel › catégorie › panel › configuration</b>. Appliqué aux <b>nouveaux</b> tickets.</p>${omOver(sc,cur)}${omPresetBar(t,cur)}
-  <h3>Variables (clique pour insérer)</h3><div class="tabs">${OM_VARS.map(x=>`<button type="button" class="tab" style="padding:3px 9px" onmousedown="event.preventDefault()" onclick="omIns('${x}')">${x}</button>`).join('')}</div>
-  <label class="f"><span>Texte au-dessus de l'embed</span><small>Vide = ping du membre + du staff. <code>@Rôle</code>, <code>@Pseudo</code>, <code>#salon</code> deviennent cliquables.</small><textarea id="om_content" class="omf" style="min-height:70px" maxlength="1000" oninput="omPrev()">${V('content')}</textarea></label>
-  <label class="f"><span>Titre</span><input ${P('om_title','title')} maxlength="256" placeholder="🎫 Ticket — {category}"></label>
-  <label class="f"><span>Description</span><small>Vide = texte par défaut. Tu peux y écrire le sous-panel choisi avec <code>{sub}</code> (ou <code>{sub1}</code>, <code>{sub2}</code>…) le mode de paiement avec <code>{paiement}</code> le prix du choix avec <code>{prix}</code>, et le produit choisi (avant le paiement) avec <code>{order}</code>. Pour la catégorie du menu seule, utilise <code>{category}</code>.</small><textarea id="om_desc" class="omf" style="min-height:170px" maxlength="4000" placeholder="Bonjour {user}, un membre du staff va te répondre bientôt." oninput="omPrev()">${V('description')}</textarea></label>
-  <div class="two"><label class="f"><span>Image (URL)</span><input ${P('om_image','image')} maxlength="500" placeholder="https://…"></label><label class="f"><span>Miniature (URL)</span><input ${P('om_thumb','thumbnail')} maxlength="500" placeholder="https://…"></label></div>
-  <label class="f"><span>Pied de page</span><input ${P('om_footer','footer')} maxlength="2048"></label>
-  <div class="two"><label class="f"><span>Couleur</span><div class="ew"><input ${P('om_color','color')} maxlength="7" placeholder="#5865F2"><input type="color" style="width:48px;padding:2px" value="${/^#[0-9a-f]{6}$/i.test(d.color||'')?d.color:'#5865f2'}" oninput="$('#om_color').value=this.value;omPrev()"></div></label>
-  <label class="f"><span>Champs Configuration / Catégorie / Sous-panel</span><select id="om_info" onchange="omPrev()"><option value="" ${d.showInfo==null?'selected':''}>Auto (affichés si pas de description)</option><option value="true" ${d.showInfo===true?'selected':''}>Toujours afficher</option><option value="false" ${d.showInfo===false?'selected':''}>Ne jamais afficher</option></select></label></div>
-  <label style="display:flex;gap:8px;align-items:center;margin-bottom:14px"><input type="checkbox" id="om_ts" style="width:auto" ${d.timestamp===false?'':'checked'} onchange="omPrev()"> Afficher l'heure en bas de l'embed</label>
-  <h3>➕ Champs personnalisés (${(d.fields||[]).length}/10)</h3>
-  ${(d.fields||[]).map((f,n)=>`<div class="rr" style="display:block"><div class="two"><input class="omf" id="om_fn${n}" placeholder="Nom du champ" maxlength="256" value="${esc(f.name)}" oninput="omPrev()"><input class="omf" id="om_fv${n}" placeholder="Valeur" maxlength="1024" value="${esc(f.value)}" oninput="omPrev()"></div><label style="display:inline-flex;gap:6px;align-items:center;font-size:12px;margin-top:6px"><input type="checkbox" id="om_fi${n}" style="width:auto" ${f.inline?'checked':''} onchange="omPrev()"> côte à côte</label><button class="mini" style="float:right" onclick="omFDel(${n})">🗑️</button></div>`).join('')}
-  ${(d.fields||[]).length<10?`<button class="tab" style="margin:8px 0 16px" onclick="omFAdd()">➕ Ajouter un champ</button>`:''}
-  <h3>🔘 Boutons</h3>
-  <div class="two"><label class="f"><span>Bouton « Prendre en charge »</span><input ${P('om_cl','claimLabel')} maxlength="80" placeholder="Prendre en charge"></label><label class="f"><span>Emoji</span><div class="ew"><input ${P('om_ce','claimEmoji')} placeholder="🙋"><button type="button" class="mini epb" onclick="emojiPick(this)">😀</button></div></label></div>
-  <div class="two"><label class="f"><span>Bouton « Fermer »</span><input ${P('om_xl','closeLabel')} maxlength="80" placeholder="Fermer"></label><label class="f"><span>Emoji</span><div class="ew"><input ${P('om_xe','closeEmoji')} placeholder="🔒"><button type="button" class="mini epb" onclick="emojiPick(this)">😀</button></div></label></div>
-  <button class="run" onclick="omSave()">💾 Enregistrer le message</button>
-  ${omHas(cur.own)?`<button class="tab" style="margin-top:8px" onclick="omReset()">↩️ Supprimer ce message personnalisé</button>`:''}</div>
- <div class="sticky"><h3>👁️ Aperçu dans le ticket</h3><div id="ompv"></div></div>`;
- $('#main').innerHTML=h;omPrev();S.omBase=JSON.stringify(omRead())}
-function omRead(){const v=id=>$('#'+id)?.value??'';
- const d={content:v('om_content'),title:v('om_title'),description:v('om_desc'),image:v('om_image'),thumbnail:v('om_thumb'),footer:v('om_footer'),color:v('om_color'),claimLabel:v('om_cl'),closeLabel:v('om_xl'),claimEmoji:v('om_ce'),closeEmoji:v('om_xe')};
- if(v('om_info'))d.showInfo=v('om_info')=='true';if($('#om_ts')&&!$('#om_ts').checked)d.timestamp=false;
- d.fields=[];for(let n=0;$('#om_fn'+n);n++)d.fields.push({name:v('om_fn'+n),value:v('om_fv'+n),inline:$('#om_fi'+n).checked});return d}
-function omPrev(){const t=TC();if(!t||S.view!='om'||!$('#ompv'))return;const sc=omScopes(t).find(x=>x.key==S.omS)||{},d=omRead();
- const cat=sc.cat||t.reasons[0]?.label||'Exemple',subs=sc.sub?[sc.sub]:[],staff=t.staffRoles.map(r=>'<@&'+r+'>').join(' ')||'@Staff';
- const x={user:'<@0>',username:'Toi',server:S.g.name,category:cat,sub:subs.join(' › '),sub1:subs[0]||'',sub2:subs[1]||'',sub3:subs[2]||'',config:t.name,staff,prix:'5€',number:String((t.counter||0)+1).padStart(4,'0')};
- const paySp=(t.subPanels||[]).find(s=>s.payment);let pay='Non précisé',hasPay=false;
- if(sc.type=='sub'){const sp0=(t.subPanels||[]).find(s=>s.id==sc.id.split('/')[0]);if(sp0?.payment){pay=sc.sub;hasPay=true}}else if(paySp?.choices[0]){pay=paySp.choices[0].label;hasPay=true}
- x.paiement=x.payement=x.payment=pay;
- x.order=x.commande=x.article=(sc.type=='sub'&&hasPay)?cat:(subs.join(' › ')||cat);
- const own=d.description.trim(),showInfo=d.showInfo??!own,fields=[];
- if(showInfo){fields.push({name:'Configuration',value:t.name,inline:true},{name:'Catégorie',value:cat,inline:true});if(subs.length)fields.push({name:'Sous-panel',value:subs.join(' › '),inline:true});if(hasPay)fields.push({name:'Paiement',value:pay,inline:true})}
- d.fields.filter(f=>f.name.trim()&&f.value.trim()).forEach(f=>fields.push({name:vars(f.name,x),value:vars(f.value,x),inline:f.inline}));
- const m={content:d.content.trim()?vars(d.content,x):'<@0> '+staff,
-  embeds:[{title:d.title.trim()?vars(d.title,x):'🎫 Ticket — '+[cat,...subs].join(' › '),description:own?vars(d.description,x):'Bonjour <@0>, un membre du staff va te répondre bientôt.\nExplique-nous ta demande avec un maximum de détails.',color:col(d.color),fields,image:url(d.image),thumbnail:url(d.thumbnail),footer:d.footer.trim()?{text:vars(d.footer,x)}:null,timestamp:d.timestamp===false?0:1}],
-  components:[{components:[{type:2,style:1,label:d.claimLabel.trim()||'Prendre en charge',emoji:{name:d.claimEmoji.trim()||'🙋'}},{type:2,style:4,label:d.closeLabel.trim()||'Fermer',emoji:{name:d.closeEmoji.trim()||'🔒'}}]}]};
- $('#ompv').innerHTML=`<p class="where">📍 Dans le salon du ticket, à son ouverture</p>`+msg(m)}
-document.addEventListener('focusin',e=>{if(e.target.classList?.contains('omf'))S.omFocus=e.target});
-function omIns(v){const e=S.omFocus&&document.body.contains(S.omFocus)?S.omFocus:$('#om_desc');if(!e)return;const a=e.selectionStart??e.value.length,b=e.selectionEnd??a;e.value=e.value.slice(0,a)+v+e.value.slice(b);e.focus();e.selectionStart=e.selectionEnd=a+v.length;omPrev()}
-function omFAdd(){S.omD=omRead();S.omD.fields.push({name:'',value:'',inline:false});omRender(true)}
-function omFDel(n){S.omD=omRead();S.omD.fields.splice(n,1);omRender(true)}
-/* sauvegarde automatique : rien n'est perdu en changeant de message, de configuration ou de page */
-/* un message « plus précis » (sous-panel > catégorie > panel > configuration) passe avant : on le signale et on peut tout remplacer d'un clic */
-/* ---------- modèles de message d'ouverture : un message partagé par plusieurs éléments ---------- */
-function omPresetBar(t,cur){const ps=t.openPresets||[];
- if(cur.type=='preset')return `<div class="tabs"><button type="button" class="tab" onclick="omPNew()">Nouveau modèle</button><button type="button" class="tab" onclick="omPRen()">Renommer</button><button type="button" class="tab" onclick="omPDel()">Supprimer</button></div>
-  <label class="f"><span>Appliquer ce modèle à…</span><small>Les éléments choisis utilisent ce modèle : tu le modifies une seule fois et tout suit.</small><select onchange="omPApply(this)"><option value="">— choisir —</option><option value="config">Toute la configuration</option><option value="reasons">Toutes les catégories du menu</option>${(t.subPanels||[]).map(s=>`<option value="sub:${s.id}">Tous les choix de « ${esc(s.name)} »</option>`).join('')}</select></label>`;
- return `<label class="f"><span>Modèle utilisé</span><small>${cur.pid?'Cet élément utilise un modèle : modifie le modèle pour changer tous ceux qui l’utilisent.':'Relie cet élément à un modèle pour partager le même message avec d’autres.'}</small><div class="two"><select onchange="omPUse(this.value)"><option value="">— message propre / hérité —</option>${ps.map(p=>`<option value="${p.id}" ${cur.pid==p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select><button type="button" class="tab" onclick="omPNew(true)">Créer un modèle depuis ce message</button></div></label>`}
-const omCur=()=>omScopes(TC()).find(x=>x.key==S.omS);
-const omApi=b=>api('/api/ticket-open-msg',{guildId:S.gid,config:TC().name,...b});
-const omPApi=b=>api('/api/open-preset',{guildId:S.gid,config:TC().name,...b});
-async function omPNew(fromCur){const name=prompt('Nom du modèle (ex : Boutique)');if(!name)return;
- try{const cur=omCur(),from=fromCur&&cur.type!='preset',r=await omPApi({action:'create',name,fromMsg:from?omRead():null});
-  if(from)await omApi({scope:{type:cur.type,id:cur.id},presetId:r.id});
-  S.g=await api('/api/guild?id='+S.gid);if(!from)S.omS='preset:'+r.id;toast('Modèle créé');omRender()}catch(e){toast(e.message,false)}}
-async function omPRen(){const cur=omCur(),name=prompt('Nouveau nom du modèle',cur.label.replace('Modèle : ',''));if(!name)return;
- try{await omPApi({action:'rename',id:cur.id,name});S.g=await api('/api/guild?id='+S.gid);toast('Modèle renommé');omRender()}catch(e){toast(e.message,false)}}
-async function omPDel(){const cur=omCur();if(!confirm('Supprimer ce modèle ? Les éléments qui l’utilisent gardent une copie du message.'))return;
- try{await omPApi({action:'delete',id:cur.id});S.omS='config:';S.g=await api('/api/guild?id='+S.gid);toast('Modèle supprimé');omRender()}catch(e){toast(e.message,false)}}
-async function omPUse(v){const cur=omCur();if(!v&&!cur.pid)return;
- try{await omApi({scope:{type:cur.type,id:cur.id},...(v?{presetId:v}:{msg:omRead()})});S.g=await api('/api/guild?id='+S.gid);toast(v?'Modèle relié':'Message propre enregistré');omRender()}catch(e){toast(e.message,false)}}
-async function omPApply(sel){const v=sel.value;if(!v)return;const cur=omCur(),all=omScopes(TC());
- const scopes=(v=='config'?all.filter(x=>x.type=='config'):v=='reasons'?all.filter(x=>x.type=='reason'):all.filter(x=>x.type=='sub'&&x.id.startsWith(v.slice(4)+'/'))).map(x=>({type:x.type,id:x.id}));
- if(!scopes.length){sel.value='';return toast('Aucun élément à relier',false)}
- if(!confirm(`Relier ${scopes.length} élément(s) à ce modèle ? Leur message propre sera remplacé.`)){sel.value='';return}
- try{await omApi({scopes,presetId:cur.id});S.g=await api('/api/guild?id='+S.gid);toast(`Modèle appliqué à ${scopes.length} élément(s)`);omRender()}catch(e){toast(e.message,false)}}
-/* alerte quand Supabase ne sauvegarde pas */
-async function sbCheck(){try{const s=(await api('/api/storage')).supabase,b=$('#sbbar');if(!b)return;
- if(!s||!s.enabled)b.textContent='Supabase est désactivé : rien n’est sauvegardé en ligne.';else if(s.lastError)b.textContent='Supabase ne sauvegarde pas : '+s.lastError;else{b.hidden=true;return}b.hidden=false}catch{}}
-setInterval(sbCheck,30000);
-const OM_RANK={config:0,panel:1,reason:2,sub:3};
-function omOver(sc,cur){const ov=sc.filter(x=>OM_RANK[x.type]>OM_RANK[cur.type]&&omHas(x.own));if(!ov.length)return'';
- return `<div style="margin:10px 0;padding:10px 12px;border:1px solid #a8742f;border-radius:6px"><b>${ov.length} élément(s) ont leur propre message et passent avant celui-ci</b><p class="where" style="margin:6px 0">Dans ces tickets, tes changements ne s'affichent pas : ${ov.slice(0,4).map(x=>esc(x.label.replace(/^[^\p{L}\p{N}]+/u,''))).join(' · ')}${ov.length>4?' …':''}</p><button type="button" class="run" onclick="omAll()">Appliquer ce message à tous (efface ces ${ov.length} messages propres)</button></div>`}
-async function omAll(){const t=TC(),sc=omScopes(t),cur=sc.find(x=>x.key==S.omS),ov=sc.filter(x=>OM_RANK[x.type]>OM_RANK[cur.type]&&omHas(x.own));
- if(!confirm(`Enregistrer ce message et supprimer les ${ov.length} messages propres qui passent avant lui ?`))return;
- try{const call=(s,b)=>api('/api/ticket-open-msg',{guildId:S.gid,config:t.name,scope:{type:s.type,id:s.id},...b});
-  await call(cur,cur.pid?{presetId:cur.pid}:{msg:omRead()});for(const x of ov)await call(x,{reset:true});
-  S.g=await api('/api/guild?id='+S.gid);toast(`Message appliqué à tous (${ov.length} messages propres supprimés)`);omRender()}catch(e){toast(e.message,false)}}
-async function omAuto(){if(S.view!='om'||!S.omBase||!$('#om_title'))return;const m=omRead();if(JSON.stringify(m)==S.omBase)return;
- const t=TC(),sc=t&&omScopes(t).find(x=>x.key==S.omS);if(!sc)return;S.omBase=JSON.stringify(m);
- try{await api('/api/ticket-open-msg',{guildId:S.gid,config:t.name,scope:{type:sc.type,id:sc.id},msg:m});S.g=await api('/api/guild?id='+S.gid);toast('Modifications enregistrées automatiquement')}catch(e){toast(e.message,false)}}
-async function omGo(fn){await omAuto();fn();omRender()}
-document.querySelector('aside').addEventListener('click',e=>{if(e.target.closest('.ni'))omAuto()},true);
-window.addEventListener('beforeunload',e=>{if(S.view=='om'&&S.omBase&&S.omBase!==JSON.stringify(omRead()))e.preventDefault()});
-async function omCall(body,okMsg){const t=TC(),sc=omScopes(t).find(x=>x.key==S.omS);
- try{const r=await api('/api/ticket-open-msg',{guildId:S.gid,config:t.name,scope:{type:sc.type,id:sc.id},...body});S.g=await api('/api/guild?id='+S.gid);toast(r.empty?'Message par défaut / hérité rétabli ✅':okMsg);omRender()}catch(e){toast(e.message,false)}}
-const omSave=()=>omCall({msg:omRead()},'Message enregistré ✅ (appliqué aux nouveaux tickets)');
-const omReset=()=>confirm('Supprimer le message personnalisé de cet élément ?')&&omCall({reset:true},'Message supprimé ✅');
-/* ---------- Import d'une liste d'articles : « Nom : prix » -> un choix du menu par article, le prix en description ---------- */
-function nextAllCard(cur){const sps=(TC().subPanels||[]).filter(s=>s.id!=cur.id),cn=new Set(cur.choices.map(c=>c.nextSubId||''));const same=cn.size==1?[...cn][0]:null;
- return `<div class="card"><h3>➡️ Même sous-panel suivant pour tous les choix</h3>
- <p class="where">Choisis le sous-panel proposé après <b>chacun des ${cur.choices.length} choix</b> de « ${esc(cur.name)} » (ex : le panel de paiement). Tu n'as plus à le régler choix par choix.</p>
- <label class="f"><span>Sous-panel suivant</span><select id="sp_all_next"><option value="">— aucun (ticket direct) —</option>${sps.map(s=>`<option value="${s.id}" ${same==s.id?'selected':''}>${esc(s.name)}</option>`).join('')}</select></label>
- <button class="run" onclick="spNextAll()">➡️ Appliquer à tous les choix</button></div>`}
-async function spNextAll(){const cur=spCur();if(!cur||!cur.choices.length)return toast('Ajoute d’abord des choix',false);
- const v=$('#sp_all_next').value;if(!confirm(`Appliquer ${v?'ce sous-panel suivant':'« ticket direct »'} aux ${cur.choices.length} choix de « ${cur.name} » ?`))return;
- await spRun('choix-suivant',{'sous-panel':cur.id,suivant:v||'aucun'});nav();spRender()}
-function bulkParse(text){const out=[],nz=p=>{const m=/^(\d+(?:[.,]\d+)?)\s*(.*)$/.exec(p.trim());if(!m)return p.trim();let c=m[2].toLowerCase();c=/^(€|eur|euros?)$/.test(c)?'€':/^(\$|usd|dollars?)$/.test(c)?'$':m[2];return m[1]+c};
- for(const line of String(text||'').split(/\r?\n/)){if(!line.trim())continue;
-  const re=/(?:^|\s)(?:\d+\s*[.)]\s+)?([^:：\n]+?)\s*[:：]\s*(\d+(?:[.,]\d+)?\s*(?:€|\$|£|euros?|eur|usd)?)/gi;let m,n=0;
-  while((m=re.exec(line))){const l=m[1].trim().replace(/^[-•*]\s*/,'').slice(0,100);if(l){out.push({label:l,description:nz(m[2]).slice(0,100)});n++}}
-  if(!n){const l=line.trim().replace(/^(?:\d+\s*[.)]\s+|[-•*]\s*)/,'').slice(0,100);if(l)out.push({label:l,description:''})}}
- const seen=new Map();out.forEach(i=>seen.set(i.label.toLowerCase(),i));return [...seen.values()]}
-function bulkCard(target){return `<div class="card"><h3>📥 Importer une liste d'articles</h3>
- <p class="where">Colle ta liste : un article par ligne, au format <b>Nom : prix</b>. Chaque article devient un choix du menu déroulant, et le <b>prix s'affiche en dessous, dans la description</b>.</p>
- <textarea id="bk_text" style="min-height:210px" placeholder="Disney+ Premium : 2€&#10;Netflix Premium FA Lifetime : 5€&#10;Spotify Lifetime Account : 6€" oninput="bulkPrev()"></textarea>
- <div id="bk_pv" class="where" style="margin:8px 0"></div>
- <div class="two"><label class="f"><span>Emoji (optionnel)</span><div class="ew"><input id="bk_emoji" placeholder="🛒 ou emoji du serveur"><button type="button" class="mini epb" onclick="emojiPick(this)">😀</button></div></label>
- <label class="f"><span>Que faire des choix actuels ?</span><select id="bk_mode"><option value="append">➕ Ajouter (et mettre à jour les prix existants)</option><option value="replace">♻️ Tout remplacer par cette liste</option></select></label></div>
- <div class="two"><label class="f"><span>Catégorie du serveur</span><select id="bk_cat"><option value="">— celle par défaut —</option>${S.g.channels.filter(c=>c.type==4).map(c=>`<option value="${c.id}">📁 ${esc(c.name)}</option>`).join('')}</select></label>
- <label class="f"><span>Rôle staff</span><select id="bk_role"><option value="">— rôles de la config —</option>${S.g.roles.map(r=>`<option value="${r.id}">@${esc(r.name)}</option>`).join('')}</select></label></div>
- ${target=='reasons'?'':`<label class="f"><span>➡️ Sous-panel suivant (optionnel)</span><small>Proposé après chacun de ces choix</small><select id="bk_next"><option value="">— aucun (ticket direct) —</option>${(TC().subPanels||[]).filter(s=>s.id!=target).map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join('')}</select></label>`}
- <button class="run" onclick="bulkRun('${target}')">📥 Créer les choix</button></div>`}
-function bulkPrev(){const it=bulkParse($('#bk_text')?.value),el=$('#bk_pv');if(!el)return;
- el.innerHTML=it.length?`<b>${it.length} article(s) reconnu(s)${it.length>25?' — ⚠️ Discord limite à 25 choix par menu, les suivants seront ignorés':''} :</b><br>`+it.slice(0,25).map(i=>`• ${esc(i.label)}${i.description?' — <b>'+esc(i.description)+'</b>':''}`).join('<br>'):'Aucun article reconnu pour l’instant.'}
-async function bulkRun(target){const items=bulkParse($('#bk_text').value);if(!items.length)return toast('Colle ta liste d’articles d’abord',false);
- const mode=$('#bk_mode').value;if(mode=='replace'&&!confirm('Remplacer TOUS les choix actuels de ce menu par cette liste ?'))return;
- try{const r=await api('/api/bulk-choices',{guildId:S.gid,config:S.tk,target,items,mode,emoji:$('#bk_emoji').value.trim(),categoryId:$('#bk_cat').value,staffRoleId:$('#bk_role').value,nextSubId:$('#bk_next')?.value||''});
-  S.g=await api('/api/guild?id='+S.gid);toast(`✅ ${r.added} créé(s), ${r.updated} mis à jour${r.skipped?`, ${r.skipped} ignoré(s) (25 max)`:''} — ${r.total}/25`);nav();S.view=='sp'?spRender():tkRender()}catch(e){toast(e.message,false)}}
-/* ---------- sélecteur d'emojis (Unicode + emojis personnalisés des serveurs du bot) ---------- */
-async function emojiPick(btn){const old=$('#ep');if(old){old.remove();if(old._b===btn)return}
- S.emo=await api('/api/emojis?id='+S.gid).catch(()=>S.emo||[]);
- const inp=btn.previousElementSibling,pop=document.createElement('div'),com=['🎫','💳','🛒','❓','🎁','⚙️','🔧','💎','🎮','⭐','📩','🛡️','💬','📦','🔥','✅'];
- pop.id='ep';pop.className='ep';pop._b=btn;
- pop.innerHTML=`<input placeholder="Rechercher un emoji du serveur…" oninput="epFilter(this.value)"><div class="eg" style="margin-top:8px">${com.map(c=>`<button type="button" data-e="${c}">${c}</button>`).join('')}</div>`+
-  (S.emo.map(g=>`<h3>${esc(g.name)}</h3><div class="eg">${g.emojis.map(e=>`<button type="button" data-e="${esc(`<${e.animated?'a':''}:${e.name}:${e.id}>`)}" data-n="${esc(e.name)}" title=":${esc(e.name)}:"><img class="ce" src="https://cdn.discordapp.com/emojis/${e.id}.${e.animated?'gif':'png'}?size=48"></button>`).join('')}</div>`).join('')||'<p class="where" style="margin-top:8px">Aucun emoji personnalisé trouvé sur les serveurs du bot.</p>');
- pop.onclick=ev=>{const b=ev.target.closest('button[data-e]');if(!b)return;inp.value=b.dataset.e;inp.dispatchEvent(new Event('input',{bubbles:true}));pop.remove()};
- btn.parentElement.append(pop)}
-const epFilter=q=>$$('#ep button[data-n]').forEach(b=>b.hidden=!b.dataset.n.toLowerCase().includes(q.toLowerCase()));
-document.addEventListener('click',e=>{if(!e.target.closest('#ep,.epb'))$('#ep')?.remove()});
-/* ---------- Sauvegarde / stockage ---------- */
-async function bk(){S.view='bk';S.cmd=null;nav();const s=await api('/api/storage'),bl=await api('/api/backups');
- $('#main').innerHTML=`<div class="head card"><h1>💾 Sauvegarde & stockage</h1><p>Toutes les configurations (tickets, giveaways, rôles, permissions…) sont enregistrées automatiquement dans Supabase (base SQL, 1 ligne par serveur) et dans un fichier sur le bot.</p></div>
- <div class="card"><h3>Stockage</h3><p class="where">📄 ${esc(s.path)}<br>📦 ${(s.size/1024).toFixed(1)} Ko · ${s.guilds} serveur(s)<br>🕒 Dernière écriture : ${new Date(s.mtime).toLocaleString('fr-FR')}</p>
- ${s.supabase&&!s.supabase.enabled?'<span class="bd r">⚠️ Supabase désactivé : SUPABASE_URL ou la clé (SUPABASE_KEY / SUPABASE_SERVICE_KEY) absentes dans Railway</span>':''}${s.supabase?.enabled?(s.supabase.ok?`<span class="bd">✅ Supabase connecté : les configs et panels survivent aux redéploiements${s.supabase.pending?` (${s.supabase.pending} serveur(s) en attente d’envoi)`:''}${s.supabase.lastOk?' (dernier envoi '+new Date(s.supabase.lastOk).toLocaleTimeString('fr-FR')+')':''}</span>`:`<span class="bd r">⚠️ Supabase injoignable : ${esc(s.supabase.lastError||'')}</span>`)+`<button class="run" style="margin-top:10px" onclick="sbPush()">☁️ Envoyer vers Supabase maintenant</button>`:s.persistent?'<span class="bd">✅ Persistant : les configs survivent aux redéploiements</span>':'<span class="bd r">⚠️ Non persistant : tout sera perdu au prochain redéploiement</span><p class="where" style="margin-top:10px">Dans Railway : ton service → <b>Settings → Volumes → New Volume</b>, chemin de montage <b>/data</b>, puis redéploie.</p>'}</div>
- <div class="card"><h3>Sauvegarde manuelle</h3><a class="run" style="display:block;text-align:center;text-decoration:none" href="/api/backup">⬇️ Tout télécharger (tous les serveurs)</a>
- <a class="run" style="display:block;text-align:center;text-decoration:none;margin-top:8px" href="/api/backup?id=${esc(S.gid)}">⬇️ Télécharger ce serveur uniquement</a>
- <button class="run" style="margin-top:8px" onclick="bkNow()">📸 Créer une copie sur le bot maintenant</button>
- <label class="f" style="margin-top:16px"><span>Importer un fichier de sauvegarde</span><small>Remet directement tout ce qui est dans le fichier (tickets, panels, sous-panels, messages, permissions…). Les autres serveurs ne sont pas touchés. Une copie de l’état actuel est faite juste avant.</small><input type="file" accept=".json" onchange="bkRestore(this)"></label></div>
- <div class="card"><h3>Copies automatiques sur le bot</h3><p class="where">Une copie toutes les 30 min dès que quelque chose change, dans ${esc(bl.dir)} (les 100 dernières + les 5 plus grosses sont gardées).</p>
- ${bl.list.length?bl.list.map(x=>`<div class="rr"><div>${esc(x.name.replace(/^sauvegarde-|\.json$/g,''))}<small>${(x.size/1024).toFixed(1)} Ko · ${new Date(x.mtime).toLocaleString('fr-FR')}</small></div><div><a class="mini" href="/api/backup?file=${encodeURIComponent(x.name)}">⬇️</a><button class="mini" data-f="${esc(x.name)}" onclick="bkFile(this.dataset.f)">↩ Restaurer</button></div></div>`).join(''):'<p class="where">Aucune pour le moment.</p>'}</div>`}
-async function sbPush(){try{await api('/api/supabase-push',{});toast('Envoyé vers Supabase ✅');bk()}catch(e){toast(e.message,false)}}
-async function bkNow(){try{const r=await api('/api/backup-now',{});toast(r.name?'Copie créée ✅':'Rien à sauvegarder');bk()}catch(e){toast(e.message,false)}}
-async function bkDo(d,label){
- const cur=(await api('/api/backups')).current,ids=Object.keys(d||{});
- const sz=k=>JSON.stringify(d[k]).length;
- const lines=ids.map(k=>'• '+k+' : '+(sz(k)/1024).toFixed(1)+' Ko dans le fichier / '+(cur[k]!=null?(cur[k]/1024).toFixed(1)+' Ko':'absent')+' actuellement');
- const small=ids.some(k=>cur[k]&&sz(k)<cur[k]*.5);
- if(!confirm(label+'\n\n'+lines.join('\n')+'\n\n'+(small?'⚠️ Au moins un serveur du fichier est beaucoup plus petit que l’actuel.\n\n':'')+'Les autres serveurs ne sont pas touchés. Une copie de l’état actuel est faite avant. Continuer ?'))return;
- try{const r=await api('/api/restore',{data:d});toast('Restauré ✅'+(r.warn?' (Supabase : '+r.warn+')':''),!r.warn);S.g=await api('/api/guild?id='+S.gid);bk()}catch(e){toast(e.message,false)}}
-async function bkRestore(i){const f=i.files[0];if(!f)return;let d;try{d=JSON.parse(await f.text())}catch{i.value='';return toast('Fichier illisible',false)}
- await bkDo(d,'Importer ce fichier de sauvegarde ?');i.value=''}
-async function bkFile(n){let d;try{const r=await fetch('/api/backup?file='+encodeURIComponent(n));if(!r.ok)throw 0;d=await r.json()}catch{return toast('Sauvegarde illisible',false)}
- await bkDo(d,'Restaurer la copie « '+n.replace(/^sauvegarde-|\.json$/g,'')+' » ?')}
+/* ---------- API ---------- */
+async function api(path, body) {
+  const r = await fetch(path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {});
+  const j = await r.json().catch(() => ({}));
+  if (r.status === 401) { $('#login').hidden = false; $('#app').hidden = true; throw new Error(j.error || 'Connexion requise'); }
+  if (!r.ok) throw new Error(j.error || 'Erreur');
+  return j;
+}
+function toast(msg, ok = true) {
+  const t = document.createElement('div');
+  t.className = 'toast ' + (ok ? 'ok' : 'ko');
+  t.textContent = msg;
+  $('#toasts').append(t);
+  setTimeout(() => t.remove(), 5000);
+}
+async function login(e) {
+  e.preventDefault();
+  try { await api('/api/login', { password: $('#pw').value }); $('#login').hidden = true; boot(); }
+  catch (x) { toast(x.message, false); }
+}
+async function boot() {
+  const me = await fetch('/api/me').then((r) => r.json());
+  if (!me.authed) { $('#login').hidden = false; return; }
+  $('#app').hidden = false;
+  [S.schema, S.guilds] = await Promise.all([api('/api/schema'), api('/api/guilds')]);
+  $('#guild').innerHTML = S.guilds.map((g) => `<option value="${g.id}">${esc(g.name)} (${g.members})</option>`).join('');
+  if (S.guilds[0]) await loadGuild(S.guilds[0].id);
+  else { $('#main').innerHTML = '<div class="card empty">Le bot n’est connecté à aucun serveur.</div>'; }
+  checkStatus();
+  setInterval(checkStatus, 30000);
+}
+async function loadGuild(id) {
+  S.gid = id;
+  S.g = await api('/api/guild?id=' + id);
+  if (!S.g.tickets.some((t) => t.name === S.tk)) S.tk = S.g.tickets[0]?.name || null;
+  S.page = S.page || 'home';
+  render();
+}
+async function refreshGuild() { S.g = await api('/api/guild?id=' + S.gid); }
+async function afterChange(msg) {
+  await refreshGuild();
+  render();
+  if (msg) toast(msg);
+}
+async function checkStatus() {
+  try {
+    const s = await api('/api/storage');
+    const el = $('#sbStatus');
+    if (!el) return;
+    if (!s.supabase?.enabled) el.innerHTML = '<span style="color:#f0ad4e">Supabase désactivé</span>';
+    else if (s.supabase.lastError) el.innerHTML = '<span style="color:#f28b9b">Supabase : erreur</span>';
+    else el.innerHTML = 'Supabase : <span style="color:#7ee2aa">connecté</span>';
+  } catch { /* rien */ }
+}
+
+/* ---------- Navigation ---------- */
+const NAV = [
+  ['home', '🏠', 'Vue d’ensemble'],
+  ['tickets', '🎫', 'Tickets'],
+  ['vouch', '⭐', 'Vouches'],
+  ['sales', '📈', 'Ventes'],
+  ['appearance', '🎨', 'Apparence'],
+  ['invites', '📨', 'Invitations'],
+  ['advanced', '⌨️', 'Commandes'],
+  ['backup', '💾', 'Sauvegarde'],
+];
+function go(page) { S.page = page; render(); }
+function renderNav() {
+  $('#nav').innerHTML = NAV.map(([id, ico, label]) =>
+    `<button class="nav-item ${S.page === id ? 'on' : ''}" onclick="go('${id}')"><span>${ico}</span>${esc(label)}</button>`).join('');
+}
+function render() {
+  renderNav();
+  const pages = { home: pageHome, tickets: pageTickets, vouch: pageVouch, sales: pageSales, appearance: pageAppearance, invites: pageInvites, advanced: pageAdvanced, backup: pageBackup };
+  $('#main').innerHTML = (pages[S.page] || pageHome)();
+  if (S.page === 'advanced') fillMembers();
+  if (S.page === 'backup') refreshBackupBoxes();
+}
+
+/* ---------- Helpers ---------- */
+const TC = () => S.g?.tickets.find((t) => t.name === S.tk) || null;
+const chName = (id) => { const c = S.g?.channels.find((x) => x.id === id); return c ? (c.type === 4 ? '📁 ' : '# ') + c.name : '—'; };
+const roleName = (id) => '@' + (S.g?.roles.find((r) => r.id === id)?.name || 'rôle');
+const stars = (n) => '⭐'.repeat(Math.max(0, Math.min(5, n))) + '☆'.repeat(Math.max(0, 5 - n));
+const fmtMoney = (n, cur) => `${Number(n || 0).toLocaleString('fr-FR', { maximumFractionDigits: 2 })} ${cur || '€'}`;
+const fmtDate = (t) => t ? new Date(t).toLocaleString('fr-FR') : '—';
+const colorOf = (c) => /^#?[0-9a-f]{6}$/i.test(String(c || '').trim()) ? '#' + String(c).trim().replace('#', '') : '#5865F2';
+const blank = (v) => v === undefined || v === null || v === '';
+
+function channelOptions(selected, types = null, empty = '— choisir un salon —') {
+  const list = (S.g?.channels || []).filter((c) => !types || types.includes(c.type));
+  return `<option value="">${esc(empty)}</option>` + list.map((c) =>
+    `<option value="${c.id}" ${selected === c.id ? 'selected' : ''}>${c.type === 4 ? '📁 ' : '# '}${esc(c.name)}</option>`).join('');
+}
+function categoryOptions(selected, empty = '— choisir une catégorie —') {
+  const list = (S.g?.channels || []).filter((c) => c.type === 4);
+  return `<option value="">${esc(empty)}</option>` + list.map((c) =>
+    `<option value="${c.id}" ${selected === c.id ? 'selected' : ''}>📁 ${esc(c.name)}</option>`).join('');
+}
+function roleOptions(selected, empty = '— aucun —') {
+  return `<option value="">${esc(empty)}</option>` + (S.g?.roles || []).map((r) =>
+    `<option value="${r.id}" ${selected === r.id ? 'selected' : ''}>@${esc(r.name)}</option>`).join('');
+}
+function staffSelect(selected) {
+  return (S.g?.roles || []).map((r) =>
+    `<option value="${r.id}" ${(selected || []).includes(r.id) ? 'selected' : ''}>@${esc(r.name)}</option>`).join('');
+}
+function stat(ico, value, label) {
+  return `<div class="stat"><div class="ico">${ico}</div><b>${esc(value)}</b><span>${esc(label)}</span></div>`;
+}
+function head(title, subtitle, actions = '') {
+  return `<div class="page-head"><div><h1>${esc(title)}</h1><p>${esc(subtitle)}</p></div><div class="row">${actions}</div></div>`;
+}
+
+/* ================================================================== */
+/*  ACCUEIL                                                            */
+/* ================================================================== */
+function pageHome() {
+  const g = S.g;
+  if (!g) return '<div class="card empty">Chargement…</div>';
+  const avg = g.vouch.average || 0;
+  const vouchList = (g.vouches || []).slice(0, 4).map((v) => `
+    <div class="vouch">
+      ${v.avatar ? `<img src="${esc(v.avatar)}" alt="">` : '<div class="stars" style="width:38px;text-align:center">⭐</div>'}
+      <div class="grow"><b>${esc(v.name || 'Membre')}</b> <span class="stars">${stars(v.stars)}</span>
+        <small>${fmtDate(v.at)}${v.ticketName ? ' · #' + esc(v.ticketName) : ''}</small>
+        <div>${esc(v.message || '')}</div>
+      </div>
+    </div>`).join('');
+  const salesList = (g.sales.entries || []).slice(0, 4).map((e) => `
+    <div class="item"><div class="grow"><b>${fmtMoney(e.amount, g.sales.currency)}${e.product ? ' — ' + esc(e.product) : ''}</b>
+      <small>${esc(e.name || e.buyerName || (e.buyerId ? 'Membre ' + e.buyerId : 'Acheteur inconnu'))} · ${fmtDate(e.at)}</small></div></div>`).join('');
+  return head(g.name, 'Vue d’ensemble de ton serveur', `<button class="btn ghost" onclick="loadGuild('${g.id}')">Actualiser</button>`) +
+    `<div class="grid stats">
+      ${stat('🎫', g.openTickets, 'ticket(s) ouvert(s)')}
+      ${stat('📈', g.sales.count, 'vente(s) enregistrée(s)')}
+      ${stat('💰', fmtMoney(g.sales.total, g.sales.currency), 'argent généré')}
+      ${stat('⭐', avg ? avg.toFixed(1) + '/5' : '—', `${g.vouch.count} vouch(s)`)}
+    </div>
+    <div class="cols">
+      <section class="card"><div class="row" style="justify-content:space-between"><h2>Dernières ventes</h2><button class="mini" onclick="go('sales')">Tout voir</button></div>
+        <div class="list">${salesList || '<div class="empty">Aucune vente enregistrée.</div>'}</div></section>
+      <section class="card"><div class="row" style="justify-content:space-between"><h2>Derniers vouchs</h2><button class="mini" onclick="go('vouch')">Tout voir</button></div>
+        <div class="list">${vouchList || '<div class="empty">Aucun vouch pour l’instant.</div>'}</div></section>
+    </div>
+    <section class="card"><h2>Actions rapides</h2><div class="row">
+      <button class="btn" onclick="go('tickets')">Gérer les tickets</button>
+      <button class="btn ghost" onclick="go('appearance')">Couleur des panels</button>
+      <button class="btn ghost" onclick="go('sales')">Suivi des ventes</button>
+      <button class="btn ghost" onclick="go('vouch')">Réglages des vouchs</button>
+    </div></section>`;
+}
+
+/* ================================================================== */
+/*  TICKETS                                                            */
+/* ================================================================== */
+function pageTickets() {
+  const g = S.g;
+  if (!g) return '<div class="card empty">Chargement…</div>';
+  let out = head('Tickets', 'Tout le système de tickets au même endroit : configuration, catégories, sous-panels, panels et message d’ouverture.',
+    `<button class="btn" onclick="S.newTk=true;S.tab='config';render()">+ Nouvelle configuration</button>`);
+  if (S.newTk || !g.tickets.length) return out + tkCreateCard();
+  if (!g.tickets.some((t) => t.name === S.tk)) S.tk = g.tickets[0].name;
+  const t = TC();
+  if (!t) return out + '<div class="card empty">Configuration introuvable.</div>';
+  out += `<section class="card ticket-bar">
+    <label class="field" style="margin:0"><span>Configuration</span>
+      <select onchange="S.tk=this.value;S.reasonEdit=null;S.sp=null;S.spEdit=false;S.choiceEdit=null;S.omScope='config:';render()">
+        ${g.tickets.map((x) => `<option value="${esc(x.name)}" ${x.name === t.name ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}
+      </select></label>
+    <span class="pill">${t.counter} ticket(s) créé(s)</span>
+    <span class="pill">${t.reasons.length}/25 catégories</span>
+    <span class="pill">${(t.subPanels || []).length} sous-panel(s)</span>
+  </section>
+  <div class="tabs">
+    ${[['config', '⚙️ Réglages'], ['raisons', '📋 Catégories'], ['sous', '🗂️ Sous-panels'], ['panels', '📨 Panels'], ['message', '💬 Message d’ouverture']]
+      .map(([k, l]) => `<button class="tab ${S.tab === k ? 'on' : ''}" onclick="S.tab='${k}';render()">${l}</button>`).join('')}
+  </div>`;
+  const body = { config: tkConfig, raisons: tkReasons, sous: tkSubs, panels: tkPanels, message: tkMessage }[S.tab] || tkConfig;
+  return out + body();
+}
+
+function tkCreateCard() {
+  return `<section class="card"><h2>Créer une configuration</h2>
+    <div class="grid2">
+      <label class="field"><span>Nom <b class="req">*</b></span><small>Lettres minuscules, chiffres et tirets. Ex : support, boutique</small><input id="n_name" maxlength="30" placeholder="support"></label>
+      <label class="field"><span>Catégorie Discord <b class="req">*</b></span><small>Où les salons de ticket seront créés</small><select id="n_category">${categoryOptions('')}</select></label>
+    </div>
+    <label class="field"><span>Rôles staff <b class="req">*</b></span><small>Maintiens Ctrl pour en choisir plusieurs</small>
+      <select id="n_staff" multiple size="5">${staffSelect([])}</select></label>
+    <div class="grid2">
+      <label class="field"><span>Salon des transcripts</span><select id="n_logs">${channelOptions('', [0, 5])}</select></label>
+      <label class="field"><span>Couleur propre (optionnel)</span><input id="n_color" placeholder="#5865F2" maxlength="7"></label>
+    </div>
+    <div class="row end"><button class="btn ghost" onclick="S.newTk=false;render()">Annuler</button><button class="btn" onclick="tkCreate()">Créer la configuration</button></div>
+  </section>`;
+}
+async function tkCreate() {
+  const name = $('#n_name').value.trim().toLowerCase();
+  const categoryId = $('#n_category').value;
+  const staffRoles = [...$('#n_staff').selectedOptions].map((o) => o.value);
+  try {
+    await api('/api/ticket-config', { action: 'create', guildId: S.gid, name, categoryId, staffRoles, logChannelId: $('#n_logs').value, color: $('#n_color').value.trim() });
+    S.newTk = false; S.tk = name; S.tab = 'config';
+    await afterChange('Configuration créée ✅');
+  } catch (e) { toast(e.message, false); }
+}
+
+function tkConfig() {
+  const t = TC();
+  return `<section class="card">
+    <h2>Réglages de « ${esc(t.name)} »</h2>
+    <div class="grid2">
+      <label class="field"><span>Catégorie Discord par défaut <b class="req">*</b></span><select id="c_category">${categoryOptions(t.categoryId)}</select></label>
+      <label class="field"><span>Salon des transcripts</span><select id="c_logs">${channelOptions(t.logChannelId, [0, 5], '— aucun —')}</select></label>
+    </div>
+    <label class="field"><span>Rôles staff <b class="req">*</b></span><small>Ils voient et répondent aux nouveaux tickets.</small>
+      <select id="c_staff" multiple size="5">${staffSelect(t.staffRoles)}</select></label>
+    <div class="grid2">
+      <label class="field"><span>Texte du menu déroulant</span><input id="c_placeholder" maxlength="150" value="${esc(t.placeholder || '')}" placeholder="Choisir une catégorie..."></label>
+      <label class="field"><span>Couleur propre à cette configuration</span><small>Vide = couleur globale du serveur</small><input id="c_color" maxlength="7" value="${esc(t.color || '')}" placeholder="#5865F2"></label>
+    </div>
+    <div class="row end"><button class="btn danger ghost" onclick="tkDeleteConfig()">Supprimer la configuration</button><button class="btn" onclick="tkSaveConfig()">Enregistrer</button></div>
+  </section>
+  <section class="card"><h2>Raccourcis</h2><div class="row">
+    <button class="btn ghost" onclick="S.tab='raisons';render()">Ajouter une catégorie</button>
+    <button class="btn ghost" onclick="S.tab='sous';render()">Créer un sous-panel</button>
+    <button class="btn ghost" onclick="S.tab='panels';render()">Envoyer un panel</button>
+    <button class="btn ghost" onclick="S.tab='message';render()">Message d’ouverture</button>
+  </div></section>`;
+}
+async function tkSaveConfig() {
+  const t = TC();
+  const staffRoles = [...$('#c_staff').selectedOptions].map((o) => o.value);
+  try {
+    await api('/api/ticket-config', {
+      action: 'update', guildId: S.gid, name: t.name,
+      categoryId: $('#c_category').value, staffRoles, logChannelId: $('#c_logs').value,
+      placeholder: $('#c_placeholder').value, color: $('#c_color').value.trim(),
+    });
+    await afterChange('Configuration enregistrée ✅');
+  } catch (e) { toast(e.message, false); }
+}
+async function tkDeleteConfig() {
+  const t = TC();
+  if (!confirm(`Supprimer la configuration « ${t.name} » ? Les panels déjà envoyés ne fonctionneront plus.`)) return;
+  try {
+    await api('/api/ticket-config', { action: 'delete', guildId: S.gid, name: t.name });
+    S.tk = null; S.tab = 'config';
+    await afterChange('Configuration supprimée');
+  } catch (e) { toast(e.message, false); }
+}
+
+/* ---------- Catégories du menu ---------- */
+function tkReasons() {
+  const t = TC();
+  const r = S.reasonEdit ? t.reasons.find((x) => x.id === S.reasonEdit) : null;
+  return `<section class="card">
+    <div class="row" style="justify-content:space-between"><h2>Catégories du menu (${t.reasons.length}/25)</h2><span class="muted">Le menu déroulant du panel</span></div>
+    <div class="list">${t.reasons.map((x) => `
+      <div class="item"><div class="grow"><b>${esc(x.emoji || '')} ${esc(x.label)}</b>
+        <small>${esc(x.description || 'Sans description')} · ${chName(x.categoryId || t.categoryId)}${x.staffRoleId ? ' · ' + roleName(x.staffRoleId) : ''}</small></div>
+        <div class="row"><button class="mini" onclick="S.reasonEdit='${x.id}';render()">Modifier</button><button class="mini" onclick="reasonDel('${x.id}')">Supprimer</button></div></div>`).join('') || '<div class="empty">Aucune catégorie. Sans catégorie, le panel utilise un simple bouton.</div>'}
+    </div>
+  </section>
+  <section class="card">
+    <h2>${r ? 'Modifier « ' + esc(r.label) + ' »' : 'Ajouter une catégorie'}</h2>
+    <div class="grid2">
+      <label class="field"><span>Nom <b class="req">*</b></span><input id="r_label" maxlength="100" value="${esc(r?.label || '')}" placeholder="Nitro"></label>
+      <label class="field"><span>Emoji</span><input id="r_emoji" maxlength="64" value="${esc(r?.emoji || '')}" placeholder="🎮 ou <:nom:id>"></label>
+    </div>
+    <label class="field"><span>Description courte</span><input id="r_desc" maxlength="100" value="${esc(r?.description || '')}" placeholder="Comptes Nitro, boost…"></label>
+    <div class="grid2">
+      <label class="field"><span>Catégorie Discord</span><select id="r_cat">${categoryOptions(r?.categoryId || '', '— catégorie par défaut —')}</select></label>
+      <label class="field"><span>Rôle staff propre</span><select id="r_role">${roleOptions(r?.staffRoleId || '', '— rôles de la configuration —')}</select></label>
+    </div>
+    <div class="row end">${r ? '<button class="btn ghost" onclick="S.reasonEdit=null;render()">Annuler</button>' : ''}<button class="btn" onclick="reasonSave()">${r ? 'Enregistrer' : 'Ajouter la catégorie'}</button></div>
+  </section>
+  <section class="card"><h2>Importer une liste d’articles</h2>
+    <p class="muted" style="margin-bottom:8px">Un article par ligne au format <b>Nom : prix</b>. Chaque article devient un choix du menu, avec le prix en description.</p>
+    <textarea id="bulk_text" style="min-height:140px" placeholder="Disney+ Premium : 2€&#10;Netflix Premium : 5€"></textarea>
+    <div class="grid2" style="margin-top:12px">
+      <label class="field"><span>Emoji commun (optionnel)</span><input id="bulk_emoji" maxlength="64" placeholder="🛒"></label>
+      <label class="field"><span>Mode</span><select id="bulk_mode"><option value="append">Ajouter / mettre à jour</option><option value="replace">Tout remplacer</option></select></label>
+    </div>
+    <div class="grid2">
+      <label class="field"><span>Catégorie Discord</span><select id="bulk_cat">${categoryOptions('', '— celle de la config —')}</select></label>
+      <label class="field"><span>Rôle staff</span><select id="bulk_role">${roleOptions('', '— celle de la config —')}</select></label>
+    </div>
+    <button class="btn" onclick="bulkImport()">Importer</button>
+  </section>`;
+}
+async function reasonSave() {
+  const t = TC();
+  const r = S.reasonEdit ? t.reasons.find((x) => x.id === S.reasonEdit) : null;
+  try {
+    await api('/api/ticket-reason', {
+      action: r ? 'update' : 'add', guildId: S.gid, config: t.name, id: r?.id,
+      label: $('#r_label').value, emoji: $('#r_emoji').value, description: $('#r_desc').value,
+      categoryId: $('#r_cat').value, staffRoleId: $('#r_role').value,
+    });
+    S.reasonEdit = null;
+    await afterChange(r ? 'Catégorie modifiée ✅' : 'Catégorie ajoutée ✅');
+  } catch (e) { toast(e.message, false); }
+}
+async function reasonDel(id) {
+  const t = TC();
+  const r = t.reasons.find((x) => x.id === id);
+  if (!r || !confirm(`Supprimer la catégorie « ${r.label} » ?`)) return;
+  try { await api('/api/ticket-reason', { action: 'remove', guildId: S.gid, config: t.name, id }); await afterChange('Catégorie supprimée'); }
+  catch (e) { toast(e.message, false); }
+}
+function parseBulk(text) {
+  const out = [];
+  for (const line of String(text || '').split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const m = /^(.+?)\s*[:：]\s*([\d.,]+\s*(?:€|\$|£|euros?|eur|usd)?)\s*$/i.exec(line.trim());
+    if (m) out.push({ label: m[1].trim().slice(0, 100), description: m[2].trim().slice(0, 100) });
+    else out.push({ label: line.trim().slice(0, 100), description: '' });
+  }
+  const map = new Map(); out.forEach((i) => map.set(i.label.toLowerCase(), i));
+  return [...map.values()];
+}
+async function bulkImport() {
+  const t = TC();
+  const items = parseBulk($('#bulk_text').value);
+  if (!items.length) return toast('Colle d’abord une liste.', false);
+  if ($('#bulk_mode').value === 'replace' && !confirm('Remplacer TOUTES les catégories actuelles par cette liste ?')) return;
+  try {
+    const r = await api('/api/bulk-choices', {
+      guildId: S.gid, config: t.name, target: 'reasons', items, mode: $('#bulk_mode').value,
+      emoji: $('#bulk_emoji').value, categoryId: $('#bulk_cat').value, staffRoleId: $('#bulk_role').value,
+    });
+    await afterChange(`${r.added} ajoutée(s), ${r.updated} mise(s) à jour${r.skipped ? `, ${r.skipped} ignorée(s)` : ''}`);
+  } catch (e) { toast(e.message, false); }
+}
+
+/* ---------- Sous-panels ---------- */
+function tkSubs() {
+  const t = TC();
+  const sps = t.subPanels || [];
+  const cur = sps.find((s) => s.id === S.sp) || null;
+  const editing = cur && S.spEdit;
+  const ch = cur && S.choiceEdit ? cur.choices.find((c) => c.id === S.choiceEdit) : null;
+  return `<section class="card">
+    <h2>Sous-panel par défaut</h2>
+    <p class="muted" style="margin-bottom:8px">Proposé après une catégorie qui n’a pas son propre sous-panel.</p>
+    <select onchange="spLink('all', this.value)">
+      <option value="">— aucun —</option>
+      ${sps.map((s) => `<option value="${s.id}" ${t.defaultSub === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}
+    </select>
+    <h3 style="margin-top:18px">Sous-panel par catégorie</h3>
+    <div class="list">${t.reasons.map((r) => `
+      <div class="item"><div class="grow"><b>${esc(r.emoji || '')} ${esc(r.label)}</b></div>
+        <select style="max-width:260px" onchange="spLink('${r.id}', this.value)">
+          <option value="">— par défaut —</option>
+          <option value="none" ${t.subLinks?.[r.id] === 'none' ? 'selected' : ''}>Aucun</option>
+          ${sps.map((s) => `<option value="${s.id}" ${t.subLinks?.[r.id] === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}
+        </select></div>`).join('') || '<div class="empty">Ajoute d’abord des catégories.</div>'}</div>
+  </section>
+  <section class="card">
+    <div class="row" style="justify-content:space-between"><h2>Mes sous-panels (${sps.length})</h2><button class="btn ghost" onclick="S.sp='new';S.spEdit=false;S.choiceEdit=null;render()">+ Nouveau</button></div>
+    <div class="list">${sps.map((s) => `
+      <div class="item ${s.id === S.sp ? 'pill-on' : ''}"><div class="grow"><b>${esc(s.name)} ${s.payment ? '💳' : ''}</b><small>${s.choices.length} choix${s.choices.length ? ' : ' + s.choices.map((c) => c.label).join(', ') : ''}</small></div>
+        <div class="row"><button class="mini" onclick="S.sp='${s.id}';S.spEdit=false;S.choiceEdit=null;render()">Choix</button>
+        <button class="mini" onclick="S.sp='${s.id}';S.spEdit=true;S.choiceEdit=null;render()">Modifier</button>
+        <button class="mini" onclick="spDel('${s.id}')">Supprimer</button></div></div>`).join('') || '<div class="empty">Aucun sous-panel.</div>'}</div>
+  </section>
+  ${editing ? spForm(cur) : (S.sp === 'new' ? spForm(null) : '')}
+  ${cur && !editing ? choiceCard(cur, ch) : ''}`;
+}
+function spForm(sp) {
+  return `<section class="card"><h2>${sp ? 'Modifier « ' + esc(sp.name) + ' »' : 'Nouveau sous-panel'}</h2>
+    <div class="grid2">
+      <label class="field"><span>Nom <b class="req">*</b></span><input id="sp_name" maxlength="60" value="${esc(sp?.name || '')}" placeholder="Nitro"></label>
+      <label class="field"><span>Titre du message</span><input id="sp_title" maxlength="256" value="${esc(sp?.title || '')}" placeholder="Choisis ton offre"></label>
+    </div>
+    <label class="field"><span>Texte du message</span><textarea id="sp_desc" maxlength="4000">${esc(sp?.description || '')}</textarea></label>
+    <div class="grid2">
+      <label class="field"><span>Texte du menu</span><input id="sp_ph" maxlength="100" value="${esc(sp?.placeholder || '')}" placeholder="Choisir une option..."></label>
+      <label class="field"><span>Couleur (optionnel)</span><input id="sp_color" maxlength="7" value="${esc(sp?.color || '')}" placeholder="#5865F2"></label>
+    </div>
+    <div class="grid2">
+      <label class="field"><span>Image (URL)</span><input id="sp_img" maxlength="500" value="${esc(sp?.image || '')}" placeholder="https://…"></label>
+      <label class="field"><span>Miniature (URL)</span><input id="sp_thumb" maxlength="500" value="${esc(sp?.thumbnail || '')}" placeholder="https://…"></label>
+    </div>
+    <label class="field"><span>Pied de page</span><input id="sp_footer" maxlength="2048" value="${esc(sp?.footer || '')}"></label>
+    <label class="row" style="margin-bottom:12px"><input type="checkbox" id="sp_payment" ${sp?.payment ? 'checked' : ''}> <span>💳 Ce sous-panel est un mode de paiement (variable <span class="code">{paiement}</span>)</span></label>
+    <div class="row end"><button class="btn ghost" onclick="S.spEdit=false;S.sp='${sp ? sp.id : ''}';render()">Annuler</button><button class="btn" onclick="spSave()">${sp ? 'Enregistrer' : 'Créer le sous-panel'}</button></div>
+  </section>`;
+}
+async function spSave() {
+  const sp = S.sp && S.sp !== 'new' ? (TC().subPanels || []).find((x) => x.id === S.sp) : null;
+  const fields = {
+    name: $('#sp_name').value, title: $('#sp_title').value, description: $('#sp_desc').value,
+    placeholder: $('#sp_ph').value, color: $('#sp_color').value, image: $('#sp_img').value,
+    thumbnail: $('#sp_thumb').value, footer: $('#sp_footer').value, payment: $('#sp_payment').checked,
+  };
+  try {
+    if (sp) {
+      await api('/api/subpanel', { action: 'update', guildId: S.gid, config: S.tk, id: sp.id, ...fields });
+      S.spEdit = false;
+    } else {
+      const r = await api('/api/subpanel', { action: 'create', guildId: S.gid, config: S.tk, ...fields });
+      S.sp = r.id; S.spEdit = false;
+    }
+    await afterChange('Sous-panel enregistré ✅');
+  } catch (e) { toast(e.message, false); }
+}
+async function spDel(id) {
+  const sp = (TC().subPanels || []).find((x) => x.id === id);
+  if (!sp || !confirm(`Supprimer le sous-panel « ${sp.name} » ? Il sera retiré de toutes les catégories.`)) return;
+  try {
+    await api('/api/subpanel', { action: 'delete', guildId: S.gid, config: S.tk, id });
+    if (S.sp === id) { S.sp = null; S.spEdit = false; S.choiceEdit = null; }
+    await afterChange('Sous-panel supprimé');
+  } catch (e) { toast(e.message, false); }
+}
+async function spLink(pour, subId) {
+  try { await api('/api/subpanel-link', { guildId: S.gid, config: S.tk, pour, subId }); await afterChange('Liaison enregistrée ✅'); }
+  catch (e) { toast(e.message, false); }
+}
+function choiceCard(sp, ch) {
+  const others = (TC().subPanels || []).filter((s) => s.id !== sp.id);
+  return `<section class="card"><h2>Choix de « ${esc(sp.name)} » (${sp.choices.length}/25)</h2>
+    <div class="list">${sp.choices.map((c) => `
+      <div class="item"><div class="grow"><b>${esc(c.emoji || '')} ${esc(c.label)}</b>
+        <small>${esc(c.description || '')}${c.description ? ' · ' : ''}${chName(c.categoryId)}${c.staffRoleId ? ' · ' + roleName(c.staffRoleId) : ''}${c.nextSubId ? ' · ➜ ' + esc((TC().subPanels || []).find((s) => s.id === c.nextSubId)?.name || '?') : ''}</small></div>
+        <div class="row"><button class="mini" onclick="S.choiceEdit='${c.id}';render()">Modifier</button><button class="mini" onclick="choiceDel('${c.id}')">Supprimer</button></div></div>`).join('') || '<div class="empty">Aucun choix : ce sous-panel ne s’affichera pas.</div>'}</div>
+    <h3 style="margin-top:18px">${ch ? 'Modifier « ' + esc(ch.label) + ' »' : 'Ajouter un choix'}</h3>
+    <div class="grid2">
+      <label class="field"><span>Nom <b class="req">*</b></span><input id="ch_label" maxlength="100" value="${esc(ch?.label || '')}"></label>
+      <label class="field"><span>Emoji</span><input id="ch_emoji" maxlength="64" value="${esc(ch?.emoji || '')}" placeholder="🎮"></label>
+    </div>
+    <label class="field"><span>Description courte</span><input id="ch_desc" maxlength="100" value="${esc(ch?.description || '')}" placeholder="Prix ou détail"></label>
+    <div class="grid2">
+      <label class="field"><span>Catégorie Discord</span><select id="ch_cat">${categoryOptions(ch?.categoryId || '', '— celle du menu / config —')}</select></label>
+      <label class="field"><span>Rôle staff</span><select id="ch_role">${roleOptions(ch?.staffRoleId || '', '— rôles de la config —')}</select></label>
+    </div>
+    <label class="field"><span>Sous-panel suivant</span><small>Proposé après ce choix. Vide = le ticket s’ouvre.</small>
+      <select id="ch_next"><option value="">— aucun (ticket direct) —</option>${others.map((s) => `<option value="${s.id}" ${ch?.nextSubId === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>
+    <div class="row end">${ch ? '<button class="btn ghost" onclick="S.choiceEdit=null;render()">Annuler</button>' : ''}<button class="btn" onclick="choiceSave()">${ch ? 'Enregistrer le choix' : 'Ajouter le choix'}</button></div>
+  </section>`;
+}
+async function choiceSave() {
+  const sp = (TC().subPanels || []).find((x) => x.id === S.sp);
+  if (!sp) return;
+  const ch = S.choiceEdit ? sp.choices.find((c) => c.id === S.choiceEdit) : null;
+  try {
+    await api('/api/subpanel-choice', {
+      action: ch ? 'update' : 'add', guildId: S.gid, config: S.tk, subId: sp.id, id: ch?.id,
+      label: $('#ch_label').value, emoji: $('#ch_emoji').value, description: $('#ch_desc').value,
+      categoryId: $('#ch_cat').value, staffRoleId: $('#ch_role').value, nextSubId: $('#ch_next').value,
+    });
+    S.choiceEdit = null;
+    await afterChange(ch ? 'Choix modifié ✅' : 'Choix ajouté ✅');
+  } catch (e) { toast(e.message, false); }
+}
+async function choiceDel(id) {
+  const sp = (TC().subPanels || []).find((x) => x.id === S.sp);
+  const c = sp?.choices.find((x) => x.id === id);
+  if (!c || !confirm(`Retirer le choix « ${c.label} » ?`)) return;
+  try { await api('/api/subpanel-choice', { action: 'remove', guildId: S.gid, config: S.tk, subId: sp.id, id }); S.choiceEdit = null; await afterChange('Choix supprimé'); }
+  catch (e) { toast(e.message, false); }
+}
+
+/* ---------- Panels envoyés ---------- */
+function tkPanels() {
+  const t = TC();
+  return `<section class="card"><h2>Panels envoyés (${t.panels.length})</h2>
+    <div class="list">${t.panels.map((p, n) => `
+      <div class="item"><div class="grow"><b>Panel ${n + 1} — ${chName(p.channelId)}</b>
+        <small>${p.button ? 'Bouton' : 'Menu déroulant'}${p.btnLabel ? ' · ' + esc(p.btnLabel) : ''} · message ${p.messageId}</small></div>
+        <button class="mini" onclick="panelDelete('${p.messageId}')">Supprimer</button></div>`).join('') || '<div class="empty">Aucun panel envoyé.</div>'}</div>
+  </section>
+  <section class="card"><h2>Envoyer un panel</h2>
+    <div class="grid2">
+      <label class="field"><span>Salon <b class="req">*</b></span><select id="p_channel">${channelOptions('', [0, 5])}</select></label>
+      <label class="field"><span>Type</span><select id="p_type"><option value="bouton">Bouton</option><option value="menu">Menu déroulant (catégories)</option></select></label>
+    </div>
+    <label class="field"><span>Titre</span><input id="p_title" value="🎫 Support — ${esc(t.name)}" maxlength="256"></label>
+    <label class="field"><span>Description</span><textarea id="p_desc" maxlength="4000" placeholder="Clique sur le bouton ci-dessous pour ouvrir un ticket."></textarea></label>
+    <div class="grid2">
+      <label class="field"><span>Image (URL)</span><input id="p_image" maxlength="500" placeholder="https://…"></label>
+      <label class="field"><span>Couleur</span><input id="p_color" maxlength="7" placeholder="${esc(S.g.panelColor)}"></label>
+    </div>
+    <div class="grid2">
+      <label class="field"><span>Texte du bouton</span><input id="p_btn" maxlength="80" placeholder="Ouvrir un ticket"></label>
+      <label class="field"><span>Couleur du bouton</span><select id="p_style"><option value="Primary">Bleu</option><option value="Secondary">Gris</option><option value="Success">Vert</option><option value="Danger">Rouge</option></select></label>
+    </div>
+    <div class="grid2">
+      <label class="field"><span>Texte du menu</span><input id="p_placeholder" maxlength="150" placeholder="Choisir une catégorie..."></label>
+      <label class="field"><span>Pied de page</span><input id="p_footer" maxlength="200"></label>
+    </div>
+    <button class="btn" onclick="panelSend()">Envoyer le panel</button>
+  </section>`;
+}
+async function panelSend() {
+  const t = TC();
+  const ch = $('#p_channel').value;
+  if (!ch) return toast('Choisis un salon.', false);
+  if ($('#p_type').value === 'menu' && !t.reasons.length) return toast('Ajoute d’abord des catégories pour un menu.', false);
+  const options = {
+    config: t.name, salon: ch, titre: $('#p_title').value, description: $('#p_desc').value,
+    couleur: $('#p_color').value, 'image-url': $('#p_image').value,
+    placeholder: $('#p_placeholder').value, footer: $('#p_footer').value,
+    type: $('#p_type').value, 'bouton-texte': $('#p_btn').value, 'couleur-bouton': $('#p_style').value,
+  };
+  try {
+    const r = await api('/api/run', { guildId: S.gid, command: 'ticket', sub: 'panel', options });
+    const txt = r.replies?.[0]?.content || 'Panel envoyé ✅';
+    toast(txt.replace(/[*`]/g, '').slice(0, 220), !txt.startsWith('❌'));
+    await afterChange();
+  } catch (e) { toast(e.message, false); }
+}
+async function panelDelete(messageId) {
+  const t = TC();
+  if (!confirm('Supprimer ce panel ? Le message sera aussi supprimé du salon.')) return;
+  try { await api('/api/panel-delete', { guildId: S.gid, config: t.name, messageId, removeMessage: true }); await afterChange('Panel supprimé'); }
+  catch (e) { toast(e.message, false); }
+}
+
+/* ---------- Message d'ouverture ---------- */
+function omScopes(t) {
+  const L = [{ key: 'config:', type: 'config', id: '', label: '🌐 Toute la configuration' }];
+  t.panels.forEach((p, n) => L.push({ key: 'panel:' + p.messageId, type: 'panel', id: p.messageId, label: `📨 Panel ${n + 1} (${chName(p.channelId)})` }));
+  const ids = new Set(t.reasons.map((r) => r.id));
+  [...t.reasons, ...(t.dmChoices || []).filter((r) => !ids.has(r.id))].forEach((r) => L.push({ key: 'reason:' + r.id, type: 'reason', id: r.id, label: '📋 Catégorie : ' + r.label }));
+  (t.subPanels || []).forEach((sp) => sp.choices.forEach((c) => L.push({ key: 'sub:' + sp.id + '/' + c.id, type: 'sub', id: sp.id + '/' + c.id, label: `🗂️ ${sp.name} › ${c.label}` })));
+  return L;
+}
+function ownOpenMsg(t, x) {
+  if (!x) return null;
+  if (x.openMsg && Object.keys(x.openMsg).length) return x.openMsg;
+  if (x.openMsgId) return (t.openPresets || []).find((p) => p.id === x.openMsgId)?.openMsg || null;
+  return null;
+}
+function currentOpenMsg(t, sc) {
+  if (sc.type === 'config') return ownOpenMsg(t, t) || {};
+  if (sc.type === 'panel') return ownOpenMsg(t, t.panels.find((p) => p.messageId === sc.id)) || ownOpenMsg(t, t) || {};
+  if (sc.type === 'reason') return ownOpenMsg(t, [...t.reasons, ...(t.dmChoices || [])].find((r) => r.id === sc.id)) || ownOpenMsg(t, t) || {};
+  if (sc.type === 'sub') {
+    const [sid, cid] = sc.id.split('/');
+    const c = (t.subPanels || []).find((s) => s.id === sid)?.choices.find((x) => x.id === cid);
+    return ownOpenMsg(t, c) || ownOpenMsg(t, t) || {};
+  }
+  return {};
+}
+function tkMessage() {
+  const t = TC();
+  const scopes = omScopes(t);
+  if (!scopes.some((s) => s.key === S.omScope)) S.omScope = 'config:';
+  const sc = scopes.find((s) => s.key === S.omScope);
+  const m = currentOpenMsg(t, sc);
+  return `<section class="card">
+    <h2>Message d’ouverture du ticket</h2>
+    <p class="muted" style="margin-bottom:12px">Le message affiché dans le salon du ticket dès son ouverture. Le plus précis gagne : choix de sous-panel › catégorie › panel › configuration.</p>
+    <label class="field"><span>Appliquer à</span>
+      <select onchange="S.omScope=this.value;render()">${scopes.map((s) => `<option value="${esc(s.key)}" ${s.key === S.omScope ? 'selected' : ''}>${esc(s.label)}</option>`).join('')}</select></label>
+    <div class="alert info">Variables : <span class="code">{user}</span> <span class="code">{username}</span> <span class="code">{server}</span> <span class="code">{category}</span> <span class="code">{sub}</span> <span class="code">{config}</span> <span class="code">{staff}</span> <span class="code">{number}</span> <span class="code">{paiement}</span> <span class="code">{prix}</span> <span class="code">{order}</span></div>
+    <label class="field"><span>Texte au-dessus de l’embed</span><textarea id="om_content" maxlength="1000" style="min-height:70px">${esc(m.content || '')}</textarea></label>
+    <div class="grid2">
+      <label class="field"><span>Titre</span><input id="om_title" maxlength="256" value="${esc(m.title || '')}" placeholder="🎫 Ticket — {category}"></label>
+      <label class="field"><span>Couleur</span><input id="om_color" maxlength="7" value="${esc(m.color || '')}" placeholder="${esc(S.g.panelColor)}"></label>
+    </div>
+    <label class="field"><span>Description</span><textarea id="om_desc" maxlength="4000" style="min-height:130px">${esc(m.description || '')}</textarea></label>
+    <div class="grid2">
+      <label class="field"><span>Image (URL)</span><input id="om_image" maxlength="500" value="${esc(m.image || '')}"></label>
+      <label class="field"><span>Miniature (URL)</span><input id="om_thumb" maxlength="500" value="${esc(m.thumbnail || '')}"></label>
+    </div>
+    <label class="field"><span>Pied de page</span><input id="om_footer" maxlength="2048" value="${esc(m.footer || '')}"></label>
+    <h3>Boutons du ticket</h3>
+    <div class="grid2">
+      <label class="field"><span>Bouton « Prendre en charge »</span><input id="om_claim" maxlength="80" value="${esc(m.claimLabel || '')}" placeholder="Prendre en charge"></label>
+      <label class="field"><span>Bouton « Fermer »</span><input id="om_close" maxlength="80" value="${esc(m.closeLabel || '')}" placeholder="Fermer"></label>
+    </div>
+    <div class="grid2">
+      <label class="field"><span>Emoji « Prendre en charge »</span><input id="om_claim_e" maxlength="64" value="${esc(m.claimEmoji || '')}" placeholder="🙋"></label>
+      <label class="field"><span>Emoji « Fermer »</span><input id="om_close_e" maxlength="64" value="${esc(m.closeEmoji || '')}" placeholder="🔒"></label>
+    </div>
+    <div class="row end"><button class="btn danger ghost" onclick="omReset()">Réinitialiser</button><button class="btn" onclick="omSave()">Enregistrer le message</button></div>
+    <p class="muted" style="margin-top:10px">Appliqué aux <b>nouveaux</b> tickets. Les tickets déjà ouverts gardent l’ancien message.</p>
+  </section>`;
+}
+function omRead() {
+  const m = {
+    content: $('#om_content').value, title: $('#om_title').value, description: $('#om_desc').value,
+    image: $('#om_image').value, thumbnail: $('#om_thumb').value, footer: $('#om_footer').value,
+    color: $('#om_color').value, claimLabel: $('#om_claim').value, closeLabel: $('#om_close').value,
+    claimEmoji: $('#om_claim_e').value, closeEmoji: $('#om_close_e').value,
+  };
+  const out = {};
+  for (const [k, v] of Object.entries(m)) if (String(v).trim()) out[k] = String(v).trim();
+  return out;
+}
+async function omSave() {
+  const t = TC();
+  const sc = omScopes(t).find((s) => s.key === S.omScope);
+  if (!sc) return;
+  const msg = omRead();
+  const cur = currentOpenMsg(t, sc); // conserve les réglages avancés (champs, heure…)
+  for (const k of ['fields', 'showInfo', 'timestamp']) if (cur[k] !== undefined) msg[k] = cur[k];
+  try {
+    await api('/api/ticket-open-msg', { guildId: S.gid, config: t.name, scope: { type: sc.type, id: sc.id }, msg });
+    await afterChange('Message d’ouverture enregistré ✅');
+  } catch (e) { toast(e.message, false); }
+}
+async function omReset() {
+  const t = TC();
+  const sc = omScopes(t).find((s) => s.key === S.omScope);
+  if (!sc || !confirm('Retirer le message personnalisé de cet élément ?')) return;
+  try {
+    await api('/api/ticket-open-msg', { guildId: S.gid, config: t.name, scope: { type: sc.type, id: sc.id }, reset: true });
+    await afterChange('Message réinitialisé');
+  } catch (e) { toast(e.message, false); }
+}
+
+/* ================================================================== */
+/*  VOUCH                                                              */
+/* ================================================================== */
+function pageVouch() {
+  const g = S.g;
+  const v = g.vouch;
+  const list = (g.vouches || []).map((x) => `
+    <div class="vouch">${x.avatar ? `<img src="${esc(x.avatar)}" alt="">` : '<div class="stars" style="width:38px;text-align:center">⭐</div>'}
+      <div class="grow"><b>${esc(x.name || 'Membre')}</b> <span class="stars">${stars(x.stars)}</span> <span class="pill">${x.stars}/5</span>
+        <small>${fmtDate(x.at)}${x.ticketName ? ' · #' + esc(x.ticketName) : ''}${x.config ? ' · ' + esc(x.config) : ''}</small>
+        <div>${esc(x.message || '')}</div>
+        ${x.image ? `<a href="${esc(x.image)}" target="_blank" rel="noopener">Voir l’image</a>` : ''}
+      </div></div>`).join('');
+  return head('Vouches', 'Des avis vérifiés, publiés automatiquement dans un salon dédié.') +
+    `<div class="grid stats">
+      ${stat('⭐', v.count, 'vouch(s) reçu(s)')}
+      ${stat('📊', v.average ? v.average.toFixed(2) + '/5' : '—', 'note moyenne')}
+      ${stat('💬', g.openTickets, 'ticket(s) ouvert(s)')}
+      ${stat('📨', v.enabled ? 'Activé' : 'Désactivé', 'commande /vouch')}
+    </div>
+    <section class="card"><h2>Réglages</h2>
+      <div class="grid2">
+        <label class="field"><span>Salon des vouchs</span><small>Les avis `/vouch` y sont publiés.</small><select id="v_channel">${channelOptions(v.channelId, [0, 5], '— aucun salon —')}</select></label>
+        <label class="field"><span>Commande /vouch</span><select id="v_enabled"><option value="true" ${v.enabled ? 'selected' : ''}>Activée</option><option value="false" ${!v.enabled ? 'selected' : ''}>Désactivée</option></select></label>
+      </div>
+      <button class="btn" onclick="vouchSave()">Enregistrer</button>
+    </section>
+    <section class="card"><h2>Comment ça marche ?</h2>
+      <ol style="padding-left:20px;color:#c3c8d3;line-height:1.8">
+        <li>Le membre qui a <b>ouvert</b> le ticket (ou qui l’a <b>pris en charge</b>) tape <span class="code">/vouch</span> dans le ticket.</li>
+        <li>Un mini-panel s’ouvre : il choisit une note de <b>1 à 5 étoiles</b>.</li>
+        <li>Un formulaire s’ouvre : il écrit son message et peut ajouter une image.</li>
+        <li>Le vouch est publié dans le salon dédié avec sa <b>photo de profil</b>, sa note, son message et son image.</li>
+      </ol>
+    </section>
+    <section class="card"><h2>Derniers vouchs</h2><div class="list">${list || '<div class="empty">Aucun vouch pour l’instant.</div>'}</div></section>`;
+}
+async function vouchSave() {
+  try {
+    await api('/api/guild-settings', {
+      guildId: S.gid, vouchChannelId: $('#v_channel').value, vouchEnabled: $('#v_enabled').value === 'true',
+    });
+    await afterChange('Réglages des vouchs enregistrés ✅');
+  } catch (e) { toast(e.message, false); }
+}
+
+/* ================================================================== */
+/*  VENTES                                                             */
+/* ================================================================== */
+function pageSales() {
+  const s = S.g.sales;
+  const avg = s.count ? s.total / s.count : 0;
+  const list = (s.entries || []).map((e) => `
+    <div class="item"><div class="grow"><b>${fmtMoney(e.amount, s.currency)}${e.product ? ' — ' + esc(e.product) : ''}</b>
+      <small>${esc(e.name || e.buyerName || (e.buyerId ? 'Membre ' + e.buyerId : 'Acheteur inconnu'))} · ${fmtDate(e.at)}${e.ticket ? ' · #' + esc(e.ticket) : ''}</small></div></div>`).join('');
+  return head('Ventes', 'Le panel de suivi se met à jour à chaque fermeture de ticket avec vente.') +
+    `<div class="grid stats">
+      ${stat('🧾', s.count, 'vente(s)')}
+      ${stat('💰', fmtMoney(s.total, s.currency), 'argent généré')}
+      ${stat('📊', fmtMoney(avg, s.currency), 'panier moyen')}
+      ${stat('📨', s.channelId ? chName(s.channelId) : 'Aucun', 'salon de suivi')}
+    </div>
+    <section class="card"><h2>Réglages</h2>
+      <div class="grid2">
+        <label class="field"><span>Salon du panel de suivi</span><select id="s_channel">${channelOptions(s.channelId, [0, 5], '— aucun salon —')}</select></label>
+        <label class="field"><span>Devise</span><input id="s_currency" maxlength="8" value="${esc(s.currency)}" placeholder="€"></label>
+      </div>
+      <div class="row"><button class="btn" onclick="salesSave()">Enregistrer</button>
+        <button class="btn ghost" onclick="salesPanel()">Créer / rafraîchir le panel</button>
+        <button class="btn danger ghost" onclick="salesReset()">Réinitialiser les statistiques</button></div>
+    </section>
+    <section class="card"><h2>Comment ça marche ?</h2>
+      <p class="muted">Quand le staff clique sur <b>Fermer</b> dans un ticket, le bot demande si la vente a été réalisée.
+      Si oui, le membre du staff saisit le <b>montant</b>, l’<b>acheteur</b> et le <b>produit</b>. Le panel ci-dessus est mis à jour :
+      nombre de ventes, argent généré, panier moyen et dernières ventes.</p>
+      <div class="alert warn" style="margin:12px 0 0">Seul le staff peut fermer un ticket et choisir « oui » ou « non ». Le membre qui a ouvert le ticket ne peut pas le fermer.</div>
+    </section>
+    <section class="card"><h2>Dernières ventes</h2><div class="list">${list || '<div class="empty">Aucune vente enregistrée.</div>'}</div></section>`;
+}
+async function salesSave() {
+  try {
+    await api('/api/guild-settings', {
+      guildId: S.gid, salesChannelId: $('#s_channel').value, salesCurrency: $('#s_currency').value,
+    });
+    await afterChange('Réglages des ventes enregistrés ✅');
+  } catch (e) { toast(e.message, false); }
+}
+async function salesPanel() {
+  try { await api('/api/sales-panel', { guildId: S.gid }); await afterChange('Panel des ventes créé / mis à jour ✅'); }
+  catch (e) { toast(e.message, false); }
+}
+async function salesReset() {
+  if (!confirm('Remettre à zéro le nombre de ventes, l’argent généré et l’historique ? Cette action est définitive.')) return;
+  try { await api('/api/sales-reset', { guildId: S.gid, confirm: true }); await afterChange('Statistiques réinitialisées'); }
+  catch (e) { toast(e.message, false); }
+}
+
+/* ================================================================== */
+/*  APPARENCE                                                          */
+/* ================================================================== */
+function pageAppearance() {
+  const c = S.g.panelColor;
+  const presets = ['#5865F2', '#57F287', '#ED4245', '#F1C40F', '#EB459E', '#9B59B6', '#00D4FF', '#FF7A45'];
+  return head('Apparence', 'Une seule couleur pour tous les panels : tickets, vouchs, ventes. Plus besoin de la remettre à chaque fois.') +
+    `<section class="card"><h2>Couleur globale</h2>
+      <div class="grid2">
+        <label class="field"><span>Couleur hexadécimale</span><input id="a_color" maxlength="7" value="${esc(c)}"></label>
+        <label class="field"><span>Aperçu</span><input type="color" id="a_picker" value="${colorOf(c)}" oninput="$('#a_color').value=this.value"></label>
+      </div>
+      <div class="swatches">${presets.map((p) => `<button class="swatch" style="background:${p}" title="${p}" onclick="$('#a_color').value='${p}';$('#a_picker').value='${p}'"></button>`).join('')}</div>
+      <div class="row" style="margin-top:16px"><button class="btn" onclick="appearanceSave()">Appliquer à tous les panels</button></div>
+      <div class="alert info" style="margin-top:14px">La couleur est enregistrée dans Supabase et restaurée après un redéploiement. Les panels déjà envoyés sont recolorés automatiquement.</div>
+    </section>
+    <section class="card"><h2>Couleurs par configuration</h2>
+      <p class="muted" style="margin-bottom:10px">Une configuration peut avoir sa propre couleur (elle remplace la couleur globale).</p>
+      <div class="list">${S.g.tickets.map((t) => `
+        <div class="item"><div class="grow"><b>${esc(t.name)}</b><small>${t.color ? 'Couleur propre : ' + esc(t.color) : 'Utilise la couleur globale'}</small></div>
+          <div class="row"><input class="color-mini" data-cfg="${esc(t.name)}" maxlength="7" value="${esc(t.color || '')}" placeholder="${esc(c)}" style="width:110px">
+          <button class="mini" onclick="configColor('${esc(t.name)}')">Appliquer</button>
+          <button class="mini" onclick="configColorClear('${esc(t.name)}')">Globale</button></div></div>`).join('') || '<div class="empty">Aucune configuration.</div>'}</div>
+    </section>`;
+}
+async function appearanceSave() {
+  try {
+    await api('/api/guild-settings', { guildId: S.gid, panelColor: $('#a_color').value.trim() });
+    await afterChange('Couleur globale appliquée ✅');
+  } catch (e) { toast(e.message, false); }
+}
+async function configColor(name) {
+  const input = document.querySelector(`input[data-cfg="${CSS.escape(name)}"]`);
+  try { await api('/api/ticket-config', { action: 'update', guildId: S.gid, name, color: input?.value.trim() || '' }); await afterChange('Couleur de la configuration appliquée ✅'); }
+  catch (e) { toast(e.message, false); }
+}
+async function configColorClear(name) {
+  try { await api('/api/ticket-config', { action: 'update', guildId: S.gid, name, color: '' }); await afterChange('Couleur globale utilisée pour cette configuration'); }
+  catch (e) { toast(e.message, false); }
+}
+
+/* ================================================================== */
+/*  INVITATIONS                                                        */
+/* ================================================================== */
+function pageInvites() {
+  const inv = S.g.invites || { total: 0, members: 0 };
+  return head('Invitations', 'Suivi des invitations du serveur.') +
+    `<div class="grid stats">
+      ${stat('📨', inv.total, 'invitation(s) au total')}
+      ${stat('👥', inv.members, 'membre(s) avec des invitations')}
+      ${stat('🏆', S.g.count, 'membres sur le serveur')}
+      ${stat('🎫', S.g.openTickets, 'ticket(s) ouvert(s)')}
+    </div>
+    <section class="card"><h2>Gérer les invitations</h2>
+      <p class="muted" style="margin-bottom:12px">Le classement, les récompenses et les liens dédiés se configurent depuis la page Commandes.</p>
+      <div class="row"><button class="btn ghost" onclick="go('advanced');advPick('classement-invites')">Envoyer le classement</button>
+      <button class="btn ghost" onclick="go('advanced');advPick('invites-config')">Configurer les récompenses</button>
+      <button class="btn ghost" onclick="go('advanced');advPick('lien-invite')">Créer un lien dédié</button></div>
+    </section>`;
+}
+
+/* ================================================================== */
+/*  COMMANDES (avancé)                                                 */
+/* ================================================================== */
+function pageAdvanced() {
+  const cats = S.schema.categories;
+  let h = head('Commandes', 'Toutes les commandes du bot, y compris celles qui n’ont pas encore de page dédiée.');
+  if (!S.advCmd) {
+    h += `<section class="card"><h2>Choisir une commande</h2>`;
+    for (const [key, label] of Object.entries(cats)) {
+      const list = S.schema.commands.filter((c) => c.category === key);
+      if (!list.length) continue;
+      h += `<h3>${esc(label)}</h3><div class="row">${list.map((c) => `<button class="mini" onclick="advPick('${esc(c.name)}')">/${esc(c.name)}</button>`).join('')}</div>`;
+    }
+    h += `<h3>Autres</h3><div class="row">${S.schema.commands.filter((c) => !c.category || c.category === 'autres').map((c) => `<button class="mini" onclick="advPick('${esc(c.name)}')">/${esc(c.name)}</button>`).join('')}</div></section>`;
+    return h;
+  }
+  const c = S.schema.commands.find((x) => x.name === S.advCmd);
+  if (!c) { S.advCmd = null; return pageAdvanced(); }
+  const subs = (c.options || []).filter((o) => o.type === 1);
+  const def = S.advSub ? subs.find((s) => s.name === S.advSub) : c;
+  const key = c.name + (S.advSub ? '/' + S.advSub : '');
+  const modals = S.schema.modals[key];
+  h += `<section class="card">
+    <div class="row" style="justify-content:space-between"><h2>/${esc(c.name)}</h2><button class="mini" onclick="S.advCmd=null;S.advSub=null;S.advResult=null;render()">Changer de commande</button></div>
+    <p class="muted" style="margin-bottom:12px">${esc(c.description || '')}</p>
+    ${subs.length ? `<div class="tabs">${subs.map((s) => `<button class="tab ${S.advSub === s.name ? 'on' : ''}" onclick="advSub('${esc(s.name)}')">${esc(s.name)}</button>`).join('')}</div>` : ''}
+    ${S.advSub ? `<p class="muted" style="margin-bottom:10px">${esc(def.description || '')}</p>` : ''}
+    ${(def.options || []).filter((o) => o.type !== 1).map(advField).join('')}
+    ${modals ? `<h3>Contenu du message</h3>${modals.map((m) => `<label class="field"><span>${esc(m.label)}${m.req ? '<b class="req">*</b>' : ''}</span>${m.long ? `<textarea data-modal="${m.id}" maxlength="${m.max}"></textarea>` : `<input data-modal="${m.id}" maxlength="${m.max}">`}</label>`).join('')}` : ''}
+    ${!(def.options || []).filter((o) => o.type !== 1).length && !modals ? '<p class="muted">Aucune option : clique sur Exécuter.</p>' : ''}
+    <div class="row" style="margin-top:12px"><button class="btn" onclick="advRun()">Exécuter</button></div>
+    ${S.advResult || ''}
+  </section>`;
+  return h;
+}
+function advField(o) {
+  const name = o.name;
+  const req = o.required ? '<b class="req">*</b>' : '';
+  let input;
+  if (o.choices?.length) {
+    input = `<select data-adv="${name}"><option value="">—</option>${o.choices.map((c) => `<option value="${esc(c.value)}">${esc(c.name)}</option>`).join('')}</select>`;
+  } else if (o.type === 5) {
+    input = `<select data-adv="${name}"><option value="">Non précisé</option><option value="true">Oui</option><option value="false">Non</option></select>`;
+  } else if (o.type === 7) {
+    const types = o.channel_types;
+    input = `<select data-adv="${name}"><option value="">— choisir un salon —</option>${(S.g.channels || []).filter((c) => !types || types.includes(c.type)).map((c) => `<option value="${c.id}">${c.type === 4 ? '📁 ' : '# '}${esc(c.name)}</option>`).join('')}</select>`;
+  } else if (o.type === 8) {
+    input = `<select data-adv="${name}"><option value="">— choisir un rôle —</option>${(S.g.roles || []).map((r) => `<option value="${r.id}">@${esc(r.name)}</option>`).join('')}</select>`;
+  } else if (o.type === 6) {
+    input = `<div class="row"><input data-adv="${name}" placeholder="ID du membre" style="flex:1;min-width:160px"><select data-pick="${name}" style="max-width:240px"><option value="">Choisir un membre…</option></select></div>`;
+  } else if (o.type === 4 || o.type === 10) {
+    input = `<input data-adv="${name}" type="number" ${o.min_value != null ? `min="${o.min_value}"` : ''} ${o.max_value != null ? `max="${o.max_value}"` : ''}>`;
+  } else if (o.type === 11) {
+    input = `<input data-adv="${name}" placeholder="https://…">`;
+  } else {
+    input = `<input data-adv="${name}" ${o.max_length ? `maxlength="${o.max_length}"` : ''}>`;
+  }
+  return `<label class="field"><span>${esc(o.description || name)}${req}</span><small>${esc(name)}</small>${input}</label>`;
+}
+function advPick(name) { S.advCmd = name; S.advSub = null; S.advResult = null; if (S.page !== 'advanced') S.page = 'advanced'; render(); }
+function advSub(name) { S.advSub = S.advSub === name ? null : name; S.advResult = null; render(); }
+async function fillMembers() {
+  const selects = $$('select[data-pick]');
+  if (!selects.length) return;
+  try {
+    const list = await api('/api/members?id=' + S.gid + '&q=');
+    const opts = list.map((m) => `<option value="${m.id}">${esc(m.name)} (${esc(m.tag)})</option>`).join('');
+    selects.forEach((s) => {
+      s.innerHTML = '<option value="">Choisir un membre…</option>' + opts;
+      s.onchange = () => {
+        const inp = document.querySelector(`[data-adv="${s.dataset.pick}"]`);
+        if (inp && s.value) inp.value = s.value;
+      };
+    });
+  } catch { /* rien */ }
+}
+function advCollect() {
+  const options = {};
+  $$('[data-adv]').forEach((el) => { if (el.value !== '') options[el.dataset.adv] = el.value; });
+  const modal = {};
+  $$('[data-modal]').forEach((el) => { if (el.value.trim()) modal[el.dataset.modal] = el.value; });
+  return { options, modal };
+}
+async function advRun() {
+  const c = S.schema.commands.find((x) => x.name === S.advCmd);
+  const subs = (c.options || []).filter((o) => o.type === 1);
+  const def = S.advSub ? subs.find((s) => s.name === S.advSub) : c;
+  const { options, modal } = advCollect();
+  for (const o of (def.options || []).filter((o) => o.type !== 1)) {
+    if (o.required && !options[o.name]) return toast('Champ requis : ' + (o.description || o.name), false);
+  }
+  if (subs.length && !S.advSub) return toast('Choisis une sous-commande.', false);
+  const key = c.name + (S.advSub ? '/' + S.advSub : '');
+  const modals = S.schema.modals[key];
+  for (const m of modals || []) if (m.req && !modal[m.id]?.trim()) return toast('Champ requis : ' + m.label, false);
+  if (/^(ban|message-mp|giveaway\/(annuler|terminer)|ticket\/config-supprimer|sous-panel\/supprimer|commandes\/desactiver|invites-config\/reset)$/.test(key) && !confirm('Confirmer cette action sur le serveur ?')) return;
+  const btn = document.querySelector('#main .btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Exécution…'; }
+  try {
+    const r = await api('/api/run', { guildId: S.gid, command: c.name, sub: S.advSub, options, modal: modals ? modal : null });
+    const replies = (r.replies || []).map((x) => {
+      const emb = (x.embeds || []).map((e) => `${e.title || ''}${e.description ? '\n' + e.description : ''}`).join('\n');
+      return esc(x.content || '') + (emb ? '\n' + esc(emb) : '');
+    }).join('\n\n') || '✅ Commande exécutée.';
+    S.advResult = `<div class="result">${replies}${r.running ? '\n\n⏳ L’opération continue en arrière-plan.' : ''}</div>`;
+    toast(r.running ? 'Lancé : continue en arrière-plan' : 'Commande exécutée ✅');
+    await refreshGuild();
+  } catch (e) {
+    S.advResult = `<div class="result" style="border-color:#633039;color:#f2aab7">❌ ${esc(e.message)}</div>`;
+    toast(e.message, false);
+  } finally {
+    render();
+  }
+}
+
+/* ================================================================== */
+/*  SAUVEGARDE                                                         */
+/* ================================================================== */
+function pageBackup() {
+  return head('Sauvegarde', 'Tes données sont enregistrées dans Supabase et dans un fichier sur le bot.') +
+    `<section class="card" id="storageCard"><h2>Stockage</h2><div id="storageBox" class="muted">Chargement…</div>
+      <div class="row" style="margin-top:12px"><button class="btn ghost" onclick="sbPush()">Envoyer vers Supabase maintenant</button></div>
+    </section>
+    <section class="card"><h2>Export / Import</h2>
+      <div class="row">
+        <a class="btn" href="/api/backup">⬇️ Télécharger tout</a>
+        <a class="btn ghost" href="/api/backup?id=${esc(S.gid)}">⬇️ Télécharger ce serveur</a>
+        <button class="btn ghost" onclick="bkNow()">📸 Créer une copie sur le bot</button>
+      </div>
+      <label class="field" style="margin-top:16px"><span>Importer un fichier de sauvegarde</span>
+        <small>Remet les données du fichier. Les autres serveurs ne sont pas touchés.</small>
+        <input type="file" accept=".json" onchange="bkRestore(this)"></label>
+    </section>
+    <section class="card" id="backupsCard"><h2>Copies automatiques</h2><div id="backupsBox" class="muted">Chargement…</div></section>`;
+}
+async function sbPush() {
+  try { await api('/api/supabase-push', {}); toast('Envoyé vers Supabase ✅'); refreshBackupBoxes(); }
+  catch (e) { toast(e.message, false); }
+}
+async function refreshBackupBoxes() {
+  try {
+    const s = await api('/api/storage');
+    const sb = s.supabase || {};
+    const box = $('#storageBox');
+    if (box) box.innerHTML = `📄 <span class="code">${esc(s.path)}</span><br>
+      📦 ${(s.size / 1024).toFixed(1)} Ko · ${s.guilds} serveur(s)<br>
+      🕒 Dernière écriture : ${fmtDate(s.mtime)}<br>
+      ☁️ Supabase : ${!sb.enabled ? '<span class="pill ko">désactivé</span>' : sb.lastError ? `<span class="pill ko">${esc(sb.lastError)}</span>` : '<span class="pill ok">connecté</span>'}`;
+    const b = await api('/api/backups');
+    const bBox = $('#backupsBox');
+    if (bBox) bBox.innerHTML = (b.list || []).length ? `<div class="list">${b.list.map((x) => `
+      <div class="item"><div class="grow"><b>${esc(x.name.replace(/^sauvegarde-|\.json$/g, ''))}</b><small>${(x.size / 1024).toFixed(1)} Ko · ${fmtDate(x.mtime)}</small></div>
+        <div class="row"><a class="mini" href="/api/backup?file=${encodeURIComponent(x.name)}">Télécharger</a>
+        <button class="mini" onclick="bkFile('${esc(x.name)}')">Restaurer</button></div></div>`).join('')}</div>` : '<div class="empty">Aucune copie pour le moment.</div>';
+  } catch { /* rien */ }
+}
+async function bkNow() { try { const r = await api('/api/backup-now', {}); toast(r.name ? 'Copie créée ✅' : 'Rien à sauvegarder'); refreshBackupBoxes(); } catch (e) { toast(e.message, false); } }
+async function bkRestore(input) {
+  const f = input.files[0]; if (!f) return;
+  let d; try { d = JSON.parse(await f.text()); } catch { input.value = ''; return toast('Fichier illisible', false); }
+  await bkDo(d, 'Importer ce fichier de sauvegarde ?'); input.value = '';
+}
+async function bkFile(name) {
+  let d; try { const r = await fetch('/api/backup?file=' + encodeURIComponent(name)); if (!r.ok) throw 0; d = await r.json(); }
+  catch { return toast('Sauvegarde illisible', false); }
+  await bkDo(d, `Restaurer la copie « ${name.replace(/^sauvegarde-|\.json$/g, '')} » ?`);
+}
+async function bkDo(data, label) {
+  const ids = Object.keys(data || {});
+  if (!ids.length) return toast('Fichier vide', false);
+  if (!confirm(label + '\n\nServeurs : ' + ids.join(', ') + '\n\nUne copie de l’état actuel est faite avant.')) return;
+  try {
+    const r = await api('/api/restore', { data });
+    toast('Restauré ✅' + (r.warn ? ' (Supabase : ' + r.warn + ')' : ''), !r.warn);
+    await loadGuild(S.gid); refreshBackupBoxes();
+  } catch (e) { toast(e.message, false); }
+}
+
+/* ---------- démarrage ---------- */
 boot();
-
-/* ---------- interface sobre : retire les emojis en tête des titres et boutons ---------- */
-const EMO=/^[\p{Extended_Pictographic}\uFE0F\u200D\s]+(?=[\p{L}«“])/u;
-const cleanUi=()=>$$('#main h1,#main h3,#main .run,#main .tab,#login h1').forEach(e=>{const n=e.firstChild;if(n&&n.nodeType==3&&EMO.test(n.nodeValue))n.nodeValue=n.nodeValue.replace(EMO,'')});
-new MutationObserver(cleanUi).observe(document.body,{childList:true,subtree:true,characterData:true});
-</script></body></html>
+</script>
+</body></html>

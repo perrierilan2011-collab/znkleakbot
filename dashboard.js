@@ -20,7 +20,7 @@ const MODALS = {
 };
 
 module.exports = function startDashboard(ctx) {
-  const { client, commands, handlers, autocomplete, getG, refreshPanels, CMD_CATEGORIES, ALWAYS_ON, PUBLIC_COMMANDS, OWNER_ONLY, db, save, DB_FILE } = ctx;
+  const { client, commands, handlers, autocomplete, getG, refreshPanels, refreshSalesPanel, CMD_CATEGORIES, ALWAYS_ON, PUBLIC_COMMANDS, OWNER_ONLY, db, save, DB_FILE } = ctx;
   const PASS = process.env.PANEL_PASSWORD;
   if (!PASS) return console.warn('[panel] PANEL_PASSWORD absent : panel désactivé.');
   const KEY = crypto.createHash('sha256').update('panel:' + PASS).digest();
@@ -181,13 +181,40 @@ module.exports = function startDashboard(ctx) {
     'GET /api/guilds': async () => client.guilds.cache.map((g) => ({ id: g.id, name: g.name, icon: g.iconURL({ size: 64 }), members: g.memberCount })),
     'GET /api/guild': async (_r, q) => {
       const { guild } = await ctxFor(q.get('id'));
+      const d = getG(guild.id);
       return {
-        id: guild.id, name: guild.name, count: guild.memberCount, disabled: getG(guild.id).disabledCommands || [],
-        welcome: getG(guild.id).welcome,
-        tickets: Object.values(getG(guild.id).tickets || {}).map((t) => ({
-          name: t.name, categoryId: t.categoryId, staffRoles: t.staffRoles || [], logChannelId: t.logChannelId, counter: t.counter || 0, dm: !!t.dm, openMsg: t.openMsg || null, openMsgId: t.openMsgId || null,
+        id: guild.id, name: guild.name, count: guild.memberCount, disabled: d.disabledCommands || [],
+        welcome: d.welcome,
+        panelColor: d.panelColor || '#5865F2',
+        vouch: {
+          channelId: d.vouch?.channelId || null, enabled: d.vouch?.enabled !== false, count: (d.vouches || []).length,
+          average: (d.vouches || []).length ? (d.vouches.reduce((n, v) => n + (v.stars || 0), 0) / d.vouches.length) : 0,
+        },
+        vouches: (d.vouches || []).slice(-12).reverse().map((v) => ({
+          id: v.id, from: v.from, stars: v.stars, message: v.message, image: v.image || null,
+          at: v.at, ticketName: v.ticketName || null, config: v.config || null,
+          name: client.users.cache.get(v.from)?.globalName || client.users.cache.get(v.from)?.username || null,
+          avatar: client.users.cache.get(v.from)?.displayAvatarURL({ size: 64 }) || null,
+        })),
+        sales: {
+          channelId: d.sales?.channelId || null, messageId: d.sales?.messageId || null,
+          count: d.sales?.count || 0, total: d.sales?.total || 0, currency: d.sales?.currency || '€',
+          entries: (d.sales?.entries || []).slice(-15).reverse().map((e) => ({
+            ...e,
+            name: client.users.cache.get(e.buyerId)?.username || e.buyerName || null,
+          })),
+        },
+        openTickets: Object.keys(d.open || {}).length,
+        invites: {
+          total: Object.values(d.invites?.stats || {}).reduce((n, s) => n + (s.joins || 0), 0),
+          members: Object.keys(d.invites?.stats || {}).length,
+        },
+        tickets: Object.values(d.tickets || {}).map((t) => ({
+          name: t.name, categoryId: t.categoryId, staffRoles: t.staffRoles || [], logChannelId: t.logChannelId, counter: t.counter || 0,
+          dm: !!t.dm, openMsg: t.openMsg || null, openMsgId: t.openMsgId || null,
+          color: t.color || null, placeholder: t.placeholder || null,
           openPresets: (t.openPresets || []).map((p) => ({ id: p.id, name: p.name, openMsg: p.openMsg || null })),
-          panels: (t.panels || []).map((p) => ({ channelId: p.channelId, messageId: p.messageId, button: !!p.button, openMsg: p.openMsg || null, openMsgId: p.openMsgId || null })),
+          panels: (t.panels || []).map((p) => ({ channelId: p.channelId, messageId: p.messageId, button: !!p.button, btnLabel: p.btnLabel || null, btnStyle: p.btnStyle || null, openMsg: p.openMsg || null, openMsgId: p.openMsgId || null })),
           reasons: (t.reasons || []).map((r) => ({ id: r.id, label: r.label, emoji: r.emoji, description: r.description, categoryId: r.categoryId, staffRoleId: r.staffRoleId, openMsg: r.openMsg || null, openMsgId: r.openMsgId || null })),
           dmChoices: (t.dmChoices || []).map((r) => ({ id: r.id, label: r.label, emoji: r.emoji, openMsg: r.openMsg || null, openMsgId: r.openMsgId || null })),
           subPanels: t.subPanels || [], subLinks: t.subLinks || {}, defaultSub: t.defaultSubPanelId || null,
@@ -196,6 +223,284 @@ module.exports = function startDashboard(ctx) {
         roles: guild.roles.cache.filter((r) => r.id !== guild.id).map((r) => ({ id: r.id, name: r.name, color: r.hexColor })),
       };
     },
+    // ---------- Configuration d'un ticket (créer / modifier / supprimer) ----------
+    'POST /api/ticket-config': async (_r, _q, b) => {
+      const { guild } = await ctxFor(b.guildId);
+      const d = getG(guild.id);
+      const name = String(b.name || '').trim().toLowerCase();
+      if (!/^[a-z0-9-]{1,30}$/.test(name)) throw new Error('Nom invalide : lettres minuscules, chiffres et tirets (30 max).');
+      if (b.action === 'create') {
+        if (d.tickets[name]) throw new Error('Une configuration porte déjà ce nom.');
+        const categoryId = b.categoryId && guild.channels.cache.get(b.categoryId)?.type === 4 ? b.categoryId : null;
+        if (!categoryId) throw new Error('Choisis une catégorie Discord valide.');
+        const staffRoles = (Array.isArray(b.staffRoles) ? b.staffRoles : []).filter((id) => id !== guild.id && guild.roles.cache.has(id));
+        if (!staffRoles.length) throw new Error('Choisis au moins un rôle staff.');
+        d.tickets[name] = {
+          name, categoryId, staffRoles,
+          logChannelId: b.logChannelId && guild.channels.cache.has(b.logChannelId) ? b.logChannelId : null,
+          reasons: [], counter: 0, panels: [], placeholder: null, openMsg: null,
+          dm: false, dmMigrated: true, dmChoices: [], dmTexts: null, dmImage: null,
+          subPanels: [], subLinks: {}, defaultSubPanelId: null, openPresets: [],
+          color: colorOk(b.color) || null,
+        };
+        save();
+        return { ok: true, name };
+      }
+      const cfg = d.tickets[name];
+      if (!cfg) throw new Error('Configuration introuvable');
+      if (b.action === 'delete') {
+        delete d.tickets[name];
+        save();
+        return { ok: true };
+      }
+      if (b.action === 'update') {
+        if ('categoryId' in b) {
+          const id = b.categoryId && guild.channels.cache.get(b.categoryId)?.type === 4 ? b.categoryId : null;
+          if (!id) throw new Error('Catégorie invalide.');
+          cfg.categoryId = id;
+        }
+        if ('staffRoles' in b) {
+          const ids = (Array.isArray(b.staffRoles) ? b.staffRoles : []).filter((id) => id !== guild.id && guild.roles.cache.has(id));
+          if (!ids.length) throw new Error('Garde au moins un rôle staff.');
+          cfg.staffRoles = ids;
+        }
+        if ('logChannelId' in b) cfg.logChannelId = b.logChannelId && guild.channels.cache.has(b.logChannelId) ? b.logChannelId : null;
+        if ('placeholder' in b) cfg.placeholder = txt(b.placeholder, 150) || null;
+        if ('color' in b) cfg.color = colorOk(b.color) || null;
+        save();
+        if (b.refresh !== false) await refreshPanels(guild, name).catch(console.error);
+        return { ok: true };
+      }
+      throw new Error('Action inconnue');
+    },
+
+    // ---------- Couleur / vouch / ventes (réglages du serveur) ----------
+    'POST /api/guild-settings': async (_r, _q, b) => {
+      const { guild } = await ctxFor(b.guildId);
+      const d = getG(guild.id);
+      let recolor = false;
+      if ('panelColor' in b) {
+        const c = colorOk(b.panelColor);
+        if (!c) throw new Error('Couleur invalide (hex, ex : #5865F2).');
+        d.panelColor = c;
+        recolor = true;
+      }
+      if ('vouchChannelId' in b) d.vouch.channelId = b.vouchChannelId && guild.channels.cache.has(b.vouchChannelId) ? b.vouchChannelId : null;
+      if ('vouchEnabled' in b) d.vouch.enabled = b.vouchEnabled === true || b.vouchEnabled === 'true' || b.vouchEnabled === 1;
+      if ('salesCurrency' in b) d.sales.currency = txt(b.salesCurrency, 8) || '€';
+      if ('salesChannelId' in b) {
+        const id = b.salesChannelId && guild.channels.cache.has(b.salesChannelId) ? b.salesChannelId : null;
+        if (id !== d.sales.channelId) {
+          const oldChannelId = d.sales.channelId;
+          const oldMessageId = d.sales.messageId;
+          d.sales.channelId = id;
+          d.sales.messageId = null;
+          d.sales.sig = null;
+          save();
+          if (oldChannelId && oldMessageId && oldChannelId !== id) {
+            const oldCh = await guild.channels.fetch(oldChannelId).catch(() => null);
+            const oldMsg = oldCh && await oldCh.messages.fetch(oldMessageId).catch(() => null);
+            if (oldMsg) await oldMsg.delete().catch(console.error);
+          }
+          await refreshSalesPanel(guild, !!id).catch(console.error);
+        }
+      }
+      save();
+      if (recolor) {
+        await refreshPanels(guild).catch(console.error);
+        await refreshSalesPanel(guild, false).catch(console.error);
+      } else if ('salesCurrency' in b) {
+        await refreshSalesPanel(guild, false).catch(console.error);
+      }
+      return { ok: true };
+    },
+    'POST /api/sales-panel': async (_r, _q, b) => {
+      const { guild } = await ctxFor(b.guildId);
+      const d = getG(guild.id);
+      if (!d.sales.channelId) throw new Error("Choisis d'abord un salon pour le suivi des ventes.");
+      const msg = await refreshSalesPanel(guild, true);
+      if (!msg) throw new Error('Impossible de créer le panel : vérifie les permissions du bot dans le salon.');
+      return { ok: true, messageId: msg.id };
+    },
+    'POST /api/sales-reset': async (_r, _q, b) => {
+      const { guild } = await ctxFor(b.guildId);
+      const d = getG(guild.id);
+      if (!b.confirm) throw new Error('Confirmation requise');
+      d.sales.count = 0;
+      d.sales.total = 0;
+      d.sales.entries = [];
+      d.sales.sig = null;
+      save();
+      await refreshSalesPanel(guild, false).catch(console.error);
+      return { ok: true };
+    },
+
+    // ---------- Catégories du menu (raisons) ----------
+    'POST /api/ticket-reason': async (_r, _q, b) => {
+      const cfg = guildCfg(b.guildId, b.config);
+      const guild = client.guilds.cache.get(b.guildId);
+      cfg.reasons ??= [];
+      if (b.action === 'add') {
+        if (cfg.reasons.length >= 25) throw new Error('25 catégories maximum.');
+        const label = txt(b.label, 100);
+        if (!label) throw new Error('Le nom est obligatoire.');
+        if (cfg.reasons.some((r) => r.label.toLowerCase() === label.toLowerCase())) throw new Error('Cette catégorie existe déjà.');
+        cfg.reasons.push({
+          id: crypto.randomUUID().slice(0, 8), label,
+          description: txt(b.description, 100) || '',
+          emoji: txt(b.emoji, 64) || null,
+          staffRoleId: b.staffRoleId && b.staffRoleId !== guild.id && guild.roles.cache.has(b.staffRoleId) ? b.staffRoleId : null,
+          categoryId: b.categoryId && guild.channels.cache.get(b.categoryId)?.type === 4 ? b.categoryId : null,
+        });
+      } else {
+        const r = cfg.reasons.find((x) => x.id === b.id);
+        if (!r) throw new Error('Catégorie introuvable');
+        if (b.action === 'remove') {
+          cfg.reasons = cfg.reasons.filter((x) => x !== r);
+          if (cfg.subLinks) delete cfg.subLinks[r.id];
+        } else if (b.action === 'update') {
+          if ('label' in b) {
+            const label = txt(b.label, 100);
+            if (!label) throw new Error('Le nom est obligatoire.');
+            if (cfg.reasons.some((x) => x !== r && x.label.toLowerCase() === label.toLowerCase())) throw new Error('Une autre catégorie porte déjà ce nom.');
+            r.label = label;
+          }
+          if ('description' in b) r.description = txt(b.description, 100) || '';
+          if ('emoji' in b) r.emoji = txt(b.emoji, 64) || null;
+          if ('categoryId' in b) r.categoryId = b.categoryId && guild.channels.cache.get(b.categoryId)?.type === 4 ? b.categoryId : null;
+          if ('staffRoleId' in b) r.staffRoleId = b.staffRoleId && b.staffRoleId !== guild.id && guild.roles.cache.has(b.staffRoleId) ? b.staffRoleId : null;
+        } else throw new Error('Action inconnue');
+      }
+      save();
+      await refreshPanels(guild, cfg.name).catch(console.error);
+      return { ok: true };
+    },
+
+    // ---------- Sous-panels ----------
+    'POST /api/subpanel': async (_r, _q, b) => {
+      const cfg = guildCfg(b.guildId, b.config);
+      cfg.subPanels ??= [];
+      if (b.action === 'create') {
+        if (cfg.subPanels.length >= 100) throw new Error('100 sous-panels maximum.');
+        const name = txt(b.name, 60);
+        if (!name) throw new Error('Le nom est obligatoire.');
+        if (cfg.subPanels.some((s) => s.name.toLowerCase() === name.toLowerCase())) throw new Error('Un sous-panel porte déjà ce nom.');
+        const sp = {
+          id: crypto.randomUUID().slice(0, 8), name,
+          title: txt(b.title, 256) || null, description: txt(b.description, 4000) || null,
+          placeholder: txt(b.placeholder, 100) || null, color: colorOk(b.color) || null,
+          image: urlOk(b.image) || null, thumbnail: urlOk(b.thumbnail) || null,
+          footer: txt(b.footer, 2048) || null, payment: !!b.payment, choices: [],
+        };
+        cfg.subPanels.push(sp);
+        save();
+        return { ok: true, id: sp.id };
+      }
+      const sp = cfg.subPanels.find((s) => s.id === b.id);
+      if (!sp) throw new Error('Sous-panel introuvable');
+      if (b.action === 'delete') {
+        cfg.subPanels = cfg.subPanels.filter((s) => s !== sp);
+        if (cfg.defaultSubPanelId === sp.id) cfg.defaultSubPanelId = null;
+        for (const [k, v] of Object.entries(cfg.subLinks || {})) if (v === sp.id) delete cfg.subLinks[k];
+        for (const other of cfg.subPanels) for (const c of other.choices || []) if (c.nextSubId === sp.id) c.nextSubId = null;
+        save();
+        return { ok: true };
+      }
+      if (b.action === 'update') {
+        if ('name' in b) {
+          const name = txt(b.name, 60);
+          if (!name) throw new Error('Le nom est obligatoire.');
+          if (cfg.subPanels.some((s) => s !== sp && s.name.toLowerCase() === name.toLowerCase())) throw new Error('Un sous-panel porte déjà ce nom.');
+          sp.name = name;
+        }
+        if ('title' in b) sp.title = txt(b.title, 256) || null;
+        if ('description' in b) sp.description = txt(b.description, 4000) || null;
+        if ('placeholder' in b) sp.placeholder = txt(b.placeholder, 100) || null;
+        if ('color' in b) sp.color = colorOk(b.color) || null;
+        if ('image' in b) sp.image = urlOk(b.image) || null;
+        if ('thumbnail' in b) sp.thumbnail = urlOk(b.thumbnail) || null;
+        if ('footer' in b) sp.footer = txt(b.footer, 2048) || null;
+        if ('payment' in b) sp.payment = !!b.payment;
+        save();
+        return { ok: true };
+      }
+      throw new Error('Action inconnue');
+    },
+    'POST /api/subpanel-choice': async (_r, _q, b) => {
+      const cfg = guildCfg(b.guildId, b.config);
+      const guild = client.guilds.cache.get(b.guildId);
+      const sp = (cfg.subPanels || []).find((s) => s.id === b.subId);
+      if (!sp) throw new Error('Sous-panel introuvable');
+      sp.choices ??= [];
+      const nextId = () => {
+        if (!('nextSubId' in b)) return undefined;
+        if (!b.nextSubId || b.nextSubId === 'aucun') return null;
+        if (b.nextSubId === sp.id) throw new Error('Un choix ne peut pas renvoyer vers son propre sous-panel.');
+        if (!cfg.subPanels.some((s) => s.id === b.nextSubId)) throw new Error('Sous-panel suivant introuvable.');
+        return b.nextSubId;
+      };
+      if (b.action === 'add') {
+        if (sp.choices.length >= 25) throw new Error('25 choix maximum par menu.');
+        const label = txt(b.label, 100);
+        if (!label) throw new Error('Le nom du choix est obligatoire.');
+        sp.choices.push({
+          id: crypto.randomUUID().slice(0, 8), label,
+          description: txt(b.description, 100) || '',
+          emoji: txt(b.emoji, 64) || null,
+          categoryId: b.categoryId && guild.channels.cache.get(b.categoryId)?.type === 4 ? b.categoryId : null,
+          staffRoleId: b.staffRoleId && b.staffRoleId !== guild.id && guild.roles.cache.has(b.staffRoleId) ? b.staffRoleId : null,
+          nextSubId: nextId() ?? null,
+        });
+        save();
+        return { ok: true };
+      }
+      const ch = sp.choices.find((c) => c.id === b.id);
+      if (!ch) throw new Error('Choix introuvable');
+      if (b.action === 'remove') {
+        sp.choices = sp.choices.filter((c) => c !== ch);
+      } else if (b.action === 'update') {
+        if ('label' in b) {
+          const label = txt(b.label, 100);
+          if (!label) throw new Error('Le nom du choix est obligatoire.');
+          ch.label = label;
+        }
+        if ('description' in b) ch.description = txt(b.description, 100) || '';
+        if ('emoji' in b) ch.emoji = txt(b.emoji, 64) || null;
+        if ('categoryId' in b) ch.categoryId = b.categoryId && guild.channels.cache.get(b.categoryId)?.type === 4 ? b.categoryId : null;
+        if ('staffRoleId' in b) ch.staffRoleId = b.staffRoleId && b.staffRoleId !== guild.id && guild.roles.cache.has(b.staffRoleId) ? b.staffRoleId : null;
+        const n = nextId();
+        if (n !== undefined) ch.nextSubId = n;
+      } else throw new Error('Action inconnue');
+      save();
+      return { ok: true };
+    },
+    'POST /api/subpanel-link': async (_r, _q, b) => {
+      const cfg = guildCfg(b.guildId, b.config);
+      const val = b.subId === 'none' ? 'none' : b.subId && cfg.subPanels?.some((s) => s.id === b.subId) ? b.subId : null;
+      if (b.pour === 'all') cfg.defaultSubPanelId = val === 'none' ? null : val;
+      else {
+        cfg.subLinks ??= {};
+        if (!val) delete cfg.subLinks[b.pour];
+        else cfg.subLinks[b.pour] = val;
+      }
+      save();
+      return { ok: true };
+    },
+    'POST /api/panel-delete': async (_r, _q, b) => {
+      const cfg = guildCfg(b.guildId, b.config);
+      const guild = client.guilds.cache.get(b.guildId);
+      const p = (cfg.panels || []).find((x) => x.messageId === b.messageId);
+      if (!p) throw new Error('Panel introuvable');
+      if (b.removeMessage) {
+        const ch = await guild.channels.fetch(p.channelId).catch(() => null);
+        const msg = ch && await ch.messages.fetch(p.messageId).catch(() => null);
+        if (msg) await msg.delete().catch(console.error);
+      }
+      cfg.panels = cfg.panels.filter((x) => x !== p);
+      save();
+      return { ok: true };
+    },
+
     'POST /api/ticket-open-msg': async (_r, _q, b) => {
       const cfg = guildCfg(b.guildId, b.config);
       cfg.openPresets ??= [];

@@ -121,6 +121,19 @@ function getG(id) {
   g.catPerms ??= {};            // clé de catégorie de commandes -> [roleIds]
   g.catAccess ??= {};           // id catégorie Discord -> { content: [roleIds], preview: [roleIds] }
   g.pendingDm ??= {};          // "userId:config" -> { messageId, channelId, panelId }  (menu de MP en attente)
+  g.panelColor ??= '#5865F2';  // couleur appliquée à TOUS les panels (tickets, vouch, ventes…)
+  g.vouch ??= {};              // système de vouch (avis vérifiés)
+  g.vouch.channelId ??= null;  // salon dédié où sont envoyés les vouchs
+  g.vouch.enabled ??= true;    // activer / désactiver /vouch
+  g.vouches ??= [];            // [{ id, ticketId, ticketName, config, from, claimedBy, stars, message, image, at }]
+  g.sales ??= {};              // suivi des ventes
+  g.sales.channelId ??= null;  // salon du panel de suivi
+  g.sales.messageId ??= null;  // message du panel de suivi
+  g.sales.sig ??= null;        // empreinte du dernier panel affiché
+  g.sales.count ??= 0;         // nombre total de ventes
+  g.sales.total ??= 0;         // argent généré (total)
+  g.sales.currency ??= '€';    // devise affichée
+  g.sales.entries ??= [];      // 100 dernières ventes [{ at, amount, buyerId, buyerName, product, by, config, ticket }]
   // Migration : un seul rôle staff -> plusieurs rôles staff
   for (const c of Object.values(g.tickets)) {
     c.staffRoles ??= c.staffRoleId ? [c.staffRoleId] : [];
@@ -135,6 +148,7 @@ function getG(id) {
     c.subLinks ??= {};      // id d'une catégorie du menu (panel ou MP) -> id d'un sous-panel, ou 'none' (aucun sous-panel)
     c.openPresets ??= [];   // modèles de message d'ouverture : [{ id, name, openMsg }] (un élément s'y réfère avec openMsgId)
     c.defaultSubPanelId ??= null; // sous-panel de toutes les catégories qui n'ont pas de lien propre
+    c.color ??= null;       // couleur propre à cette configuration (sinon la couleur globale du serveur)
     if (!c.dmMigrated) {    // une seule fois : reprise de l'ancien système de MP
       c.dmMigrated = true;
       if (c.dm && !c.dmChoices.length) c.dmChoices = c.reasons.map((r) => ({ ...r }));
@@ -375,7 +389,7 @@ const canModerate = (i) =>
 // Les rôles /roles-mod n'ont accès qu'à ces commandes.
 const MOD_COMMANDS = new Set(['ban', 'unban', 'mute', 'unmute', 'sanctions-actives', 'historique-sanctions']);
 // Commandes ouvertes à tout le monde
-const PUBLIC_COMMANDS = new Set(['help', 'invites', 'message-mp']);
+const PUBLIC_COMMANDS = new Set(['help', 'invites', 'message-mp', 'vouch']);
 // Commandes qu'on ne peut jamais désactiver (sinon on se bloque soi-même)
 const ALWAYS_ON = new Set(['help', 'commandes', 'permissions', 'permissions-categorie', 'salon-commandes']);
 // Commandes réservées au propriétaire (on ne peut pas les donner à un rôle)
@@ -395,6 +409,12 @@ const GATE_EXEMPT = new Set([...PUBLIC_COMMANDS, 'salon-commandes']);
 function wrongChannel(i) {
   const id = getG(i.guildId).commandChannelId;
   if (!id || GATE_EXEMPT.has(i.commandName) || i.channelId === id) return null;
+  // /ticket ajouter|retirer se font directement dans le salon du ticket, même avec un salon des commandes
+  if (i.commandName === 'ticket') {
+    let sub = null;
+    try { sub = i.options.getSubcommand(false); } catch { /* aucune sous-commande */ }
+    if ((sub === 'ajouter' || sub === 'retirer') && getG(i.guildId).open[i.channelId]) return null;
+  }
   if (!i.guild.channels.cache.has(id)) return null; // salon supprimé : plus de restriction
   return id;
 }
@@ -1133,6 +1153,12 @@ const commands = [
       s.setName('liste').setDescription('Voir les sous-panels et à quelles catégories ils sont reliés')
         .addStringOption(spCfg)),
 
+  // ---------- Vouch (ouvert à tous ceux qui ont ouvert / pris en charge un ticket) ----------
+  new SlashCommandBuilder()
+    .setName('vouch')
+    .setDescription('Donner un avis vérifié sur ton ticket (note sur 5 + message)')
+    .setDMPermission(false),
+
   // ---------- Tickets ----------
   new SlashCommandBuilder()
     .setName('ticket')
@@ -1161,6 +1187,12 @@ const commands = [
       s.setName('staff-retirer').setDescription("Retirer l'accès d'un rôle staff aux tickets")
         .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true))
         .addRoleOption((o) => o.setName('role').setDescription('Rôle staff à retirer').setRequired(true)))
+    .addSubcommand((s) =>
+      s.setName('ajouter').setDescription('Ajouter un membre au ticket actuel (à utiliser dans le ticket)')
+        .addUserOption((o) => o.setName('membre').setDescription('Membre à ajouter au ticket').setRequired(true)))
+    .addSubcommand((s) =>
+      s.setName('retirer').setDescription('Retirer un membre du ticket actuel (à utiliser dans le ticket)')
+        .addUserOption((o) => o.setName('membre').setDescription('Membre à retirer du ticket').setRequired(true)))
     .addSubcommand((s) =>
       s.setName('raison-ajouter').setDescription("Ajouter une catégorie au menu du panel")
         .addStringOption((o) => o.setName('config').setDescription('Configuration').setAutocomplete(true).setRequired(true))
@@ -1229,6 +1261,25 @@ const commands = [
         .addStringOption((o) => o.setName('bouton-texte').setDescription('Texte du bouton (défaut : Ouvrir un ticket)').setMaxLength(80))
         .addStringOption((o) =>
           o.setName('couleur-bouton').setDescription('Couleur du bouton (défaut : bleu)').addChoices(...BTN_COLORS)))
+    // ----- Couleur globale des panels -----
+    .addSubcommand((s) =>
+      s.setName('couleur').setDescription('Couleur appliquée à tous les panels du serveur')
+        .addStringOption((o) => o.setName('couleur').setDescription('Couleur hex, ex : #5865F2').setRequired(true).setMaxLength(7))
+        .addStringOption((o) => o.setName('config').setDescription('Seulement cette configuration (vide = tout le serveur)').setAutocomplete(true)))
+    // ----- Vouch -----
+    .addSubcommand((s) =>
+      s.setName('vouch-salon').setDescription('Salon où envoyer les avis /vouch')
+        .addChannelOption((o) => o.setName('salon').setDescription('Salon des vouchs').addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(true)))
+    .addSubcommand((s) => s.setName('vouch-activer').setDescription('Activer la commande /vouch'))
+    .addSubcommand((s) => s.setName('vouch-desactiver').setDescription('Désactiver la commande /vouch'))
+    // ----- Suivi des ventes -----
+    .addSubcommand((s) =>
+      s.setName('ventes-salon').setDescription('Salon où afficher le panel de suivi des ventes')
+        .addChannelOption((o) => o.setName('salon').setDescription('Salon du suivi des ventes').addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(true)))
+    .addSubcommand((s) => s.setName('ventes-panel').setDescription('Créer / rafraîchir le panel de suivi des ventes'))
+    .addSubcommand((s) =>
+      s.setName('ventes-devise').setDescription('Devise affichée dans le suivi des ventes')
+        .addStringOption((o) => o.setName('devise').setDescription('Ex : €, $, CHF…').setRequired(true).setMaxLength(8)))
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setDMPermission(false),
 ];
@@ -1409,12 +1460,16 @@ async function refreshPanels(guild, cfgName) {
 
       const row = panelRow(cfg, { button: p.button, label: p.btnLabel, style: p.btnStyle });
       const desc = p.customDesc ? null : panelDesc(cfg, p.button);
-      const s = sig({ row: row.toJSON(), desc });
+      // Couleur globale (ou couleur propre à la configuration) appliquée à tous les panels
+      const color = parseColor(cfg.color || d.panelColor, '#ED4245');
+      const s = sig({ row: row.toJSON(), desc, color });
       if (p.sig === s) continue;
 
       const payload = { components: [row] };
-      if (desc && msg.embeds[0] && msg.embeds[0].description !== desc) {
-        payload.embeds = [EmbedBuilder.from(msg.embeds[0]).setDescription(desc)];
+      if (msg.embeds[0]) {
+        const e = EmbedBuilder.from(msg.embeds[0]).setColor(color);
+        if (desc && msg.embeds[0].description !== desc) e.setDescription(desc);
+        payload.embeds = [e];
       }
       try {
         await msg.edit(payload);
@@ -1469,7 +1524,7 @@ async function buildOpenMessage(guild, user, cfg, panel, reason, staffRoles, sub
   const showInfo = typeof m.showInfo === 'boolean' ? m.showInfo : !rd; // champs Configuration / Catégorie / Sous-panel
 
   const embed = new EmbedBuilder()
-    .setColor(parseColor(m.color, '#5865F2'))
+    .setColor(parseColor(m.color, cfg.color || getG(guild.id).panelColor || '#5865F2'))
     .setTitle((m.title ? vars(m.title) : `🎫 Ticket — ${[reason?.label, ...subs.map((c) => c.label)].filter(Boolean).join(' › ') || cfg.name}`).slice(0, 256))
     .setDescription((rd ? rd.text : (
       `Bonjour <@${user.id}>, un membre du staff va te répondre bientôt.\n` +
@@ -1770,7 +1825,7 @@ function subSummary(cfg) {
 function buildSubMessage(guild, user, cfg, sub, customId, reason) {
   const ctx = { guild, user, cfg, choice: reason };
   const embed = new EmbedBuilder()
-    .setColor(parseColor(sub.color, '#5865F2'))
+    .setColor(parseColor(sub.color, cfg.color || getG(guild.id).panelColor || '#5865F2'))
     .setTitle(dmVars(sub.title || reason?.label || sub.name, ctx).slice(0, 256))
     .setDescription(dmVars(sub.description || 'Précise ta demande dans le menu ci-dessous.', ctx).slice(0, 4096))
     .setTimestamp();
@@ -1954,15 +2009,274 @@ async function claimTicket(i) {
   if (i.channel.name.startsWith('❌')) i.channel.setName(i.channel.name.replace(/^❌/, '✅')).catch(console.error);
 }
 
+/* ------------------------------------------------------------------ */
+/*  Ventes : panel de suivi                                            */
+/* ------------------------------------------------------------------ */
+const fmtMoney = (n, cur = '€') =>
+  `${Number(n || 0).toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ${cur}`;
+const saleBuyer = (e) => (e.buyerId ? `<@${e.buyerId}>` : (e.buyerName || 'Inconnu'));
+const starsText = (n) => '⭐'.repeat(Math.max(0, Math.min(5, n))) + '☆'.repeat(Math.max(0, 5 - n));
+
+function buildSalesEmbed(guild) {
+  const d = getG(guild.id);
+  const s = d.sales;
+  const entries = [...(s.entries || [])].slice(-8).reverse();
+  const avg = s.count ? s.total / s.count : 0;
+  const description = [
+    `**Ventes réalisées :** ${s.count}`,
+    `**Argent généré :** ${fmtMoney(s.total, s.currency)}`,
+    `**Panier moyen :** ${fmtMoney(avg, s.currency)}`,
+    '',
+    '**🧾 Dernières ventes**',
+    entries.length
+      ? entries.map((e) =>
+        `• <t:${Math.floor(e.at / 1000)}:d> — **${fmtMoney(e.amount, s.currency)}** — ${saleBuyer(e)}` +
+        `${e.product ? ` — ${e.product}` : ''}`).join('\n')
+      : "Aucune vente enregistrée pour l'instant.",
+  ].join('\n').slice(0, 4096);
+  return new EmbedBuilder()
+    .setColor(parseColor(d.panelColor, '#57F287'))
+    .setTitle('📈 Suivi des ventes')
+    .setDescription(description)
+    .setFooter({ text: guild.name })
+    .setTimestamp();
+}
+
+// Crée le panel s'il n'existe pas, sinon le met à jour. Créé automatiquement au démarrage et après chaque vente.
+async function refreshSalesPanel(guild, create = true) {
+  const d = getG(guild.id);
+  const s = d.sales;
+  if (!s.channelId) return null;
+  const ch = await guild.channels.fetch(s.channelId).catch(() => null);
+  if (!ch) return null;
+  const embed = buildSalesEmbed(guild);
+  const fingerprint = sig({ count: s.count, total: s.total, last: s.entries?.at(-1)?.at || 0, currency: s.currency, color: d.panelColor });
+  if (s.messageId) {
+    const { msg, gone } = await fetchMsg(guild, s.channelId, s.messageId);
+    if (msg) {
+      if (s.sig === fingerprint) return msg;
+      try {
+        await msg.edit({ embeds: [embed] });
+        s.sig = fingerprint;
+        save();
+      } catch (e) {
+        console.error('[ventes]', e.message);
+      }
+      return msg;
+    }
+    if (gone) { s.messageId = null; save(); }
+    else return null;
+  }
+  if (!create) return null;
+  const sent = await ch.send({ embeds: [embed] }).catch((e) => { console.error('[ventes]', e.message); return null; });
+  if (!sent) return null;
+  s.messageId = sent.id;
+  s.sig = fingerprint;
+  save();
+  return sent;
+}
+
+function recordSale(guild, sale) {
+  const d = getG(guild.id);
+  const s = d.sales;
+  const amount = Math.round(Number(sale.amount) * 100) / 100;
+  if (!Number.isFinite(amount) || amount <= 0) return;
+  s.count = (s.count || 0) + 1;
+  s.total = Math.round(((s.total || 0) + amount) * 100) / 100;
+  s.entries = [...(s.entries || []), {
+    at: Date.now(), amount,
+    buyerId: sale.buyerId || null, buyerName: sale.buyerName || null,
+    product: sale.product || null, by: sale.by || null,
+    config: sale.config || null, ticket: sale.ticket || null,
+  }].slice(-100);
+  save();
+  refreshSalesPanel(guild).catch(console.error);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Vouch : avis vérifiés                                              */
+/* ------------------------------------------------------------------ */
+function vouchAllowed(i, t) {
+  return i.user.id === t.userId || i.user.id === t.claimedBy;
+}
+
+async function vouchPanel(i) {
+  const d = getG(i.guildId);
+  const t = d.open[i.channelId];
+  if (!t) return i.reply({ content: '❌ `/vouch` s’utilise uniquement dans un ticket ouvert.', flags: EPH });
+  if (!d.vouch.enabled) return i.reply({ content: '❌ Les vouchs sont désactivés sur ce serveur.', flags: EPH });
+  if (!d.vouch.channelId) return i.reply({ content: "❌ Aucun salon de vouch n'est configuré. Préviens un administrateur.", flags: EPH });
+  if (!vouchAllowed(i, t)) return i.reply({ content: '❌ Seul la personne qui a ouvert le ticket ou qui l’a pris en charge peut le vouch.', flags: EPH });
+  if ((d.vouches || []).some((v) => v.ticketId === i.channelId && v.from === i.user.id)) {
+    return i.reply({ content: '❌ Tu as déjà laissé un vouch pour ce ticket.', flags: EPH });
+  }
+  const embed = new EmbedBuilder()
+    .setColor(parseColor(d.panelColor, '#F1C40F'))
+    .setTitle('⭐ Laisse un vouch pour ce ticket')
+    .setDescription(
+      '**Comment ça marche ?**\n' +
+      '1️⃣ Choisis une note de **1 à 5 étoiles** avec les boutons ci-dessous.\n' +
+      '2️⃣ Écris ensuite ton message (et ajoute une image si tu veux).\n' +
+      '3️⃣ Ton avis est publié dans le salon des vouchs avec ta photo de profil.\n\n' +
+      '> Ton vouch sert de preuve que la transaction s’est bien passée.'
+    )
+    .setFooter({ text: 'Une seule note par ticket et par membre.' });
+  const row = new ActionRowBuilder().addComponents(
+    ...[1, 2, 3, 4, 5].map((n) => new ButtonBuilder()
+      .setCustomId(`vouch:star:${n}`)
+      .setLabel(`${n} étoile${n > 1 ? 's' : ''}`)
+      .setEmoji('⭐')
+      .setStyle(n >= 4 ? ButtonStyle.Success : n === 3 ? ButtonStyle.Primary : ButtonStyle.Secondary)),
+  );
+  return i.reply({ embeds: [embed], components: [row], flags: EPH });
+}
+
+async function vouchModal(i, stars) {
+  const n = Number(stars);
+  if (!(n >= 1 && n <= 5)) return i.reply({ content: '❌ Note invalide.', flags: EPH });
+  const d = getG(i.guildId);
+  const t = d.open[i.channelId];
+  if (!t) return i.reply({ content: '❌ Ce ticket n’existe plus.', flags: EPH });
+  if (!vouchAllowed(i, t)) return i.reply({ content: '❌ Tu ne peux pas vouch ce ticket.', flags: EPH });
+  return i.showModal(new ModalBuilder()
+    .setCustomId(`vouch_modal:${n}:${i.channelId}`)
+    .setTitle(`Ton avis — ${starsText(n)}`)
+    .addComponents(
+      field('message', 'Ton message', TextInputStyle.Paragraph, { required: true, max: 1000, placeholder: 'Explique comment s’est passée la transaction…' }),
+      field('image', "Lien d'une image (optionnel)", TextInputStyle.Short, { max: 500, placeholder: 'https://…' }),
+    ));
+}
+
+async function vouchSubmit(m) {
+  const [, starsRaw, channelId] = m.customId.split(':');
+  const stars = Number(starsRaw);
+  const d = getG(m.guildId);
+  const t = d.open[channelId];
+  if (!t) return m.reply({ content: '❌ Ce ticket n’existe plus.', flags: EPH });
+  if (!d.vouch.enabled || !d.vouch.channelId) return m.reply({ content: '❌ Les vouchs ne sont plus configurés.', flags: EPH });
+  if (!vouchAllowed(m, t)) return m.reply({ content: '❌ Tu ne peux pas vouch ce ticket.', flags: EPH });
+  if ((d.vouches || []).some((v) => v.ticketId === channelId && v.from === m.user.id)) {
+    return m.reply({ content: '❌ Tu as déjà laissé un vouch pour ce ticket.', flags: EPH });
+  }
+  const message = m.fields.getTextInputValue('message').trim().slice(0, 1000);
+  if (!message) return m.reply({ content: '❌ Ton message est vide.', flags: EPH });
+  const image = (m.fields.getTextInputValue('image') || '').trim();
+  const ch = await m.guild.channels.fetch(d.vouch.channelId).catch(() => null);
+  if (!ch) return m.reply({ content: '❌ Le salon des vouchs est introuvable.', flags: EPH });
+
+  const member = await m.guild.members.fetch(m.user.id).catch(() => m.member);
+  const vouch = {
+    id: crypto.randomUUID().slice(0, 8),
+    ticketId: channelId,
+    ticketName: m.channel?.name || null,
+    config: t.config,
+    from: m.user.id,
+    claimedBy: t.claimedBy || null,
+    stars: Math.max(1, Math.min(5, stars)),
+    message,
+    image: isUrl(image) ? image : null,
+    at: Date.now(),
+  };
+  const embed = new EmbedBuilder()
+    .setColor(parseColor(d.panelColor, '#F1C40F'))
+    .setAuthor({ name: member?.displayName || m.user.username, iconURL: m.user.displayAvatarURL({ size: 256 }) })
+    .setTitle(`${starsText(vouch.stars)}  ${vouch.stars}/5`)
+    .setDescription(message)
+    .addFields(
+      { name: 'Ticket', value: `#${vouch.ticketName || 'ticket'}`, inline: true },
+      { name: 'Catégorie', value: (t.reason || t.config || '—').slice(0, 1024), inline: true },
+      { name: 'Pris en charge par', value: t.claimedBy ? `<@${t.claimedBy}>` : 'Personne', inline: true },
+    )
+    .setTimestamp(vouch.at);
+  if (vouch.image) embed.setImage(vouch.image);
+  embed.setFooter({ text: `Vouch vérifié · ${m.guild.name}` });
+
+  let sent = null;
+  try {
+    sent = await ch.send({ embeds: [embed], allowedMentions: { parse: [] } });
+  } catch (e) {
+    console.error('[vouch]', e.message);
+  }
+  if (!sent) return m.reply({ content: '❌ Impossible de publier ton vouch (permissions du salon). Préviens un administrateur.', flags: EPH });
+  d.vouches.push(vouch);
+  save();
+  const okMsg = { content: `✅ Merci ! Ton vouch a été publié dans <#${d.vouch.channelId}>.`, embeds: [], components: [] };
+  if (m.isFromMessage?.()) {
+    try { return await m.update(okMsg); } catch { /* le panneau a peut-être expiré */ }
+  }
+  return m.reply({ ...okMsg, flags: EPH });
+}
+
+/* ------------------------------------------------------------------ */
+/*  Fermeture d'un ticket (avec demande de vente)                      */
+/* ------------------------------------------------------------------ */
 async function closeTicket(i) {
   const data = getG(i.guildId);
   const t = data.open[i.channelId];
   if (!t) return i.reply({ content: "❌ Ce salon n'est pas un ticket géré.", flags: EPH });
   const cfg = data.tickets[t.config];
-  if (!isStaff(i, t, cfg) && i.user.id !== t.userId) {
-    return i.reply({ content: "❌ Tu ne peux pas fermer ce ticket.", flags: EPH });
+  if (!isStaff(i, t, cfg)) {
+    return i.reply({ content: '❌ Seul le staff peut fermer un ticket.', flags: EPH });
   }
-  await i.reply('🔒 Fermeture du ticket dans quelques secondes...');
+  const embed = new EmbedBuilder()
+    .setColor(parseColor(data.panelColor, '#ED4245'))
+    .setTitle('🔒 Fermer ce ticket')
+    .setDescription(
+      '**La vente a-t-elle été réalisée ?**\n\n' +
+      '• **Oui** → indique le montant : le panel de suivi des ventes sera mis à jour.\n' +
+      '• **Non** → le ticket est fermé sans vente.\n\n' +
+      'Seul un membre du staff peut choisir. Le ticket sera fermé après ta réponse.'
+    )
+    .setFooter({ text: 'Choisis une option ci-dessous.' });
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`tk_sale:yes:${i.channelId}`).setLabel('Oui, vente réalisée').setEmoji('✅').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`tk_sale:no:${i.channelId}`).setLabel('Non, pas de vente').setEmoji('❌').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('tk_close_cancel').setLabel('Annuler').setStyle(ButtonStyle.Danger),
+  );
+  return i.reply({ embeds: [embed], components: [row], flags: EPH });
+}
+
+async function saleModal(i, channelId) {
+  const d = getG(i.guildId);
+  const t = d.open[channelId];
+  if (!t) return i.reply({ content: '❌ Ce ticket n’existe plus.', flags: EPH });
+  const cfg = d.tickets[t.config];
+  if (!isStaff(i, t, cfg)) return i.reply({ content: '❌ Seul le staff peut enregistrer une vente.', flags: EPH });
+  const opener = await client.users.fetch(t.userId).catch(() => null);
+  return i.showModal(new ModalBuilder()
+    .setCustomId(`tk_sale_modal:${channelId}`)
+    .setTitle('Vente réalisée')
+    .addComponents(
+      field('montant', 'Montant encaissé (obligatoire)', TextInputStyle.Short, { required: true, max: 20, placeholder: 'Ex : 25' }),
+      field('acheteur', 'Acheteur (mention, ID ou pseudo)', TextInputStyle.Short, { max: 100, value: opener ? opener.username : '', placeholder: 'Laisser vide = le membre du ticket' }),
+      field('produit', 'Produit / service (optionnel)', TextInputStyle.Short, { max: 100, value: (t.reason || '').slice(0, 100), placeholder: 'Ex : Netflix 1 mois' }),
+    ));
+}
+
+// Ferme réellement le ticket. sale = { amount, buyerId, buyerName, product } ou null.
+async function finishClose(i, sale) {
+  const data = getG(i.guildId);
+  const t = data.open[i.channelId];
+  if (!t) {
+    try { await i.reply({ content: '❌ Ce ticket est déjà fermé.', flags: EPH }); } catch { /* rien */ }
+    return;
+  }
+  const cfg = data.tickets[t.config];
+  if (!isStaff(i, t, cfg)) {
+    try { await i.reply({ content: '❌ Seul le staff peut fermer ce ticket.', flags: EPH }); } catch { /* rien */ }
+    return;
+  }
+  delete data.open[i.channelId]; // évite un double clic / double vente
+  save();
+  if (sale) {
+    recordSale(i.guild, { ...sale, by: i.user.id, config: t.config, ticket: i.channel.name });
+  }
+  const ack = { content: '🔒 Fermeture du ticket dans quelques secondes...', embeds: [], components: [] };
+  try {
+    if (i.isFromMessage?.()) await i.update(ack);
+    else if (i.deferred || i.replied) await i.followUp({ ...ack, flags: EPH });
+    else await i.reply({ ...ack, flags: EPH });
+  } catch { /* le message a peut-être déjà été modifié */ }
 
   // Transcript (jusqu'à 500 messages)
   const msgs = [];
@@ -1983,7 +2297,7 @@ async function closeTicket(i) {
   const mkFile = () => new AttachmentBuilder(Buffer.from(text, 'utf8'), { name: `transcript-${i.channel.name}.txt` });
 
   const logEmbed = new EmbedBuilder()
-    .setColor('#ED4245')
+    .setColor(parseColor(data.panelColor, '#ED4245'))
     .setTitle('🔒 Ticket fermé')
     .addFields(
       { name: 'Ticket', value: i.channel.name, inline: true },
@@ -1992,6 +2306,7 @@ async function closeTicket(i) {
       { name: 'Ouvert par', value: `<@${t.userId}>`, inline: true },
       { name: 'Fermé par', value: `<@${i.user.id}>`, inline: true },
       { name: 'Pris en charge par', value: t.claimedBy ? `<@${t.claimedBy}>` : 'Personne', inline: true },
+      ...(sale ? [{ name: 'Vente enregistrée', value: `${fmtMoney(sale.amount, data.sales.currency)}${sale.product ? ` — ${sale.product}` : ''}`, inline: true }] : []),
     )
     .setTimestamp();
 
@@ -2003,9 +2318,34 @@ async function closeTicket(i) {
     opener.send({ content: `Ton ticket **${i.channel.name}** sur **${i.guild.name}** a été fermé. Voici le transcript :`, files: [mkFile()] }).catch(() => {});
   }
 
-  delete data.open[i.channelId];
-  save();
   setTimeout(() => i.channel.delete().catch(console.error), 5000);
+}
+
+async function saleSubmit(m) {
+  const channelId = m.customId.split(':')[1];
+  const d = getG(m.guildId);
+  const t = d.open[channelId];
+  if (!t) return m.reply({ content: '❌ Ce ticket n’existe plus.', flags: EPH });
+  const cfg = d.tickets[t.config];
+  if (!isStaff(m, t, cfg)) return m.reply({ content: '❌ Seul le staff peut enregistrer une vente.', flags: EPH });
+  const raw = m.fields.getTextInputValue('montant').replace(',', '.').replace(/[^\d.]/g, '');
+  const amount = Number(raw);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return m.reply({ content: '❌ Montant invalide : écris un nombre (ex : 25 ou 12.50).', flags: EPH });
+  }
+  const buyerRaw = (m.fields.getTextInputValue('acheteur') || '').trim();
+  const idMatch = /^(?:<@!?)?(\d{15,25})>?$/.exec(buyerRaw);
+  let buyerId = idMatch ? idMatch[1] : (buyerRaw ? null : t.userId);
+  let buyerName = buyerRaw && !buyerId ? buyerRaw.slice(0, 100) : null;
+  if (!buyerId && buyerRaw) { // pseudo du membre qui a ouvert le ticket
+    const opener = await client.users.fetch(t.userId).catch(() => null);
+    if (opener && buyerRaw.toLowerCase() === opener.username.toLowerCase()) {
+      buyerId = opener.id;
+      buyerName = null;
+    }
+  }
+  const product = (m.fields.getTextInputValue('produit') || '').trim().slice(0, 100) || t.reason || null;
+  return finishClose(m, { amount, buyerId, buyerName, product });
 }
 
 /* ------------------------------------------------------------------ */
@@ -2360,6 +2700,7 @@ async function refreshGuild(guild) {
     ['salon commandes', () => syncCommandChannel(guild)],
     ['accès catégories', () => syncCategoryAccess(guild)],
     ['panels tickets', () => refreshPanels(guild)],
+    ['panel des ventes', () => refreshSalesPanel(guild)],
     ['autoroles', () => syncAutoroles(guild)],
     ['giveaways', () => refreshGiveaways(guild)],
     ['classement invitations', () => refreshBoard(guild)],
@@ -2416,9 +2757,12 @@ function roleListHandler(key, title, ownerOnly = false) {
 /* ------------------------------------------------------------------ */
 // level : public = tout le monde · mod = modérateurs · full = accès total · owner = propriétaire (👑)
 const HELP = [
+  { title: '⭐ Avis (vouch)', level: 'public', lines: [
+    '`/vouch` — dans un ticket : noter la transaction sur 5 étoiles + message (publié dans le salon des vouchs)',
+    '`/help` — voir les commandes auxquelles tu as accès',
+  ] },
   { title: '📨 Invitations', level: 'public', lines: [
     "`/invites` — voir ton nombre d'invitations",
-    '`/help` — voir les commandes auxquelles tu as accès',
     '`/message-mp` — envoyer un message privé à **tous** les membres du serveur',
   ] },
   { title: '🛡️ Modération', level: 'mod', lines: [
@@ -2453,10 +2797,14 @@ const HELP = [
     '`/setup-paiement` — installe tout le ticket paiement en une commande (menu MP, catégories, panel)',
     '`/ticket config-creer` · `config-liste` · `config-supprimer`',
     '`/ticket staff-ajouter` · `staff-retirer`',
+    '`/ticket ajouter` · `retirer` — ajouter ou retirer un membre du ticket où tu tapes la commande',
     '`/ticket raison-ajouter` · `raison-modifier` · `raison-retirer` — catégories du menu du panel (emoji perso + catégorie du serveur liée)',
     '`/ticket panel` — envoyer le panel (bannière, menu ou bouton coloré, sans texte possible) dans un salon',
     "`/ticket message` — modifier le message d'ouverture des tickets (par panel ou pour toute la config)",
     '`/ticket bouton` — changer la couleur / le texte du bouton d\'un panel déjà envoyé',
+    '`/ticket couleur` — une seule couleur pour **tous les panels** (ou une configuration)',
+    '`/ticket vouch-salon` · `vouch-activer` · `vouch-desactiver` — salon et activation des avis `/vouch`',
+    '`/ticket ventes-salon` · `ventes-panel` · `ventes-devise` — panel de suivi des ventes, mis à jour à chaque fermeture',
   ] },
   { title: '🗂️ Sous panel', level: 'full', lines: [
     '`/sous-panel creer` · `modifier` · `supprimer` — un 2e menu proposé après le choix d\'une catégorie du panel',
@@ -2506,6 +2854,11 @@ async function registerCommands(guild) {
 /*  Gestionnaires de commandes                                         */
 /* ------------------------------------------------------------------ */
 const handlers = {
+  /* ---------- /vouch ---------- */
+  async vouch(i) {
+    return vouchPanel(i);
+  },
+
   /* ---------- /help ---------- */
   async help(i) {
     const embed = new EmbedBuilder().setColor('#5865F2').setTitle('📖 Tes commandes').setTimestamp();
@@ -3725,7 +4078,7 @@ const handlers = {
       const customDesc = i.options.getString('description');
       const richDesc = customDesc ? (await rich(i.guild, customDesc)).text : null;
       const embed = new EmbedBuilder()
-        .setColor('#57F287')
+        .setColor(parseColor(d.panelColor, '#57F287'))
         .setTitle(i.options.getString('titre') || '🎫 Passer commande')
         .setDescription((richDesc || 'Clique sur le bouton ci-dessous pour passer commande.\n' +
           'Tu recevras un **message privé** pour choisir ton moyen de paiement.').slice(0, 4096))
@@ -3948,6 +4301,102 @@ const handlers = {
   async ticket(i) {
     const sub = i.options.getSubcommand();
     const d = getG(i.guildId);
+
+    /* ----- Ajouter / retirer un membre du ticket actuel ----- */
+    if (sub === 'ajouter' || sub === 'retirer') {
+      const t = d.open[i.channelId];
+      if (!t) return i.reply({ content: '❌ Utilise cette commande **dans un salon de ticket**.', flags: EPH });
+      if (!isStaff(i, t, d.tickets[t.config])) return i.reply({ content: '❌ Réservé au staff du ticket.', flags: EPH });
+      const user = i.options.getUser('membre', true);
+      if (user.bot) return i.reply({ content: '❌ Tu ne peux pas ajouter un bot au ticket.', flags: EPH });
+      if (sub === 'ajouter') {
+        if (user.id === t.userId) return i.reply({ content: '❌ Cette personne a déjà ouvert le ticket.', flags: EPH });
+        await i.channel.permissionOverwrites.edit(user.id, {
+          ViewChannel: true, SendMessages: true, ReadMessageHistory: true, AttachFiles: true, EmbedLinks: true,
+        }, { reason: `Ajouté au ticket par ${i.user.tag}` }).catch((e) => {
+          console.error('[ticket ajouter]', e);
+          throw new Error("Impossible d'ajouter ce membre (permissions du bot).");
+        });
+        await i.reply({ content: `✅ <@${user.id}> a été ajouté au ticket.`, flags: EPH, allowedMentions: { parse: [] } });
+        await i.channel.send({ content: `➕ <@${user.id}> a été ajouté au ticket par <@${i.user.id}>.`, allowedMentions: { parse: [] } }).catch(() => {});
+        return;
+      }
+      if (user.id === client.user.id) return i.reply({ content: '❌ Je ne peux pas me retirer du ticket.', flags: EPH });
+      await i.channel.permissionOverwrites.delete(user.id, `Retiré du ticket par ${i.user.tag}`).catch(console.error);
+      await i.reply({ content: `✅ <@${user.id}> a été retiré du ticket.`, flags: EPH, allowedMentions: { parse: [] } });
+      await i.channel.send({ content: `➖ <@${user.id}> a été retiré du ticket par <@${i.user.id}>.`, allowedMentions: { parse: [] } }).catch(() => {});
+      return;
+    }
+
+    /* ----- Couleur globale des panels ----- */
+    if (sub === 'couleur') {
+      const raw = i.options.getString('couleur', true).trim();
+      if (!/^#?[0-9a-f]{6}$/i.test(raw)) {
+        return i.reply({ content: '❌ Couleur invalide. Exemple : `#5865F2`.', flags: EPH });
+      }
+      const color = '#' + raw.replace('#', '').toUpperCase();
+      const only = i.options.getString('config');
+      if (only) {
+        const cfg = d.tickets[only];
+        if (!cfg) return i.reply({ content: '❌ Configuration introuvable.', flags: EPH });
+        cfg.color = color;
+        save();
+        await i.deferReply({ flags: EPH });
+        await refreshPanels(i.guild, only).catch(console.error);
+        await refreshSalesPanel(i.guild, false).catch(console.error);
+        return i.editReply(`🎨 Couleur **${color}** appliquée à tous les panels de **${only}**.`);
+      }
+      d.panelColor = color;
+      save();
+      await i.deferReply({ flags: EPH });
+      await refreshPanels(i.guild).catch(console.error);
+      await refreshSalesPanel(i.guild, false).catch(console.error);
+      return i.editReply(`🎨 Couleur **${color}** appliquée à **tous les panels** du serveur (tickets, vouch, ventes).`);
+    }
+
+    /* ----- Vouch ----- */
+    if (sub === 'vouch-salon') {
+      const salon = i.options.getChannel('salon', true);
+      d.vouch.channelId = salon.id;
+      save();
+      return i.reply({ content: `⭐ Les vouchs seront envoyés dans <#${salon.id}>.`, flags: EPH });
+    }
+    if (sub === 'vouch-activer') {
+      d.vouch.enabled = true;
+      save();
+      return i.reply({ content: '✅ La commande `/vouch` est activée.', flags: EPH });
+    }
+    if (sub === 'vouch-desactiver') {
+      d.vouch.enabled = false;
+      save();
+      return i.reply({ content: '⛔ La commande `/vouch` est désactivée.', flags: EPH });
+    }
+
+    /* ----- Suivi des ventes ----- */
+    if (sub === 'ventes-salon') {
+      const salon = i.options.getChannel('salon', true);
+      d.sales.channelId = salon.id;
+      d.sales.messageId = null;
+      d.sales.sig = null;
+      save();
+      await i.deferReply({ flags: EPH });
+      await refreshSalesPanel(i.guild, true).catch(console.error);
+      return i.editReply(`📈 Panel de suivi des ventes envoyé dans <#${salon.id}> (il se met à jour à chaque vente).`);
+    }
+    if (sub === 'ventes-panel') {
+      if (!d.sales.channelId) {
+        return i.reply({ content: '❌ Choisis d’abord un salon avec `/ticket ventes-salon`.', flags: EPH });
+      }
+      await i.deferReply({ flags: EPH });
+      const msg = await refreshSalesPanel(i.guild, true).catch(console.error);
+      return i.editReply(msg ? `📈 Panel des ventes mis à jour dans <#${d.sales.channelId}>.` : '❌ Impossible de créer le panel (vérifie mes permissions dans le salon).');
+    }
+    if (sub === 'ventes-devise') {
+      d.sales.currency = i.options.getString('devise', true).trim().slice(0, 8) || '€';
+      save();
+      await refreshSalesPanel(i.guild, false).catch(console.error);
+      return i.reply({ content: `💱 Devise du suivi des ventes : **${d.sales.currency}**.`, flags: EPH });
+    }
 
     if (sub === 'config-creer') {
       const nom = i.options.getString('nom', true).toLowerCase();
@@ -4228,7 +4677,7 @@ const handlers = {
       // @Pseudo / @Rôle / #salon dans la description -> mentions cliquables
       const richDesc = customDesc ? (await rich(i.guild, customDesc)).text : null;
 
-      const embed = new EmbedBuilder().setColor(parseColor(i.options.getString('couleur'), '#ED4245'));
+      const embed = new EmbedBuilder().setColor(parseColor(i.options.getString('couleur'), cfg.color || d.panelColor || '#ED4245'));
       if (!noText) {
         embed
           .setTitle(i.options.getString('titre') || `🎫 Support — ${cfg.name}`)
@@ -4571,6 +5020,10 @@ client.on(Events.InteractionCreate, async (i) => {
       }
       return await handlers[i.commandName]?.(i);
     }
+    if (i.isModalSubmit()) {
+      if (i.customId.startsWith('vouch_modal:')) return await vouchSubmit(i);
+      if (i.customId.startsWith('tk_sale_modal:')) return await saleSubmit(i);
+    }
     if (i.isStringSelectMenu() && i.customId.startsWith('tk_sub:')) return await subChoose(i);
     if (i.isStringSelectMenu() && i.customId.startsWith('tk_open:')) {
       return await openTicket(i, i.customId.split(':')[1], i.values[0]);
@@ -4579,6 +5032,12 @@ client.on(Events.InteractionCreate, async (i) => {
       if (i.customId.startsWith('tk_open:')) return await openTicket(i, i.customId.split(':')[1], null);
       if (i.customId === 'tk_close') return await closeTicket(i);
       if (i.customId === 'tk_claim') return await claimTicket(i);
+      if (i.customId.startsWith('vouch:star:')) return await vouchModal(i, i.customId.split(':')[2]);
+      if (i.customId.startsWith('tk_sale:yes:')) return await saleModal(i, i.customId.split(':')[2]);
+      if (i.customId.startsWith('tk_sale:no:')) return await finishClose(i, null);
+      if (i.customId === 'tk_close_cancel') {
+        return await i.update({ content: '✅ Fermeture annulée.', embeds: [], components: [] });
+      }
       if (i.customId === 'gw_join') return await gwJoin(i);
       if (i.customId.startsWith('gw_leave:')) return await gwLeave(i);
     }
@@ -4597,5 +5056,5 @@ supabase.init(db).catch((e) => console.error('[supabase]', e.message)).finally((
 setInterval(save, 2 * 60_000).unref?.();
 
 // Panel web (dashboard.js + panel.html) — nécessite la variable PANEL_PASSWORD
-require("./dashboard")({ client, commands, handlers, autocomplete, getG, refreshPanels,
+require("./dashboard")({ client, commands, handlers, autocomplete, getG, refreshPanels, refreshSalesPanel,
   CMD_CATEGORIES, ALWAYS_ON, PUBLIC_COMMANDS, OWNER_ONLY, db, save, DB_FILE });
