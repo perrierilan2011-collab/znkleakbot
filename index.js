@@ -2129,8 +2129,8 @@ async function buildOpenMessage(guild, user, cfg, panel, reason, staffRoles, sub
   }
   for (const f of (Array.isArray(m.fields) ? m.fields : []).slice(0, 10)) { // champs personnalisés
     const name = vars(f?.name).slice(0, 256), value = vars(f?.value).slice(0, 1024);
-    // Toujours l'un sous l'autre : le nom au-dessus, la valeur en dessous.
-    if (name && value) embed.addFields({ name, value, inline: false });
+    // inline: true = à côté des autres (3 par ligne) ; false = nom au-dessus, valeur en dessous.
+    if (name && value) embed.addFields({ name, value, inline: !!f.inline });
   }
   const files = [];
   const imgRef = await imageRef(m.image, 'image', files);

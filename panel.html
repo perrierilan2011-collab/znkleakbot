@@ -539,7 +539,7 @@ function pvMessageHtml({ content = '', embed = null, buttons = [], select = null
     if (embed.title) inner += `<div class="pv-e-title" ${embed.editTitle ? `data-edit="${embed.editTitle}" title="Cliquer pour modifier"` : ''}>${pvMd(embed.title)}</div>`;
     if (embed.desc) inner += `<div class="pv-e-desc" ${embed.editDesc ? `data-edit="${embed.editDesc}" title="Cliquer pour modifier"` : ''}>${pvMd(embed.desc)}</div>`;
     if (embed.fields?.length) {
-      const three = embed.fields.some((f) => f.three);
+      const three = embed.three || embed.fields.some((f) => f.three);
       inner += `<div class="pv-fields${three ? ' three' : ''}">` + embed.fields.map((f) =>
         `<div class="pv-field ${f.inline === false ? 'full' : ''}"><b>${esc(f.name)}</b><span>${pvMd(f.value)}</span></div>`).join('') + '</div>';
     }
@@ -603,7 +603,7 @@ function pvOpenSpec() {
   $$('#om_fields .om-field').forEach((row) => {
     const n = row.querySelector('.om-f-name')?.value || '';
     const v = row.querySelector('.om-f-value')?.value || '';
-    if (n && v) fields.push({ name: pvVars(n), value: pvVars(v), inline: false });
+    if (n && v) fields.push({ name: pvVars(n), value: pvVars(v), inline: !!row.querySelector('.om-f-inline')?.checked });
   });
   const buttons = [
     pvButtonHtml((pvVal('#om_claim_e') || '🙋') + ' ' + (pvVal('#om_claim') || 'Prendre en charge'), 'Primary', '#om_claim'),
@@ -618,6 +618,7 @@ function pvOpenSpec() {
       desc: pvVars(pvVal('#om_desc')) || 'Hello @Customer, a member of the staff will respond to you soon.\nExplain your request to us in as much detail as possible.',
       thumb: pvImg('om_thumb'), image: pvImg('om_image'), footer: pvVars(pvVal('#om_footer')),
       fields: [...info, ...fields],
+      three: [...info, ...fields].some((f) => f.inline !== false),
       editTitle: '#om_title', editDesc: '#om_desc', editFooter: '#om_footer',
     },
     buttons,
@@ -1639,22 +1640,28 @@ function omFieldRow(f = {}) {
   return `<div class="item om-field"><div class="grow" style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:end">
     <label class="field"><span>Nom</span><input class="om-f-name" maxlength="256" value="${esc(f.name || '')}" placeholder="Prix"></label>
     <label class="field"><span>Valeur</span><input class="om-f-value" maxlength="1024" value="${esc(f.value || '')}" placeholder="{prix}"></label>
-    <div class="row" style="gap:8px;align-items:center;padding-bottom:8px">
+    <div class="row" style="gap:10px;align-items:center;padding-bottom:8px">
+      <label class="check" title="Afficher ce champ à côté des autres (3 par ligne)"><input type="checkbox" class="om-f-inline" ${f.inline ? 'checked' : ''}> À côté</label>
       <button type="button" class="mini" onclick="this.closest('.om-field').remove()">Retirer</button>
     </div>
   </div></div>`;
+}
+function omFieldsInline(on) {
+  $$('#om_fields .om-f-inline').forEach((c) => { c.checked = !!on; });
+  schedulePreview();
 }
 function omFieldAdd() {
   const box = document.getElementById('om_fields');
   if (!box) return;
   if (box.querySelectorAll('.om-field').length >= 10) return toast('10 champs maximum.', false);
-  box.insertAdjacentHTML('beforeend', omFieldRow());
+  box.insertAdjacentHTML('beforeend', omFieldRow({ inline: true }));
+  schedulePreview();
 }
 function omFieldsRead() {
   return $$('#om_fields .om-field').map((row) => ({
     name: row.querySelector('.om-f-name').value.trim(),
     value: row.querySelector('.om-f-value').value.trim(),
-    inline: false,
+    inline: !!row.querySelector('.om-f-inline')?.checked,
   })).filter((f) => f.name && f.value);
 }
 function tkMessage() {
@@ -1681,9 +1688,13 @@ function tkMessage() {
     </div>
     <label class="field"><span>Pied de page</span><input id="om_footer" maxlength="2048" value="${esc(m.footer || '')}"></label>
     <h3 style="margin-top:18px">Champs personnalisés</h3>
-    <p class="muted" style="margin-bottom:10px">Affichés l’un sous l’autre, sous la description : le nom au-dessus, la valeur en dessous. Le nom et la valeur acceptent les variables ci-dessus.</p>
+    <p class="muted" style="margin-bottom:10px">Coche <b>À côté</b> pour afficher un champ à côté des autres (3 par ligne, comme Discord). Sans la case, le nom est au-dessus et la valeur en dessous, sur toute la largeur. Le nom et la valeur acceptent les variables ci-dessus.</p>
     <div class="list" id="om_fields">${(m.fields || []).map(omFieldRow).join('')}</div>
-    <div class="row" style="margin:10px 0 16px"><button type="button" class="mini" onclick="omFieldAdd()">+ Ajouter un champ</button></div>
+    <div class="row" style="margin:10px 0 16px;gap:8px">
+      <button type="button" class="mini" onclick="omFieldAdd()">+ Ajouter un champ</button>
+      <button type="button" class="mini" onclick="omFieldsInline(true)">Tout à côté</button>
+      <button type="button" class="mini" onclick="omFieldsInline(false)">Tout empilé</button>
+    </div>
     <label class="check"><input type="checkbox" id="om_showinfo" ${(m.showInfo === true || (m.showInfo === undefined && !m.description && !(m.fields || []).length)) ? 'checked' : ''}> Afficher aussi les informations automatiques (Configuration, Catégorie, Sous-panel, Paiement)</label>
     <label class="check"><input type="checkbox" id="om_nodefault" ${m.noDefaultDesc ? 'checked' : ''}> Aucun texte par défaut (retire les 2 lignes « Hello… / Explain… »)</label>
     <label class="check"><input type="checkbox" id="om_ts" ${m.timestamp !== false ? 'checked' : ''}> Afficher l’heure du message</label>
