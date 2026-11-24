@@ -5,7 +5,8 @@ Bot Discord de tickets, ventes, vouchs, invitations et modération, avec un dash
 ## Nouveautés
 
 - **Ajouter / retirer un membre d'un ticket** : `/ticket ajouter` et `/ticket retirer` (dans le ticket).
-- **Vouch vérifié** : `/vouch` dans un ticket → note de 1 à 5 étoiles → message → publication dans un salon dédié avec la photo de profil et un logo configurable.
+- **Vouch vérifié** : `/vouch` dans un ticket → note de 1 à 5 étoiles → message → publication dans un salon dédié. Le message est épuré (photo de profil, titre, note, citation) et tu peux mettre **ce que tu veux en dessous** (Service, Support, Prix…) : une ligne par information, avec des variables. Titre, pied de page et logo configurables depuis le dashboard.
+- **Champs personnalisés des tickets** : dans le message d'ouverture, ajoute autant de champs que tu veux (nom + valeur, 10 maximum) sous la description : prix, service, délai… Les variables `{prix}`, `{paiement}`, `{order}`, `{category}`… sont disponibles.
 - **Traduction automatique** : dans les tickets, chaque message reçu est traduit en français et en anglais, quelle que soit la langue d'origine. Un message français reçoit sa traduction anglaise (🇬🇧), un message anglais sa traduction française (🇫🇷), et un message dans une autre langue reçoit les deux. Les mentions, liens et emojis sont conservés. Activable par configuration ou par panel.
 - **Suivi des ventes** : à la fermeture d'un ticket, le bot demande si la vente a été réalisée. Le staff saisit le montant, l'acheteur et le produit. Un panel dédié affiche le nombre de ventes, l'argent généré, le panier moyen et les dernières ventes.
 - **Couleur globale** : une seule couleur pour tous les panels (tickets, vouchs, ventes), réglable depuis le dashboard ou `/ticket couleur`.

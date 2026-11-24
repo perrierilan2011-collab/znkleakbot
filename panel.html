@@ -854,6 +854,29 @@ function currentOpenMsg(t, sc) {
   }
   return {};
 }
+function omFieldRow(f = {}) {
+  return `<div class="item om-field"><div class="grow" style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:end">
+    <label class="field"><span>Nom</span><input class="om-f-name" maxlength="256" value="${esc(f.name || '')}" placeholder="Prix"></label>
+    <label class="field"><span>Valeur</span><input class="om-f-value" maxlength="1024" value="${esc(f.value || '')}" placeholder="{prix}"></label>
+    <div class="row" style="gap:8px;align-items:center;padding-bottom:8px">
+      <label class="check" style="margin:0"><input type="checkbox" class="om-f-inline" ${f.inline ? 'checked' : ''}> même ligne</label>
+      <button type="button" class="mini" onclick="this.closest('.om-field').remove()">Retirer</button>
+    </div>
+  </div></div>`;
+}
+function omFieldAdd() {
+  const box = document.getElementById('om_fields');
+  if (!box) return;
+  if (box.querySelectorAll('.om-field').length >= 10) return toast('10 champs maximum.', false);
+  box.insertAdjacentHTML('beforeend', omFieldRow());
+}
+function omFieldsRead() {
+  return $$('#om_fields .om-field').map((row) => ({
+    name: row.querySelector('.om-f-name').value.trim(),
+    value: row.querySelector('.om-f-value').value.trim(),
+    inline: row.querySelector('.om-f-inline').checked,
+  })).filter((f) => f.name && f.value);
+}
 function tkMessage() {
   const t = TC();
   const scopes = omScopes(t);
@@ -877,6 +900,20 @@ function tkMessage() {
       <label class="field"><span>Miniature (URL)</span><input id="om_thumb" maxlength="500" value="${esc(m.thumbnail || '')}"></label>
     </div>
     <label class="field"><span>Pied de page</span><input id="om_footer" maxlength="2048" value="${esc(m.footer || '')}"></label>
+    <h3 style="margin-top:18px">Champs personnalisés</h3>
+    <p class="muted" style="margin-bottom:10px">Affichés sous la description, à l’endroit de « Service », « Prix »… Mets ce que tu veux : le nom et la valeur acceptent les variables ci-dessus.</p>
+    <div class="list" id="om_fields">${(m.fields || []).map(omFieldRow).join('')}</div>
+    <div class="row" style="margin:10px 0 16px"><button type="button" class="mini" onclick="omFieldAdd()">+ Ajouter un champ</button></div>
+    <label class="check"><input type="checkbox" id="om_showinfo" ${(m.showInfo === true || (m.showInfo === undefined && !m.description)) ? 'checked' : ''}> Afficher aussi les informations automatiques (Configuration, Catégorie, Sous-panel, Paiement)</label>
+    <label class="check"><input type="checkbox" id="om_ts" ${m.timestamp !== false ? 'checked' : ''}> Afficher l’heure du message</label>
+    <h3 style="margin-top:18px">Noms des informations automatiques</h3>
+    <p class="muted" style="margin-bottom:10px">Renomme librement ces lignes (par exemple <b>Configuration</b> → <b>Service</b>). Les valeurs restent remplies automatiquement. Pour mettre autre chose (prix…), décoche la case ci-dessus et utilise les champs personnalisés.</p>
+    <div class="grid2">
+      <label class="field"><span>Ligne « Configuration »</span><input id="om_l_config" maxlength="256" value="${esc(m.infoLabels?.config || '')}" placeholder="Configuration"></label>
+      <label class="field"><span>Ligne « Catégorie »</span><input id="om_l_category" maxlength="256" value="${esc(m.infoLabels?.category || '')}" placeholder="Category"></label>
+      <label class="field"><span>Ligne « Sous-panel »</span><input id="om_l_sub" maxlength="256" value="${esc(m.infoLabels?.sub || '')}" placeholder="Sub-panel"></label>
+      <label class="field"><span>Ligne « Paiement »</span><input id="om_l_payment" maxlength="256" value="${esc(m.infoLabels?.payment || '')}" placeholder="Payment"></label>
+    </div>
     <h3>Boutons du ticket</h3>
     <div class="grid2">
       <label class="field"><span>Bouton « Prendre en charge »</span><input id="om_claim" maxlength="80" value="${esc(m.claimLabel || '')}" placeholder="Prendre en charge"></label>
@@ -899,6 +936,15 @@ function omRead() {
   };
   const out = {};
   for (const [k, v] of Object.entries(m)) if (String(v).trim()) out[k] = String(v).trim();
+  out.fields = omFieldsRead();
+  if ($('#om_showinfo')) out.showInfo = $('#om_showinfo').checked;
+  if ($('#om_ts')) out.timestamp = $('#om_ts').checked;
+  const infoLabels = {};
+  for (const [k, id] of [['config', '#om_l_config'], ['category', '#om_l_category'], ['sub', '#om_l_sub'], ['payment', '#om_l_payment']]) {
+    const el = $(id);
+    if (el && el.value.trim()) infoLabels[k] = el.value.trim();
+  }
+  if (Object.keys(infoLabels).length) out.infoLabels = infoLabels;
   return out;
 }
 async function omSave() {
@@ -906,8 +952,6 @@ async function omSave() {
   const sc = omScopes(t).find((s) => s.key === S.omScope);
   if (!sc) return;
   const msg = omRead();
-  const cur = currentOpenMsg(t, sc); // conserve les réglages avancés (champs, heure…)
-  for (const k of ['fields', 'showInfo', 'timestamp']) if (cur[k] !== undefined) msg[k] = cur[k];
   try {
     await api('/api/ticket-open-msg', { guildId: S.gid, config: t.name, scope: { type: sc.type, id: sc.id }, msg });
     await afterChange('Message d’ouverture enregistré ✅');
@@ -947,7 +991,13 @@ function pageVouch() {
         <label class="field"><span>Salon des vouchs</span><small>Les avis <span class="code">/vouch</span> y sont publiés.</small><select id="v_channel">${channelOptions(v.channelId, [0, 5], '— aucun salon —')}</select></label>
         <label class="field"><span>Commande /vouch</span><select id="v_enabled"><option value="true" ${v.enabled ? 'selected' : ''}>Activée</option><option value="false" ${!v.enabled ? 'selected' : ''}>Désactivée</option></select></label>
       </div>
-      <label class="field"><span>Logo du vouch (haut à droite)</span><small>URL d'une image affichée en haut à droite de chaque vouch.</small><input id="v_logo" maxlength="500" value="${esc(v.logo || '')}" placeholder="https://…"></label>
+      <div class="grid2">
+        <label class="field"><span>Logo du vouch (haut à droite)</span><small>URL d'une image affichée en haut à droite de chaque vouch.</small><input id="v_logo" maxlength="500" value="${esc(v.logo || '')}" placeholder="https://…"></label>
+        <label class="field"><span>Titre du vouch</span><small>Vide = <span class="code">Customer review</span></small><input id="v_title" maxlength="256" value="${esc(v.title || '')}" placeholder="Customer review"></label>
+      </div>
+      <label class="field"><span>Bloc sous l'avis</span><small>Mets ce que tu veux : une ligne par information (Service, Support, Prix, Produit…). Laisse vide pour un vouch minimal.</small><textarea id="v_details" maxlength="2000" style="min-height:120px" placeholder="**Service** — {category}&#10;**Support** — {claimed}&#10;**Ticket** — {ticket}">${esc(v.details || '')}</textarea></label>
+      <div class="alert info">Variables : <span class="code">{user}</span> <span class="code">{username}</span> <span class="code">{displayname}</span> <span class="code">{server}</span> <span class="code">{category}</span> <span class="code">{config}</span> <span class="code">{ticket}</span> <span class="code">{claimed}</span> <span class="code">{stars}</span> <span class="code">{date}</span></div>
+      <label class="field"><span>Pied de page</span><small>Vide = <span class="code">serveur • Customer feedback • date</span></small><input id="v_footer" maxlength="2048" value="${esc(v.footer || '')}" placeholder="${esc(S.g.name)} • Customer feedback • {date}"></label>
       <button class="btn" onclick="vouchSave()">Enregistrer</button>
     </section>
     <section class="card"><h2>Comment ça marche ?</h2>
@@ -955,7 +1005,7 @@ function pageVouch() {
         <li>Le membre qui a <b>ouvert</b> le ticket (ou qui l’a <b>pris en charge</b>) tape <span class="code">/vouch</span> dans le ticket.</li>
         <li>Un mini-panel s’ouvre : il choisit une note de <b>1 à 5 étoiles</b>.</li>
         <li>Un formulaire s’ouvre : il écrit son message.</li>
-        <li>Le vouch est publié dans le salon dédié avec sa <b>photo de profil</b>, sa note et son message.</li>
+        <li>Le vouch est publié dans le salon dédié avec sa <b>photo de profil</b>, sa note, son message et le <b>bloc que tu as défini</b> juste au-dessus.</li>
       </ol>
     </section>
     <section class="card"><h2>Derniers vouchs</h2><div class="list">${list || '<div class="empty">Aucun vouch pour l’instant.</div>'}</div></section>`;
@@ -964,7 +1014,8 @@ async function vouchSave() {
   try {
     await api('/api/guild-settings', {
       guildId: S.gid, vouchChannelId: $('#v_channel').value, vouchEnabled: $('#v_enabled').value === 'true',
-      vouchLogo: $('#v_logo').value.trim(),
+      vouchLogo: $('#v_logo').value.trim(), vouchTitle: $('#v_title').value,
+      vouchDetails: $('#v_details').value, vouchFooter: $('#v_footer').value,
     });
     await afterChange('Réglages des vouchs enregistrés ✅');
   } catch (e) { toast(e.message, false); }

@@ -127,6 +127,10 @@ function getG(id) {
   g.vouch.channelId ??= null;  // salon dédié où sont envoyés les vouchs
   g.vouch.enabled ??= true;    // activer / désactiver /vouch
   g.vouch.logo ??= null;       // logo (miniature en haut à droite) des messages de vouch
+  g.vouch.title ??= null;      // titre du vouch (null = "Customer review")
+  g.vouch.footer ??= null;     // pied de page du vouch (null = serveur • Customer feedback • date)
+  // Bloc libre affiché sous l'avis : l'admin y met ce qu'il veut (une ligne par information).
+  g.vouch.details ??= '**Service** — {category}\n**Support** — {claimed}\n**Ticket** — {ticket}';
   g.vouches ??= [];            // [{ id, ticketId, ticketName, config, from, claimedBy, stars, message, image, at }]
   g.sales ??= {};              // suivi des ventes
   g.sales.channelId ??= null;  // salon du panel de suivi
@@ -1561,11 +1565,16 @@ async function buildOpenMessage(guild, user, cfg, panel, reason, staffRoles, sub
   if (m.timestamp !== false) embed.setTimestamp();
   if (m.footer) embed.setFooter({ text: vars(m.footer).slice(0, 2048) });
   if (showInfo) {
+    // Noms des lignes modifiables depuis le dashboard (les valeurs restent automatiques).
+    const infoName = (key, def) => {
+      const v = m.infoLabels && typeof m.infoLabels[key] === 'string' ? m.infoLabels[key].trim() : '';
+      return (v || def).slice(0, 256);
+    };
     embed.addFields(
-      { name: 'Configuration', value: cfg.name, inline: true },
-      { name: 'Category', value: reason ? reason.label : 'Not specified', inline: true },
-      ...(subs.length ? [{ name: 'Sub-panel', value: subs.map((c) => c.label).join(' › ').slice(0, 1024), inline: true }] : []),
-      ...(payChoice ? [{ name: 'Payment', value: pay.slice(0, 1024), inline: true }] : []),
+      { name: infoName('config', 'Configuration'), value: cfg.name, inline: true },
+      { name: infoName('category', 'Category'), value: reason ? reason.label : 'Not specified', inline: true },
+      ...(subs.length ? [{ name: infoName('sub', 'Sub-panel'), value: subs.map((c) => c.label).join(' › ').slice(0, 1024), inline: true }] : []),
+      ...(payChoice ? [{ name: infoName('payment', 'Payment'), value: pay.slice(0, 1024), inline: true }] : []),
     );
   }
   for (const f of (Array.isArray(m.fields) ? m.fields : []).slice(0, 10)) { // champs personnalisés
@@ -2209,19 +2218,33 @@ async function vouchSubmit(m) {
     image: null,
     at: Date.now(),
   };
+  // Variables utilisables dans le titre, les détails et le pied de page du vouch.
+  const vars = (txt) => String(txt ?? '')
+    .replaceAll('{user}', `<@${m.user.id}>`)
+    .replaceAll('{username}', m.user.username)
+    .replaceAll('{displayname}', member?.displayName || m.user.username)
+    .replaceAll('{server}', m.guild.name)
+    .replaceAll('{category}', t.reason || t.config || 'Not specified')
+    .replaceAll('{config}', t.config)
+    .replaceAll('{ticket}', `#${vouch.ticketName || 'ticket'}`)
+    .replaceAll('{claimed}', t.claimedBy ? `<@${t.claimedBy}>` : 'Nobody')
+    .replaceAll('{staff}', t.claimedBy ? `<@${t.claimedBy}>` : 'Nobody')
+    .replaceAll('{stars}', `${vouch.stars}/5`)
+    .replaceAll('{date}', `<t:${Math.floor(vouch.at / 1000)}:D>`);
+  const starLine = '★'.repeat(vouch.stars) + '☆'.repeat(5 - vouch.stars);
+  const quote = message.split('\n').map((l) => `> ${l}`).join('\n');
+  const details = d.vouch.details ? vars(d.vouch.details).trim() : '';
   const embed = new EmbedBuilder()
     .setColor(parseColor(d.panelColor, '#F1C40F'))
     .setAuthor({ name: member?.displayName || m.user.username, iconURL: m.user.displayAvatarURL({ size: 256 }) })
-    .setTitle(`${starsText(vouch.stars)} ${vouch.stars}/5`)
-    .setDescription(message)
-    .addFields(
-      { name: 'Ticket', value: `#${vouch.ticketName || 'ticket'}`, inline: true },
-      { name: 'Category', value: (t.reason || t.config || '—').slice(0, 1024), inline: true },
-      { name: 'Claimed by', value: t.claimedBy ? `<@${t.claimedBy}>` : 'Nobody', inline: true },
-    )
-    .setTimestamp(vouch.at);
+    .setTitle((d.vouch.title ? vars(d.vouch.title) : 'Customer review').slice(0, 256))
+    .setDescription((`${starLine} · ${vouch.stars} / 5\n\n${quote}` + (details ? `\n\n${details}` : '')).slice(0, 4096))
+    .setFooter({
+      text: (d.vouch.footer
+        ? vars(d.vouch.footer)
+        : `${m.guild.name} • Customer feedback • <t:${Math.floor(vouch.at / 1000)}:D>`).slice(0, 2048),
+    });
   if (isUrl(d.vouch.logo)) embed.setThumbnail(d.vouch.logo.trim());
-  embed.setFooter({ text: `Vouch verified · ${m.guild.name}` });
 
   let sent = null;
   try {
@@ -4645,7 +4668,7 @@ const handlers = {
         image: image && isUrl(image) ? image : null,
         color: color ? parseColor(color) : null,
       };
-      const EXTRA = ['claimLabel', 'closeLabel', 'claimEmoji', 'closeEmoji', 'footer', 'thumbnail', 'fields', 'showInfo', 'timestamp'];
+      const EXTRA = ['claimLabel', 'closeLabel', 'claimEmoji', 'closeEmoji', 'footer', 'thumbnail', 'fields', 'showInfo', 'timestamp', 'infoLabels'];
       const empty = Object.values(data).every((v) => !v) && !EXTRA.some((k) => cur[k] !== undefined && cur[k] !== null && cur[k] !== '');
       for (const k of EXTRA) if (cur[k] !== undefined && cur[k] !== null) data[k] = cur[k]; // on garde boutons, pied de page, champs... réglés depuis le panel web
       if (panel) panel.openMsg = empty ? undefined : data;

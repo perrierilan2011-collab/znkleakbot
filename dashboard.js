@@ -138,12 +138,20 @@ module.exports = function startDashboard(ctx) {
   const urlOk = (v) => { const t = String(v ?? '').trim(); return /^https?:\/\/\S+$/i.test(t) ? t.slice(0, 500) : undefined; };
   const colorOk = (v) => { const t = String(v ?? '').trim(); return /^#?[0-9a-f]{6}$/i.test(t) ? '#' + t.replace('#', '') : undefined; };
   const cleanOpenMsg = (m) => {
+    const infoLabels = {};
+    if (m.infoLabels && typeof m.infoLabels === 'object') {
+      for (const k of ['config', 'category', 'sub', 'payment']) {
+        const v = txt(m.infoLabels[k], 256);
+        if (v) infoLabels[k] = v;
+      }
+    }
     const out = {
       content: txt(m.content, 1000), title: txt(m.title, 256), description: txt(m.description, 4000),
       image: urlOk(m.image), thumbnail: urlOk(m.thumbnail), color: colorOk(m.color), footer: txt(m.footer, 2048),
       claimLabel: txt(m.claimLabel, 80), closeLabel: txt(m.closeLabel, 80), claimEmoji: txt(m.claimEmoji, 64), closeEmoji: txt(m.closeEmoji, 64),
       showInfo: typeof m.showInfo === 'boolean' ? m.showInfo : undefined,
       timestamp: m.timestamp === false ? false : undefined,
+      infoLabels: Object.keys(infoLabels).length ? infoLabels : undefined,
       fields: (Array.isArray(m.fields) ? m.fields : []).slice(0, 10)
         .map((f) => ({ name: txt(f?.name, 256), value: txt(f?.value, 1024), inline: !!f?.inline })).filter((f) => f.name && f.value),
     };
@@ -191,6 +199,8 @@ module.exports = function startDashboard(ctx) {
           channelId: d.vouch?.channelId || null, enabled: d.vouch?.enabled !== false, count: (d.vouches || []).length,
           average: (d.vouches || []).length ? (d.vouches.reduce((n, v) => n + (v.stars || 0), 0) / d.vouches.length) : 0,
           logo: d.vouch?.logo || null,
+          title: d.vouch?.title || null, footer: d.vouch?.footer || null,
+          details: d.vouch?.details || '',
         },
         vouches: (d.vouches || []).slice(-12).reverse().map((v) => ({
           id: v.id, from: v.from, stars: v.stars, message: v.message, image: v.image || null,
@@ -297,6 +307,9 @@ module.exports = function startDashboard(ctx) {
         recolor = true; // le logo est appliqué aux panels existants
       }
       if ('vouchLogo' in b) d.vouch.logo = urlOk(b.vouchLogo) || null;
+      if ('vouchTitle' in b) d.vouch.title = txt(b.vouchTitle, 256) || null;
+      if ('vouchFooter' in b) d.vouch.footer = txt(b.vouchFooter, 2048) || null;
+      if ('vouchDetails' in b) d.vouch.details = String(b.vouchDetails ?? '').replace(/\r/g, '').trim().slice(0, 2000);
       if ('vouchChannelId' in b) d.vouch.channelId = b.vouchChannelId && guild.channels.cache.has(b.vouchChannelId) ? b.vouchChannelId : null;
       if ('vouchEnabled' in b) d.vouch.enabled = b.vouchEnabled === true || b.vouchEnabled === 'true' || b.vouchEnabled === 1;
       if ('salesCurrency' in b) d.sales.currency = txt(b.salesCurrency, 8) || '€';
