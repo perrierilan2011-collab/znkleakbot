@@ -28,7 +28,7 @@ const MODALS = {
 module.exports = function startDashboard(ctx) {
   const { client, commands, handlers, autocomplete, getG, refreshPanels, refreshSalesPanel,
     buildCatalogPayload, buildSinglePanel, buildMultiPanel, multiPanelSig, rich, syncCommandChannel,
-    sendRestockAnnouncement,
+    sendRestockAnnouncement, buildRoleClaimPanel, publishRoleClaimPanel,
     backupMembers, restoreMembers,
     CMD_CATEGORIES, ALWAYS_ON, PUBLIC_COMMANDS, OWNER_ONLY, db, save, DB_FILE } = ctx;
   const PASS = process.env.PANEL_PASSWORD;
@@ -260,6 +260,15 @@ module.exports = function startDashboard(ctx) {
         openTickets: Object.keys(d.open || {}).length,
         announce: d.announce || {},
         restock: d.restock || {},
+        claim: {
+          channelId: d.claim?.channelId || null, messageId: d.claim?.messageId || null,
+          title: d.claim?.title || '', description: d.claim?.description || '',
+          footer: d.claim?.footer || '', color: d.claim?.color || null,
+          image: d.claim?.image || null, thumb: d.claim?.thumb || null,
+          showLogo: d.claim?.showLogo !== false, btnStyle: d.claim?.btnStyle || 'Primary',
+          mode: d.claim?.mode === 'add' ? 'add' : 'toggle',
+          roles: (d.claim?.roles || []).map((r) => ({ id: r.id, roleId: r.roleId, label: r.label, emoji: r.emoji || null, style: r.style || null, text: r.text || '' })),
+        },
         memberBackup: d.memberBackup ? { at: d.memberBackup.at, count: (d.memberBackup.members || []).length, guildName: d.memberBackup.guildName || null } : null,
         shopPosts: (d.shopPosts || []).slice(-8).reverse().map((p) => ({
           ...p,
@@ -279,8 +288,9 @@ module.exports = function startDashboard(ctx) {
           dm: !!t.dm, openMsg: t.openMsg || null, openMsgId: t.openMsgId || null,
           color: t.color || null, placeholder: t.placeholder || null, logo: t.logo || null, translate: !!t.translate,
           openPresets: (t.openPresets || []).map((p) => ({ id: p.id, name: p.name, openMsg: p.openMsg || null })),
+          stats: t.stats || {},
           panels: (t.panels || []).map((p) => ({ channelId: p.channelId, messageId: p.messageId, button: !!p.button, multi: !!p.multi, showLogo: p.showLogo !== false, statsButton: !!p.statsButton, btnLabel: p.btnLabel || null, btnStyle: p.btnStyle || null, openMsg: p.openMsg || null, openMsgId: p.openMsgId || null, translate: !!p.translate, thumb: light(p.thumb), image: light(p.image), hasThumb: !!p.thumb, hasImage: !!p.image })),
-          reasons: (t.reasons || []).map((r) => ({ id: r.id, label: r.label, emoji: r.emoji, description: r.description, panelText: r.panelText || '', price: r.price || '', nameTemplate: r.nameTemplate || null, categoryId: r.categoryId, staffRoleId: r.staffRoleId, staffRoles: Array.isArray(r.staffRoles) ? r.staffRoles : (r.staffRoleId ? [r.staffRoleId] : []), staffMode: r.staffMode || null, openMsg: r.openMsg || null, openMsgId: r.openMsgId || null })),
+          reasons: (t.reasons || []).map((r) => ({ id: r.id, label: r.label, btnLabel: r.btnLabel || null, emoji: r.emoji, description: r.description, panelText: r.panelText || '', price: r.price || '', nameTemplate: r.nameTemplate || null, categoryId: r.categoryId, staffRoleId: r.staffRoleId, staffRoles: Array.isArray(r.staffRoles) ? r.staffRoles : (r.staffRoleId ? [r.staffRoleId] : []), staffMode: r.staffMode || null, openMsg: r.openMsg || null, openMsgId: r.openMsgId || null })),
           dmChoices: (t.dmChoices || []).map((r) => ({ id: r.id, label: r.label, emoji: r.emoji, openMsg: r.openMsg || null, openMsgId: r.openMsgId || null })),
           subPanels: t.subPanels || [], subLinks: t.subLinks || {}, defaultSub: t.defaultSubPanelId || null,
         })),
@@ -559,6 +569,7 @@ module.exports = function startDashboard(ctx) {
           id, label,
           description: txt(b.description, 100) || '',
           panelText: txt(b.panelText, 1000) || '',
+          btnLabel: txt(b.btnLabel, 80) || null,
           price: txt(b.price, 100) || '',
           nameTemplate: txt(b.nameTemplate, 100) || null,
           emoji: txt(b.emoji, 64) || null,
@@ -583,6 +594,7 @@ module.exports = function startDashboard(ctx) {
           }
           if ('description' in b) r.description = txt(b.description, 100) || '';
           if ('panelText' in b) r.panelText = txt(b.panelText, 1000) || '';
+          if ('btnLabel' in b) r.btnLabel = txt(b.btnLabel, 80) || null;
           if ('price' in b) r.price = txt(b.price, 100) || '';
           if ('nameTemplate' in b) r.nameTemplate = txt(b.nameTemplate, 100) || null;
           if ('emoji' in b) r.emoji = txt(b.emoji, 64) || null;
@@ -599,6 +611,39 @@ module.exports = function startDashboard(ctx) {
       }
       save();
       await refreshPanels(guild, cfg.name).catch(console.error);
+      return { ok: true };
+    },
+
+    // ---------- Panel « Stats » (bouton des panels de ticket) ----------
+    'POST /api/ticket-stats': async (_r, _q, b) => {
+      const cfg = guildCfg(b.guildId, b.config);
+      const guild = client.guilds.cache.get(b.guildId);
+      cfg.stats ??= {};
+      cfg.stats.labels ??= {};
+      const s = cfg.stats;
+      const f = b.fields || {};
+      const str = (v, max) => txt(v, max) || '';
+      if ('btnLabel' in f) s.btnLabel = str(f.btnLabel, 80);
+      if ('btnEmoji' in f) s.btnEmoji = String(f.btnEmoji ?? '').trim().slice(0, 64);
+      if ('btnStyle' in f) s.btnStyle = ['Primary', 'Secondary', 'Success', 'Danger'].includes(f.btnStyle) ? f.btnStyle : 'Secondary';
+      if ('title' in f) s.title = str(f.title, 256);
+      if ('description' in f) s.description = str(f.description, 4000);
+      if ('color' in f) s.color = colorOk(f.color) || null;
+      if ('image' in f) s.image = imgOk(f.image) || null;
+      if ('thumb' in f) s.thumb = imgOk(f.thumb) || null;
+      if ('footer' in f) s.footer = str(f.footer, 2048);
+      if ('sectionText' in f) s.sectionText = str(f.sectionText, 2000);
+      if ('extra' in f) s.extra = str(f.extra, 4000);
+      for (const k of ['showOpened', 'showOpen', 'showVouches', 'showRating', 'timestamp']) {
+        if (k in f) s[k] = !!f[k];
+      }
+      if (f.labels && typeof f.labels === 'object') {
+        for (const k of ['opened', 'open', 'vouches', 'rating']) {
+          if (k in f.labels) s.labels[k] = str(f.labels[k], 256);
+        }
+      }
+      save();
+      if (guild) await refreshPanels(guild, cfg.name).catch(console.error);
       return { ok: true };
     },
 
@@ -1028,6 +1073,106 @@ module.exports = function startDashboard(ctx) {
         config,
       });
       return { ok: true };
+    },
+    // ---------- Panel « claim rôle » ----------
+    'POST /api/claim': async (_r, _q, b) => {
+      const d = getG(b.guildId);
+      const guild = client.guilds.cache.get(b.guildId);
+      if (!guild) throw new Error('Serveur introuvable.');
+      d.claim ??= {};
+      d.claim.roles ??= [];
+      const c = d.claim;
+      const channelOk = (id) => {
+        const ch = id && guild.channels.cache.get(id);
+        return ch && [0, 5].includes(ch.type) ? id : null;
+      };
+      const saveFields = (f) => {
+        if ('channelId' in f) c.channelId = channelOk(f.channelId);
+        if ('title' in f) c.title = txt(f.title, 256) || '';
+        if ('description' in f) c.description = txt(f.description, 4000) || '';
+        if ('footer' in f) c.footer = txt(f.footer, 2048) || '';
+        if ('color' in f) c.color = colorOk(f.color) || null;
+        if ('image' in f) c.image = imgOk(f.image) || null;
+        if ('thumb' in f) c.thumb = imgOk(f.thumb) || null;
+        if ('showLogo' in f) c.showLogo = !!f.showLogo;
+        if ('btnStyle' in f) c.btnStyle = ['Primary', 'Secondary', 'Success', 'Danger'].includes(f.btnStyle) ? f.btnStyle : 'Primary';
+        if ('mode' in f) c.mode = f.mode === 'add' ? 'add' : 'toggle';
+      };
+      const refresh = async () => {
+        if (!c.messageId) return null;
+        try {
+          await publishRoleClaimPanel(guild, { create: false });
+          return null;
+        } catch (e) {
+          return e.message;
+        }
+      };
+
+      if (b.action === 'panel') {
+        saveFields(b.fields || {});
+        save();
+        const warning = await refresh();
+        return { ok: true, warning };
+      }
+      if (b.action === 'publish') {
+        saveFields(b.fields || {});
+        if (!c.channelId) throw new Error('Choisis un salon pour le panel de rôles.');
+        if (!c.roles.length) throw new Error('Ajoute au moins un rôle avant d’envoyer le panel.');
+        save();
+        const r = await publishRoleClaimPanel(guild, { create: true });
+        save();
+        return r;
+      }
+      if (b.action === 'delete') {
+        const where = c.messageChannelId || c.channelId;
+        if (where && c.messageId) {
+          try {
+            const ch = guild.channels.cache.get(where) || await guild.channels.fetch(where);
+            const msg = ch?.messages && await ch.messages.fetch(c.messageId).catch(() => null);
+            if (msg) await msg.delete().catch(console.error);
+          } catch { /* message déjà introuvable */ }
+        }
+        c.messageId = null;
+        c.messageChannelId = null;
+        save();
+        return { ok: true };
+      }
+
+      if (b.action === 'role-add' || b.action === 'role-update') {
+        const role = b.roleId && guild.roles.cache.get(b.roleId);
+        if (!role || role.id === guild.id) throw new Error('Rôle introuvable.');
+        if (role.managed) throw new Error('Ce rôle est géré par une intégration.');
+        const label = txt(b.label, 80) || role.name;
+        const data = {
+          roleId: role.id,
+          label,
+          emoji: txt(b.emoji, 64) || null,
+          style: ['Primary', 'Secondary', 'Success', 'Danger'].includes(b.style) ? b.style : 'Primary',
+          text: txt(b.text, 1000) || '',
+        };
+        if (b.action === 'role-add') {
+          if (c.roles.length >= 25) throw new Error('25 rôles maximum par panel.');
+          if (c.roles.some((r) => r.roleId === role.id)) throw new Error('Ce rôle est déjà dans le panel.');
+          c.roles.push({ id: crypto.randomUUID().slice(0, 8), ...data });
+        } else {
+          const entry = c.roles.find((r) => r.id === b.id);
+          if (!entry) throw new Error('Entrée de rôle introuvable.');
+          if (c.roles.some((r) => r !== entry && r.roleId === role.id)) throw new Error('Ce rôle est déjà dans le panel.');
+          Object.assign(entry, data);
+        }
+      } else if (b.action === 'role-remove') {
+        c.roles = c.roles.filter((r) => r.id !== b.id);
+      } else if (b.action === 'role-move') {
+        const n = c.roles.findIndex((r) => r.id === b.id);
+        if (n < 0) throw new Error('Entrée de rôle introuvable.');
+        const to = n + (b.dir === 'up' ? -1 : 1);
+        if (to < 0 || to >= c.roles.length) return { ok: true };
+        [c.roles[n], c.roles[to]] = [c.roles[to], c.roles[n]];
+      } else throw new Error('Action inconnue');
+
+      save();
+      const warning = await refresh();
+      return { ok: true, warning };
     },
     // Modèles de message d'ouverture : créer / renommer / supprimer
     'POST /api/open-preset': async (_r, _q, b) => {

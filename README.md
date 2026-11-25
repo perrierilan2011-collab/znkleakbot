@@ -7,7 +7,8 @@ Discord bot for tickets, sales, vouches, invites and moderation, with a web dash
 - **Add / remove a member from a ticket**: `/add` and `/remove` (or `/ticket ajouter` and `/ticket retirer`) inside the ticket, with the member mention.
 - **Vouch button (no slash command)**: enable it per ticket configuration. The ticket opening message then shows a **⭐ Vouch** button. Clicking it opens a 1–5 star picker, then a form for the message. The review is published in a dedicated channel.
 - **Vouch moderation**: in the vouch channel, staff can open the **ticket logs** and delete any vouch that is not legit. Deleting a vouch also removes its Discord message.
-- **Ticket stats button**: add a **📊 Stats** button to any ticket panel. It shows tickets opened, currently open tickets, number of vouches and the average rating.
+- **Ticket stats button**: add a **📊 Stats** button to any ticket panel. The stats panel is fully editable in **Tickets → Stats**: button text/emoji/color, title, description, color, image, logo, footer, field names and visibility, plus free `Name | Value` fields with variables.
+- **Role claim panel**: a **Roles** tab lets you build a fully customizable panel (title, description, image, logo, color, footer, one button per role with its own text, emoji and color) and send it to a dedicated channel. Members click to get the role; clicking again removes it (optional). The message stays in sync when you edit a role.
 - **Vouch-gated closing**: a customer cannot close their ticket without leaving a vouch. They can instead click **Ask a staff member**, which mentions the ticket role; staff can close without a vouch.
 - **Multi-button panel**: a banner, a text and **one button per category** (7 to 9 depending on the banner, Discord limit). Each button opens its category and, if a sub-panel is linked, the first menu of the flow. Rendered with the recent Discord components (button on the right of each text) and automatic fallback to embed + buttons on older discord.js versions.
 - **Custom ticket fields**: in the opening message, add as many fields as you want (name + value, 10 maximum) under the description: price, service, delay… Check **Side by side** on a field to display it next to the others (3 per row, like Discord); unchecked, the name is above the value on the full width. **All side by side** / **All stacked** buttons switch every field at once. Variables `{prix}`, `{paiement}`, `{order}`, `{category}`… are available. Fields automatically replace the two default text lines, and a checkbox removes those lines even without fields.
@@ -18,7 +19,7 @@ Discord bot for tickets, sales, vouches, invites and moderation, with a web dash
 - **Reusable panels**: in **Tickets → Panels**, **📋 Duplicate** copies an already-sent panel into the form so you can change a few things and send a new message, without touching the original.
 - **Member backup / restore**: save every member (name + roles). If the server is banned or recreated, the bot creates a permanent invite and DMs every saved member; roles are restored by name when they join.
 - **Giveaway / sanction panels**: in **Announcements**, choose the **@ of anyone** shown as the giveaway creator (“Organized by”) or as the moderator (“banned by”). Type `@pseudo`, `<@ID>` or the raw ID; the bot turns it into a real mention. The “Organized by”, ban and mute texts are customizable with variables. Empty = the person who ran the command / the default text.
-- **Simplified dashboard**: sections for Home, Tickets, Vouches, Sales, Products, Restock, Images, Admin, Announcements, Appearance, Invites, Commands, Backup.
+- **Simplified dashboard**: sections for Home, Tickets, Roles, Vouches, Sales, Products, Restock, Images, Admin, Announcements, Appearance, Invites, Commands, Backup.
 - **Complete Supabase backup**: `supabase.sql` contains the main table, the history and views to read invites, panels, vouches and sales.
 
 ## Environment variables
@@ -133,7 +134,7 @@ In **Tickets → Settings**:
 
 Everything is configured from the dashboard, **Tickets** tab:
 
-- **Categories**: each category has a name, an emoji, a short description and a **panel text** (shown to the left of the button in a multi-button panel). Each category also has a **Next sub-panel** field: when a member clicks that category, the linked sub-panel opens so they can choose an offer. `Default` uses the default sub-panel, `None` opens the ticket directly. Use the **↑ / ↓** buttons to reorder the categories: this is the order shown in the Discord menu and buttons, and already-sent panels update automatically.
+- **Categories**: each category has a name, an emoji, a short description, a **panel text** (shown to the left of the button in a multi-button panel) and a **button text** (the label displayed on the button; empty = the category name). Each category also has a **Next sub-panel** field: when a member clicks that category, the linked sub-panel opens so they can choose an offer. `Default` uses the default sub-panel, `None` opens the ticket directly. Use the **↑ / ↓** buttons to reorder the categories: this is the order shown in the Discord menu and buttons, and already-sent panels update automatically.
 - **Sub-panels**: a sub-panel is a list of choices; each choice can lead to another sub-panel (`Next`) or open the ticket. The flow can chain as many sub-panels as needed (category → sub-panel → choice → sub-panel → …), and the ticket is only created at the end. Choices also have **↑ / ↓** buttons to change their order in the menu.
 - **Import a list of choices**: in **Tickets → Sub-panels**, select a sub-panel and use **Import a list of choices**. One item per line, format `Name : price` (or `Name | price`). The price is written into the choice **description**, which is also what `{prix}` / `[prix]` uses in the ticket opening message and ticket name.
 - **Price field on a choice**: each choice also has a **Price** field and a **→ description** button. If the description is empty when you save, the price is used as the description.
@@ -143,13 +144,35 @@ Everything is configured from the dashboard, **Tickets** tab:
   - **Several buttons**: a banner + one button per category. Clicking a button opens the category and chains the linked sub-panels (the ticket is only created at the end of the flow).
   - **Dropdown**: a menu listing the categories.
 - Already-sent panels update automatically when you change categories, color or logo.
-- **📊 Stats button**: check the option to add a stats button showing tickets, vouches and the average rating.
+- **📊 Stats button**: check the option to add a stats button. Its text, emoji, color and the whole stats message are configured in the **Tickets → Stats** tab (see below).
 - In the **Sent panels** list:
   - **✏️ Edit** reloads the panel into the form; change the title, description, image, logo, color, footer or button, then click **Update this panel**. The existing Discord message is edited directly (no duplicate).
   - **📋 Duplicate** copies the panel into the form as a **new** panel: change a few things and click **Send the panel** to publish a new message. The original stays untouched.
   - **Delete** removes the panel (and optionally the Discord message).
 
-### Ticket name and price
+### Ticket stats panel
+
+The **📊 Stats** button shown on a ticket panel can be fully customized in **Tickets → Stats**:
+
+- **Button**: text, emoji and color, plus the text displayed to the left of the button in a multi-button panel.
+- **Message**: title, description, color, image, logo, footer and timestamp.
+- **Fields**: show/hide “Tickets opened”, “Tickets currently open”, “Vouches” and “Average rating”, and rename each field.
+- **Free fields**: one `Name | Value` per line (15 maximum).
+
+Variables available in the title, description, field names/values and footer: `{tickets}`, `{open}`, `{vouches}`, `{rating}`, `{average}`, `{config}` and `{server}`. Defaults look like `📊 Stats — {config}` with a short live description. Already-sent panels are updated automatically when the button text changes.
+
+### Role claim panel
+
+The **Roles** tab configures a self-service role panel:
+
+- **Channel**: the dedicated channel where the panel is posted.
+- **Message**: title, description, image, logo, color, footer and default button color. Variables: `{server}` and `{count}` (number of roles).
+- **Behavior**: clicking a button gives the role; clicking again removes it, or the panel can be set to only give the role.
+- **Buttons**: one per role (25 maximum), with a custom button text, emoji and color, plus a custom text displayed next to the button in the panel. Drag order with **↑ / ↓**.
+
+Click **Send the panel** to post it, or **Update the panel** to edit the existing message in place. Changing a role automatically refreshes the sent panel. The bot refuses a role above its own highest role or managed by an integration.
+
+
 
 - **Ticket channel name**: in **Tickets → Settings**, the **Ticket channel name** field defines the name given at opening. Available variables: `{user}`, `{username}`, `{displayname}`, `{category}`, `{sub}`, `{config}`, `{number}` and **`[prix]`**. Empty = “❌-category” (historical behavior). Example: `ticket-{username}` or `[prix]-{category}`.
 - **Price per category**: each category has a **Price** field. The **`[prix]`** (or `{prix}`) variable is replaced by this price in the description, the ticket name and the opening message.
@@ -191,6 +214,8 @@ Discord does not allow a bot to force-add a member: the bot can only send an inv
 On the right side of the dashboard, the **Live preview** reproduces the exact Discord message that will be sent:
 
 - **Tickets → Panels**: embed, image, logo, footer, buttons, dropdown, stats button.
+- **Tickets → Stats**: the full stats embed with its fields, image, logo and footer.
+- **Roles**: the role claim panel with its image, logo and one button per role.
 - **Tickets → Opening message**: text, embed, custom fields, claim/close buttons and the Vouch button when enabled.
 - **Products / Restock**: title, description or variant table, image, logo, footer and link buttons.
 - **Vouches**: review embed and the staff buttons.

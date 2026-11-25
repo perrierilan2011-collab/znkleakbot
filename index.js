@@ -116,6 +116,14 @@ function getG(id) {
   g.restock ??= {};
   g.restock.channelId ??= null;
   g.restock.auto ??= {};
+  // Panel « claim rôle » : le membre clique sur un bouton pour obtenir (ou retirer) un rôle.
+  // { channelId, messageId, title, description, color, image, thumb, footer, showLogo, btnStyle, mode, roles[] }
+  g.claim ??= {};
+  g.claim.roles ??= [];
+  g.claim.mode ??= 'toggle';
+  g.claim.showLogo ??= true;
+  g.claim.btnStyle ??= 'Primary';
+  g.claim.messageChannelId ??= null;
   g.fullRoles ??= [];       // rôles qui ont accès à TOUTES les commandes
   g.history ??= {};         // userId -> [{ type, by, reason, duration, at }]
   g.commandChannelId ??= null; // salon privé où utiliser les commandes
@@ -187,6 +195,8 @@ function getG(id) {
       r.nameTemplate ??= null; // modèle de nom propre à cette catégorie
     }
     c.translate ??= true;   // live translation (any language → French + English) inside this configuration's tickets
+    c.stats ??= {};         // panel « Stats » : { btnLabel, btnEmoji, btnStyle, title, description, color, image, thumb, footer, labels, showX, extra }
+    c.stats.labels ??= {};
     if (!c.dmMigrated) {    // une seule fois : reprise de l'ancien système de MP
       c.dmMigrated = true;
       if (c.dm && !c.dmChoices.length) c.dmChoices = c.reasons.map((r) => ({ ...r }));
@@ -1872,15 +1882,39 @@ const chunkList = (list, n = MENU_CHUNK) => {
   return out;
 };
 
+// Valeurs disponibles dans le panel Stats : {tickets} {open} {vouches} {rating} {average} {server} {config}
+function statsVars(text, cfg, guild, values = {}) {
+  const all = {
+    config: cfg?.name || '',
+    server: guild?.name || '',
+    tickets: values.tickets ?? cfg?.counter ?? 0,
+    open: values.open ?? 0,
+    vouches: values.vouches ?? 0,
+    rating: values.rating ?? '—',
+    average: values.average ?? '—',
+  };
+  let out = String(text ?? '');
+  for (const [k, v] of Object.entries(all)) out = out.replaceAll(`{${k}}`, String(v));
+  return out;
+}
+
+// Texte à gauche du bouton Stats dans un panel multi-boutons (V2).
+function statsSectionText(cfg, guild) {
+  const s = cfg.stats || {};
+  const t = 'sectionText' in s ? (s.sectionText || '') : '**Server stats** — tickets, vouches and average rating';
+  return statsVars(t, cfg, guild).slice(0, 2000);
+}
+
 // Bouton « Stats » ajouté aux panels de ticket (nombre de tickets, vouchs, note moyenne).
 function statsRow(cfg) {
-  return new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`tk_stats:${cfg.name}`)
-      .setLabel('Stats')
-      .setEmoji('📊')
-      .setStyle(ButtonStyle.Secondary),
-  );
+  const s = cfg.stats || {};
+  const b = new ButtonBuilder()
+    .setCustomId(`tk_stats:${cfg.name}`)
+    .setLabel(String(s.btnLabel || 'Stats').slice(0, 80))
+    .setStyle(btnStyle(s.btnStyle || 'Secondary'));
+  const e = parseEmoji(s.btnEmoji === undefined ? '📊' : s.btnEmoji);
+  if (e) b.setEmoji(e);
+  return new ActionRowBuilder().addComponents(b);
 }
 
 // Returns the component rows of a panel: a button, or one/more select menus with the categories.
@@ -1943,7 +1977,7 @@ function reasonSectionText(r) {
 function reasonButton(cfg, r, style) {
   const b = new ButtonBuilder()
     .setCustomId(`tk_open:${cfg.name}:${r.id}`)
-    .setLabel(String(r.label || 'Open').slice(0, 80))
+    .setLabel(String(r.btnLabel || r.label || 'Open').slice(0, 80))
     .setStyle(btnStyle(style));
   const e = parseEmoji(r.emoji);
   if (e) b.setEmoji(e);
@@ -1991,11 +2025,16 @@ async function buildMultiPanel(guild, cfg, p, { image = null, files = null } = {
     if (p.footer) container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# ${String(p.footer).slice(0, 2000)}`));
     if (p.statsButton) {
       container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
-      container.addSectionComponents(
-        new SectionBuilder()
-          .addTextDisplayComponents(new TextDisplayBuilder().setContent('**Server stats** — tickets, vouches and average rating'))
-          .setButtonAccessory(statsRow(cfg).components[0]),
-      );
+      const stText = statsSectionText(cfg, guild);
+      if (stText) {
+        container.addSectionComponents(
+          new SectionBuilder()
+            .addTextDisplayComponents(new TextDisplayBuilder().setContent(stText))
+            .setButtonAccessory(statsRow(cfg).components[0]),
+        );
+      } else {
+        container.addActionRowComponents(new ActionRowBuilder().addComponents(statsRow(cfg).components[0]));
+      }
     }
     container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
     const payload = { components: [container], flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: [] } };
@@ -2057,9 +2096,184 @@ function multiPanelSig(guild, cfg, p) {
     color: parseColor(p.color || cfg.color || d.panelColor, '#ED4245'),
     title: p.title || '', desc,
     image: srcHash(p.image), logo: srcHash(logo), showLogo: p.showLogo !== false, style: p.btnStyle || 'Primary',
-    noText: !!p.noText, footer: p.footer || null, stats: !!p.statsButton,
-    reasons: (cfg.reasons || []).slice(0, multiLimit(p, imageUrl, logo ? 'x' : null, desc)).map((r) => [r.id, r.label, r.description || '', r.panelText || '', r.emoji || '']),
+    noText: !!p.noText, footer: p.footer || null,
+    stats: p.statsButton ? [statsRow(cfg).components[0].toJSON(), statsSectionText(cfg, guild)] : null,
+    reasons: (cfg.reasons || []).slice(0, multiLimit(p, imageUrl, logo ? 'x' : null, desc)).map((r) => [r.id, r.label, r.btnLabel || '', r.description || '', r.panelText || '', r.emoji || '']),
   });
+}
+
+/* ------------------------------------------------------------------ */
+/*  Panel « claim rôle » : un bouton par rôle                          */
+/* ------------------------------------------------------------------ */
+const CLAIM_DESC = (mode) => mode === 'add'
+  ? 'Clique sur un bouton ci-dessous pour obtenir le rôle.'
+  : 'Clique sur un bouton ci-dessous pour obtenir le rôle. Clique à nouveau pour le retirer.';
+
+function roleClaimVars(text, guild, c) {
+  return String(text ?? '')
+    .replaceAll('{server}', guild?.name || '')
+    .replaceAll('{count}', String((c?.roles || []).length));
+}
+
+function roleClaimText(r) {
+  const label = String(r?.label || 'Role');
+  const custom = String(r?.text || '').trim();
+  if (custom) return custom.slice(0, 1000);
+  return `**${label.slice(0, 100)}**`;
+}
+
+function roleClaimButton(c, r) {
+  const b = new ButtonBuilder()
+    .setCustomId(`claim_role:${r.id}`)
+    .setLabel(String(r.label || 'Role').slice(0, 80))
+    .setStyle(btnStyle(r.style || c.btnStyle || 'Primary'));
+  const e = parseEmoji(r.emoji);
+  if (e) b.setEmoji(e);
+  return b;
+}
+
+// 40 composants maximum en V2 : chaque rôle prend un séparateur + une section.
+function roleClaimLimit(c, image, thumb, desc) {
+  if (!HAS_V2) return 25;
+  let used = 2;
+  if (image) used += 2;
+  used += thumb ? 2 : 1;
+  if (desc) used += 1;
+  if (c.footer) used += 1;
+  return Math.max(1, Math.min(25, Math.floor((40 - used) / 2)));
+}
+
+async function buildRoleClaimPanel(guild, c = null) {
+  const d = getG(guild.id);
+  const cfg = c || d.claim || {};
+  const color = parseColor(cfg.color || d.panelColor, '#5865F2');
+  const files = [];
+  const imageUrl = await imageRef(cfg.image, 'claim-banner', files);
+  const thumb = cfg.showLogo === false ? null : await imageRef(cfg.thumb || d.panelLogo, 'claim-logo', files);
+  const title = roleClaimVars(cfg.title || '🎭 Choisis tes rôles', guild, cfg).slice(0, 256);
+  const desc = (await rich(guild, roleClaimVars(cfg.description || CLAIM_DESC(cfg.mode), guild, cfg))).text.slice(0, 1500);
+  const roles = (cfg.roles || []).slice(0, roleClaimLimit(cfg, imageUrl, thumb, desc));
+
+  if (HAS_V2 && cfg.v2 !== false) {
+    const container = new ContainerBuilder().setAccentColor(parseInt(color.slice(1), 16) || 0x5865F2);
+    if (imageUrl) {
+      container.addMediaGalleryComponents(
+        new MediaGalleryBuilder().addItems(new MediaGalleryItemBuilder().setURL(imageUrl)),
+      );
+    }
+    if (title) {
+      const titleText = new TextDisplayBuilder().setContent(`## ${title}`);
+      if (thumb) {
+        container.addSectionComponents(
+          new SectionBuilder().addTextDisplayComponents(titleText).setThumbnailAccessory(new ThumbnailBuilder().setURL(thumb)),
+        );
+      } else {
+        container.addTextDisplayComponents(titleText);
+      }
+    }
+    if (desc) container.addTextDisplayComponents(new TextDisplayBuilder().setContent(desc));
+    for (const r of roles) {
+      container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
+      container.addSectionComponents(
+        new SectionBuilder()
+          .addTextDisplayComponents(new TextDisplayBuilder().setContent(roleClaimText(r)))
+          .setButtonAccessory(roleClaimButton(cfg, r)),
+      );
+    }
+    if (cfg.footer) container.addTextDisplayComponents(new TextDisplayBuilder().setContent(`-# ${roleClaimVars(cfg.footer, guild, cfg).slice(0, 2000)}`));
+    container.addSeparatorComponents(new SeparatorBuilder().setDivider(true));
+    const payload = { components: [container], flags: MessageFlags.IsComponentsV2, allowedMentions: { parse: [] } };
+    if (files.length) payload.files = files;
+    return payload;
+  }
+
+  const embed = new EmbedBuilder().setColor(color).setTimestamp();
+  if (title) embed.setTitle(title);
+  if (desc) embed.setDescription(desc);
+  if (imageUrl) embed.setImage(imageUrl);
+  if (thumb) embed.setThumbnail(thumb);
+  if (cfg.footer) embed.setFooter({ text: roleClaimVars(cfg.footer, guild, cfg).slice(0, 2048) });
+  for (const r of roles) {
+    embed.addFields({ name: String(r.label || 'Role').slice(0, 256), value: roleClaimText(r).slice(0, 1024), inline: false });
+  }
+  const rows = chunkList(roles, 5).slice(0, 5).map((part) =>
+    new ActionRowBuilder().addComponents(part.map((r) => roleClaimButton(cfg, r))));
+  const payload = { embeds: [embed], components: rows, allowedMentions: { parse: [] } };
+  if (files.length) payload.files = files;
+  return payload;
+}
+
+// Envoie ou met à jour le message du panel de rôles. create=false : ne crée rien si le message n'existe plus.
+async function publishRoleClaimPanel(guild, { create = false } = {}) {
+  const d = getG(guild.id);
+  const c = d.claim;
+  if (!c.channelId) throw new Error('Choisis un salon pour le panel de rôles.');
+  const channel = guild.channels.cache.get(c.channelId) || await guild.channels.fetch(c.channelId).catch(() => null);
+  if (!channel) throw new Error('Salon du panel de rôles introuvable.');
+  // Le message peut vivre dans un autre salon si le salon a été changé depuis l'envoi.
+  const msgChannelId = c.messageChannelId || c.channelId;
+  const msgChannel = msgChannelId === channel.id
+    ? channel
+    : (guild.channels.cache.get(msgChannelId) || await guild.channels.fetch(msgChannelId).catch(() => null));
+  let msg = null;
+  if (c.messageId) msg = msgChannel && await msgChannel.messages.fetch(c.messageId).catch(() => null);
+  if (!create) {
+    if (!msg) {
+      if (c.messageId) { c.messageId = null; c.messageChannelId = null; save(); }
+      return { ok: true, sent: false };
+    }
+    if (msgChannel.id !== channel.id) return { ok: true, sent: false };
+    const payload = await buildRoleClaimPanel(guild, c);
+    const have = new Set((payload.files || []).map((f) => f.name));
+    const keep = [...msg.attachments.values()].filter((a) => !have.has(a.name));
+    if (keep.length) payload.files = [...(payload.files || []), ...keep];
+    await msg.edit(payload);
+    return { ok: true, sent: true, updated: true };
+  }
+  const payload = await buildRoleClaimPanel(guild, c);
+  if (msg && msgChannel.id === channel.id) {
+    const have = new Set((payload.files || []).map((f) => f.name));
+    const keep = [...msg.attachments.values()].filter((a) => !have.has(a.name));
+    if (keep.length) payload.files = [...(payload.files || []), ...keep];
+    await msg.edit(payload);
+    c.messageChannelId = channel.id;
+    save();
+    return { ok: true, sent: true, updated: true };
+  }
+  const sent = await channel.send(payload);
+  c.messageId = sent.id;
+  c.messageChannelId = channel.id;
+  save();
+  // Salon changé : l'ancien message est retiré pour éviter deux panels identiques.
+  if (msg) await msg.delete().catch(() => {});
+  return { ok: true, sent: true, updated: false };
+}
+
+async function claimRole(i) {
+  const id = i.customId.split(':')[1];
+  const d = getG(i.guildId);
+  const c = d.claim || {};
+  const entry = (c.roles || []).find((r) => r.id === id);
+  if (!entry) return i.reply({ content: '❌ This role is no longer available.', flags: EPH });
+  const role = i.guild.roles.cache.get(entry.roleId) || await i.guild.roles.fetch(entry.roleId).catch(() => null);
+  if (!role) return i.reply({ content: '❌ This role no longer exists on the server.', flags: EPH });
+  if (role.managed) return i.reply({ content: '❌ This role is managed by an integration and cannot be assigned.', flags: EPH });
+  const me = i.guild.members.me || await i.guild.members.fetchMe().catch(() => null);
+  if (!me || role.position >= me.roles.highest.position) {
+    return i.reply({ content: '❌ I cannot assign this role: it is above my highest role.', flags: EPH });
+  }
+  const member = await i.guild.members.fetch(i.user.id).catch(() => null);
+  if (!member) return i.reply({ content: '❌ Member not found.', flags: EPH });
+  const has = member.roles.cache.has(role.id);
+  if (has) {
+    if (c.mode === 'add') {
+      return i.reply({ content: `ℹ️ You already have the role **${role.name}**.`, flags: EPH });
+    }
+    await member.roles.remove(role.id);
+    return i.reply({ content: `✅ Role **${role.name}** removed.`, flags: EPH });
+  }
+  await member.roles.add(role.id);
+  return i.reply({ content: `✅ You now have the role **${role.name}**.`, flags: EPH });
 }
 
 // Met à jour tous les panels déjà envoyés (catégories ajoutées / modifiées / retirées, nouveau code du bot...)
@@ -3090,25 +3304,58 @@ async function vouchDelete(i) {
 /*  Fermeture d'un ticket (avec demande de vente)                      */
 /* ------------------------------------------------------------------ */
 // Bouton « Stats » d'un panel : tickets ouverts, vouchs et note moyenne.
+// Tout est personnalisable depuis Tickets → Stats (titre, description, couleur, champs, image, pied de page).
 async function ticketStats(i) {
   const cfgName = i.customId.split(':')[1];
   const d = getG(i.guildId);
   const cfg = d.tickets[cfgName];
   if (!cfg) return i.reply({ content: '❌ Configuration not found.', flags: EPH });
+  const s = cfg.stats || {};
   const vouches = (d.vouches || []).filter((v) => v.config === cfgName);
   const avg = vouches.length ? vouches.reduce((n, v) => n + (v.stars || 0), 0) / vouches.length : 0;
   const open = Object.values(d.open || {}).filter((t) => t.config === cfgName).length;
-  const embed = new EmbedBuilder()
-    .setColor(parseColor(d.panelColor, '#5865F2'))
-    .setTitle(`📊 Stats — ${cfg.name}`)
-    .addFields(
-      { name: 'Tickets opened', value: String(cfg.counter || 0), inline: true },
-      { name: 'Tickets currently open', value: String(open), inline: true },
-      { name: 'Vouches', value: String(vouches.length), inline: true },
-      { name: 'Average rating', value: vouches.length ? `${avg.toFixed(2)} / 5` : '—', inline: true },
-    )
-    .setTimestamp();
-  return i.reply({ embeds: [embed], flags: EPH });
+  const values = {
+    tickets: cfg.counter || 0,
+    open,
+    vouches: vouches.length,
+    rating: vouches.length ? `${avg.toFixed(2)} / 5` : '—',
+    average: avg.toFixed(2),
+  };
+  const vars = (t) => statsVars(t, cfg, i.guild, values);
+  const labels = s.labels || {};
+  const color = parseColor(s.color || cfg.color || d.panelColor, '#5865F2');
+  const title = vars(s.title || '📊 Stats — {config}').slice(0, 256);
+  const desc = 'description' in s ? s.description : 'Statistiques en temps réel de **{server}**.';
+  const files = [];
+  const embed = new EmbedBuilder().setColor(color).setTitle(title);
+  if (desc) embed.setDescription(vars(desc).slice(0, 4096));
+  if (s.showOpened !== false) {
+    embed.addFields({ name: vars(labels.opened || 'Tickets opened').slice(0, 256), value: String(values.tickets), inline: true });
+  }
+  if (s.showOpen !== false) {
+    embed.addFields({ name: vars(labels.open || 'Tickets currently open').slice(0, 256), value: String(open), inline: true });
+  }
+  if (s.showVouches !== false) {
+    embed.addFields({ name: vars(labels.vouches || 'Vouches').slice(0, 256), value: String(vouches.length), inline: true });
+  }
+  if (s.showRating !== false) {
+    embed.addFields({ name: vars(labels.rating || 'Average rating').slice(0, 256), value: values.rating, inline: true });
+  }
+  // Champs libres : une ligne « Nom | Valeur » (variables acceptées), 15 maximum.
+  const extra = String(s.extra || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean).slice(0, 15);
+  for (const line of extra) {
+    const m = /^(.+?)\s*\|\s*(.*)$/.exec(line);
+    if (m) embed.addFields({ name: vars(m[1]).slice(0, 256), value: vars(m[2]).slice(0, 1024) || '—', inline: false });
+  }
+  if (s.footer) embed.setFooter({ text: vars(s.footer).slice(0, 2048) });
+  if (s.timestamp !== false) embed.setTimestamp();
+  const img = s.image ? await imageRef(s.image, 'stats-banner', files) : null;
+  if (img) embed.setImage(img);
+  const thumb = s.thumb ? await imageRef(s.thumb, 'stats-logo', files) : null;
+  if (thumb) embed.setThumbnail(thumb);
+  const payload = { embeds: [embed], flags: EPH };
+  if (files.length) payload.files = files;
+  return i.reply(payload);
 }
 
 // Le membre demande à un staff de fermer son ticket sans vouch.
@@ -6239,6 +6486,7 @@ client.on(Events.InteractionCreate, async (i) => {
       if (i.customId === 'tk_vouch') return await vouchPanel(i);
       if (i.customId === 'tk_ask_staff') return await askStaff(i);
       if (i.customId.startsWith('tk_stats:')) return await ticketStats(i);
+      if (i.customId.startsWith('claim_role:')) return await claimRole(i);
       if (i.customId.startsWith('vouch:star:')) return await vouchModal(i, i.customId.split(':')[2]);
       if (i.customId.startsWith('vouch_logs:')) return await vouchLogs(i);
       if (i.customId.startsWith('vouch_del:')) return await vouchDelete(i);
@@ -6325,6 +6573,6 @@ async function restoreMembers(guild, { dm = true, backup = null } = {}) {
 // Panel web (dashboard.js + panel.html) — nécessite la variable PANEL_PASSWORD
 require("./dashboard")({ client, commands, handlers, autocomplete, getG, refreshPanels, refreshSalesPanel,
   buildCatalogPayload, buildSinglePanel, buildMultiPanel, multiPanelSig, rich, syncCommandChannel,
-  sendRestockAnnouncement,
+  sendRestockAnnouncement, buildRoleClaimPanel, publishRoleClaimPanel,
   backupMembers, restoreMembers,
   CMD_CATEGORIES, ALWAYS_ON, PUBLIC_COMMANDS, OWNER_ONLY, db, save, DB_FILE });

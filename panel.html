@@ -201,7 +201,7 @@ const S = {
   newTk: false, reasonEdit: null, sp: null, spEdit: false, choiceEdit: null,
   omScope: 'config:', advCmd: null, advSub: null, advResult: null,
   emojiTarget: null, emojiTab: 'server', serverEmojis: null,
-  uploads: {}, shop: {}, panelEdit: null, panelDraft: null,
+  uploads: {}, shop: {}, panelEdit: null, panelDraft: null, claimRoleEdit: null,
   admin: { scope: 'command', key: '', target: 'role', roleId: '', userId: '', memberQ: '', members: [] },
 };
 let mdTarget = null;
@@ -420,6 +420,7 @@ async function boot() {
 }
 async function loadGuild(id) {
   S.gid = id;
+  S.claimRoleEdit = null;
   S.g = await api('/api/guild?id=' + id);
   if (!S.g.tickets.some((t) => t.name === S.tk)) S.tk = S.g.tickets[0]?.name || null;
   S.page = S.page || 'home';
@@ -446,6 +447,7 @@ async function checkStatus() {
 const NAV = [
   ['home', '🏠', 'Vue d’ensemble'],
   ['tickets', '🎫', 'Tickets'],
+  ['roles', '🎭', 'Rôles'],
   ['vouch', '⭐', 'Vouches'],
   ['sales', '📈', 'Ventes'],
   ['products', '🛍️', 'Produits'],
@@ -469,8 +471,8 @@ function render() {
     if (err) err.hidden = true;
     mdTarget = null;
     renderNav();
-    const pages = { home: pageHome, tickets: pageTickets, vouch: pageVouch, sales: pageSales, products: () => pageShop('product'), restock: () => pageShop('restock'), images: pageImages, admin: pageAdmin, announce: pageAnnounce, appearance: pageAppearance, invites: pageInvites, advanced: pageAdvanced, backup: pageBackup };
-    const mdPages = ['tickets', 'vouch', 'products', 'restock', 'advanced'];
+    const pages = { home: pageHome, tickets: pageTickets, roles: pageRoles, vouch: pageVouch, sales: pageSales, products: () => pageShop('product'), restock: () => pageShop('restock'), images: pageImages, admin: pageAdmin, announce: pageAnnounce, appearance: pageAppearance, invites: pageInvites, advanced: pageAdvanced, backup: pageBackup };
+    const mdPages = ['tickets', 'roles', 'vouch', 'products', 'restock', 'advanced'];
     $('#main').innerHTML = (mdPages.includes(S.page) ? mdBar() : '') + (pages[S.page] || pageHome)();
     if (S.page === 'advanced' || (S.page === 'tickets' && S.tab === 'commands')) fillMembers();
     if (S.page === 'backup') refreshBackupBoxes();
@@ -581,13 +583,73 @@ function pvPanelSpec() {
   } else if (type === 'boutons') {
     sections = (t.reasons || []).slice(0, 5).map((r) => ({
       text: pvVars(r.panelText || `**${r.label}**${r.description ? '\n' + r.description : ''}`),
-      button: pvButtonHtml((r.emoji ? r.emoji + ' ' : '') + r.label, style),
+      button: pvButtonHtml((r.emoji ? r.emoji + ' ' : '') + (r.btnLabel || r.label), style),
     }));
   } else {
     select = { placeholder: pvVal('#p_placeholder') || 'Choisir une catégorie…' };
   }
-  if (pvChecked('#p_stats')) buttons.push(pvButtonHtml('📊 Stats', 'Secondary'));
+  if (pvChecked('#p_stats')) {
+    const st = t.stats || {};
+    const emoji = st.btnEmoji === undefined ? '📊' : st.btnEmoji;
+    buttons.push(pvButtonHtml((emoji ? emoji + ' ' : '') + (st.btnLabel || 'Stats'), st.btnStyle || 'Secondary'));
+  }
   return pvMessageHtml({ embed, buttons, sections, select });
+}
+
+/* ---- Panel Stats (bouton 📊) ---- */
+function pvStatsSpec() {
+  if (!$('#st_title')) return null;
+  const t = TC();
+  const s = t.stats || {};
+  const labels = {
+    opened: pvVal('#st_label_opened') || s.labels?.opened || 'Tickets opened',
+    open: pvVal('#st_label_open') || s.labels?.open || 'Tickets currently open',
+    vouches: pvVal('#st_label_vouches') || s.labels?.vouches || 'Vouches',
+    rating: pvVal('#st_label_rating') || s.labels?.rating || 'Average rating',
+  };
+  const values = { tickets: 42, open: 3, vouches: 27, rating: '4.80 / 5', average: '4.80', server: S.g?.name || 'Serveur', config: t?.name || 'support' };
+  const vars = (x) => String(x || '').replace(/\{(\w+)\}/g, (m, k) => (k in values ? values[k] : m));
+  const fields = [];
+  if (pvChecked('#st_show_opened')) fields.push({ name: vars(labels.opened), value: String(values.tickets), inline: true });
+  if (pvChecked('#st_show_open')) fields.push({ name: vars(labels.open), value: String(values.open), inline: true });
+  if (pvChecked('#st_show_vouches')) fields.push({ name: vars(labels.vouches), value: String(values.vouches), inline: true });
+  if (pvChecked('#st_show_rating')) fields.push({ name: vars(labels.rating), value: values.rating, inline: true });
+  for (const line of pvVal('#st_extra').split(/\r?\n/).map((x) => x.trim()).filter(Boolean).slice(0, 15)) {
+    const m = /^(.+?)\s*\|\s*(.*)$/.exec(line);
+    if (m) fields.push({ name: vars(m[1]), value: vars(m[2]) || '—', inline: false });
+  }
+  return pvMessageHtml({
+    embed: {
+      color: pvVal('#st_color') || t?.color || S.g.panelColor || '#5865F2',
+      title: vars(pvVal('#st_title') || '📊 Stats — {config}'),
+      desc: pvVal('#st_desc') ? vars(pvVal('#st_desc')) : vars('Statistiques en temps réel de **{server}**.'),
+      thumb: pvImg('st_thumb'), image: pvImg('st_image'), footer: vars(pvVal('#st_footer')),
+      fields, three: fields.some((f) => f.inline !== false),
+    },
+  });
+}
+
+/* ---- Panel de rôles (claim) ---- */
+function pvRolesSpec() {
+  if (!$('#cr_title')) return null;
+  const c = S.g.claim || {};
+  const roles = c.roles || [];
+  const mode = pvVal('#cr_mode') || 'toggle';
+  const desc = pvVal('#cr_desc') || (mode === 'add' ? 'Clique sur un bouton ci-dessous pour obtenir le rôle.' : 'Clique sur un bouton ci-dessous pour obtenir le rôle. Clique à nouveau pour le retirer.');
+  const thumb = pvImg('cr_thumb') || (pvChecked('#cr_logo') ? (S.g.panelLogo || '') : '');
+  return pvMessageHtml({
+    embed: {
+      color: pvVal('#cr_color') || S.g.panelColor || '#5865F2',
+      title: pvVal('#cr_title') || '🎭 Choisis tes rôles',
+      desc: desc.replaceAll('{server}', S.g?.name || 'Serveur').replaceAll('{count}', String(roles.length)),
+      thumb, image: pvImg('cr_image'),
+      footer: (pvVal('#cr_footer') || '').replaceAll('{server}', S.g?.name || 'Serveur').replaceAll('{count}', String(roles.length)),
+    },
+    sections: roles.slice(0, 8).map((r) => ({
+      text: (r.text || `**${r.label}**`).replaceAll('{server}', S.g?.name || 'Serveur'),
+      button: pvButtonHtml((r.emoji ? r.emoji + ' ' : '') + r.label, r.style || pvVal('#cr_style') || 'Primary'),
+    })),
+  });
 }
 
 /* ---- Message d'ouverture d'un ticket ---- */
@@ -731,7 +793,9 @@ function pvSalesSpec() {
 
 function previewSpec() {
   if (!S.g) return null;
+  if (S.page === 'roles') return pvRolesSpec();
   if (S.page === 'tickets' && S.tab === 'panels') return pvPanelSpec();
+  if (S.page === 'tickets' && S.tab === 'stats') return pvStatsSpec();
   if (S.page === 'tickets' && S.tab === 'message') return pvOpenSpec();
   if (S.page === 'products') return pvShopSpec('product');
   if (S.page === 'restock') return pvShopSpec('restock');
@@ -1076,10 +1140,10 @@ function pageTickets() {
     <span class="pill">${(t.subPanels || []).length} sous-panel(s)</span>
   </section>
   <div class="tabs">
-    ${[['config', '⚙️ Réglages'], ['raisons', '📋 Catégories'], ['sous', '🗂️ Sous-panels'], ['panels', '📨 Panels'], ['message', '💬 Message d’ouverture'], ['commands', '⌨️ Autres commandes']]
+    ${[['config', '⚙️ Réglages'], ['raisons', '📋 Catégories'], ['sous', '🗂️ Sous-panels'], ['panels', '📨 Panels'], ['stats', '📊 Stats'], ['message', '💬 Message d’ouverture'], ['commands', '⌨️ Autres commandes']]
       .map(([k, l]) => `<button class="tab ${S.tab === k ? 'on' : ''}" onclick="S.tab='${k}';render()">${l}</button>`).join('')}
   </div>`;
-  const body = { config: tkConfig, raisons: tkReasons, sous: tkSubs, panels: tkPanels, message: tkMessage, commands: advancedBody }[S.tab] || tkConfig;
+  const body = { config: tkConfig, raisons: tkReasons, sous: tkSubs, panels: tkPanels, stats: tkStats, message: tkMessage, commands: advancedBody }[S.tab] || tkConfig;
   return out + body();
 }
 
@@ -1215,6 +1279,7 @@ function tkReasons() {
     </div>
     <label class="field"><span>Nom du ticket pour cette catégorie</span><small>Remplace le nom global de la configuration. Variables identiques, dont <b>[prix]</b>. Vide = nom de la configuration.</small><input id="r_nametemplate" maxlength="100" value="${esc(r?.nameTemplate || '')}" placeholder="— nom de la configuration —"></label>
     <label class="field"><span>Texte du panel multi-boutons</span><small>Affiché à gauche du bouton dans un panel « plusieurs boutons ». Vide = nom + description.</small><textarea id="r_ptext" maxlength="1000" style="min-height:70px" placeholder="**Have a quick question about our products?**&#10;Press **Questions** to open the matching ticket flow.">${esc(r?.panelText || '')}</textarea></label>
+    <label class="field"><span>Texte du bouton</span><small>Texte affiché sur le bouton de cette catégorie dans un panel « plusieurs boutons ». Vide = nom de la catégorie.</small><input id="r_btn" maxlength="80" value="${esc(r?.btnLabel || '')}" placeholder="${esc(r?.label || 'Nitro')}"></label>
     <div class="grid2">
       <label class="field"><span>Catégorie Discord</span><select id="r_cat">${categoryOptions(r?.categoryId || '', '— catégorie par défaut —')}</select></label>
       <label class="field"><span>Rôles staff de cette catégorie</span><small>Maintiens Ctrl pour en choisir plusieurs. Vide = rôles de la configuration.</small><select id="r_staff" multiple size="4">${staffSelect(rs(r))}</select></label>
@@ -1252,7 +1317,7 @@ async function reasonSave() {
     await api('/api/ticket-reason', {
       action: r ? 'update' : 'add', guildId: S.gid, config: t.name, id: r?.id,
       label: $('#r_label').value, emoji: $('#r_emoji').value, description: $('#r_desc').value,
-      panelText: $('#r_ptext').value,
+      panelText: $('#r_ptext').value, btnLabel: $('#r_btn').value,
       price: $('#r_price').value, nameTemplate: $('#r_nametemplate').value,
       categoryId: $('#r_cat').value,
       subPanelId: $('#r_link').value,
@@ -1497,6 +1562,73 @@ async function choiceStock(id, outOfStock) {
   } catch (e) { toast(e.message, false); }
 }
 
+/* ---------- Panel Stats (bouton des panels) ---------- */
+function tkStats() {
+  const t = TC();
+  const s = t.stats || {};
+  const labels = s.labels || {};
+  const on = (k) => s[k] !== false;
+  const field = (key, def) => `<div class="item"><div class="grow"><label class="check"><input type="checkbox" id="st_show_${key}" ${on({ opened: 'showOpened', open: 'showOpen', vouches: 'showVouches', rating: 'showRating' }[key]) ? 'checked' : ''}> Afficher ce champ</label></div>
+    <input id="st_label_${key}" maxlength="256" value="${esc(labels[key] || '')}" placeholder="${esc(def)}" style="flex:1;max-width:320px"></div>`;
+  return `<section class="card">
+    <h2>Panel « Stats »</h2>
+    <p class="muted" style="margin-bottom:10px">Ce que voient les membres quand ils cliquent sur le bouton <b>📊 Stats</b> d’un panel. Le texte à gauche du bouton dans un panel « plusieurs boutons » se règle aussi ici.</p>
+    <h3>Bouton Stats</h3>
+    <div class="grid2">
+      <label class="field"><span>Texte du bouton</span><input id="st_btn" maxlength="80" value="${esc(s.btnLabel || '')}" placeholder="Stats"></label>
+      <label class="field"><span>Emoji</span>${emojiField('st_emoji', s.btnEmoji === undefined ? '📊' : s.btnEmoji, '📊')}</label>
+    </div>
+    <div class="grid2">
+      <label class="field"><span>Couleur du bouton</span><select id="st_btnstyle">${[['Primary', 'Bleu'], ['Secondary', 'Gris'], ['Success', 'Vert'], ['Danger', 'Rouge']].map(([v, l]) => `<option value="${v}" ${(s.btnStyle || 'Secondary') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      <label class="field"><span>Texte à gauche du bouton (grand panel)</span><small>Markdown accepté. Vide = pas de texte.</small><input id="st_section" maxlength="2000" value="${esc('sectionText' in s ? s.sectionText : '**Server stats** — tickets, vouches and average rating')}"></label>
+    </div>
+    <h3>Message</h3>
+    <label class="field"><span>Titre</span><input id="st_title" maxlength="256" value="${esc(s.title || '')}" placeholder="📊 Stats — {config}"></label>
+    <label class="field"><span>Description</span><small>Vide = description par défaut. Variables : <b>{tickets}</b>, <b>{open}</b>, <b>{vouches}</b>, <b>{rating}</b>, <b>{average}</b>, <b>{server}</b>, <b>{config}</b>.</small><textarea id="st_desc" maxlength="4000" style="min-height:80px">${esc('description' in s ? s.description : '')}</textarea></label>
+    <div class="grid2">
+      ${imgField('st_image', s.image, 'Image / bannière', 'Grande image affichée dans le panel Stats.')}
+      ${imgField('st_thumb', s.thumb, 'Logo / miniature', 'Vide = aucun logo.', { max: 512 })}
+    </div>
+    <div class="grid2">
+      <label class="field"><span>Couleur de l’embed</span><input id="st_color" maxlength="7" value="${esc(s.color || '')}" placeholder="${esc(S.g.panelColor)}"></label>
+      <label class="field"><span>Pied de page</span><input id="st_footer" maxlength="2048" value="${esc(s.footer || '')}" placeholder="— aucun —"></label>
+    </div>
+    <label class="check"><input type="checkbox" id="st_timestamp" ${s.timestamp !== false ? 'checked' : ''}> Afficher la date et l’heure</label>
+    <h3>Champs affichés</h3>
+    <div class="list">${field('opened', 'Tickets opened')}${field('open', 'Tickets currently open')}${field('vouches', 'Vouches')}${field('rating', 'Average rating')}</div>
+    <h3>Champs libres (optionnel)</h3>
+    <label class="field"><span>Une ligne par champ : <b>Nom | Valeur</b></span><small>Variables acceptées dans le nom et la valeur. 15 lignes maximum.</small><textarea id="st_extra" maxlength="4000" style="min-height:80px" placeholder="Commandes traitées | {tickets}&#10;Note moyenne | {rating}">${esc(s.extra || '')}</textarea></label>
+    <div class="row end"><button class="btn" onclick="statsSave()">Enregistrer le panel Stats</button></div>
+    <p class="muted" style="margin-top:10px">Les panels déjà envoyés sont mis à jour automatiquement (texte du bouton et texte à gauche du bouton).</p>
+  </section>`;
+}
+async function statsSave() {
+  const t = TC();
+  const val = (id) => document.getElementById(id)?.value ?? '';
+  const chk = (id) => !!document.getElementById(id)?.checked;
+  try {
+    await api('/api/ticket-stats', {
+      guildId: S.gid, config: t.name,
+      fields: {
+        btnLabel: val('st_btn'), btnEmoji: val('st_emoji'), btnStyle: val('st_btnstyle'),
+        sectionText: val('st_section'),
+        title: val('st_title'), description: val('st_desc'),
+        image: imgValue('st_image').data || imgValue('st_image').url,
+        thumb: imgValue('st_thumb').data || imgValue('st_thumb').url,
+        color: val('st_color'), footer: val('st_footer'), extra: val('st_extra'),
+        timestamp: chk('st_timestamp'),
+        showOpened: chk('st_show_opened'), showOpen: chk('st_show_open'),
+        showVouches: chk('st_show_vouches'), showRating: chk('st_show_rating'),
+        labels: {
+          opened: val('st_label_opened'), open: val('st_label_open'),
+          vouches: val('st_label_vouches'), rating: val('st_label_rating'),
+        },
+      },
+    });
+    await afterChange('Panel Stats enregistré ✅');
+  } catch (e) { toast(e.message, false); }
+}
+
 /* ---------- Panels envoyés ---------- */
 function tkPanels() {
   const t = TC();
@@ -1515,7 +1647,7 @@ function tkPanels() {
     ${editing ? '<div class="alert info">Tu modifies un panel déjà envoyé : les changements sont appliqués directement sur le message Discord (pas de doublon).</div>' : ''}
     <div class="grid2">
       <label class="field"><span>Salon <b class="req">*</b></span><select id="p_channel">${channelOptions(draft('channelId', ''), [0, 5])}</select></label>
-      <label class="field"><span>Type</span><select id="p_type" ${editing ? 'disabled' : ''}><option value="bouton" ${draft('type') === 'bouton' ? 'selected' : ''}>Bouton</option><option value="boutons" ${draft('type') === 'boutons' ? 'selected' : ''}>Plusieurs boutons (un par catégorie)</option><option value="menu" ${draft('type') === 'menu' ? 'selected' : ''}>Menu déroulant (catégories)</option></select><small>${editing ? 'Le type d’un panel déjà envoyé ne peut pas être changé.' : '« Plusieurs boutons » : un bouton par catégorie (7 à 9 selon la bannière, limite Discord). Le texte à gauche de chaque bouton se règle dans l’onglet <b>Catégories</b> (« Texte du panel multi-boutons »).'}</small></label>
+      <label class="field"><span>Type</span><select id="p_type" ${editing ? 'disabled' : ''}><option value="bouton" ${draft('type') === 'bouton' ? 'selected' : ''}>Bouton</option><option value="boutons" ${draft('type') === 'boutons' ? 'selected' : ''}>Plusieurs boutons (un par catégorie)</option><option value="menu" ${draft('type') === 'menu' ? 'selected' : ''}>Menu déroulant (catégories)</option></select><small>${editing ? 'Le type d’un panel déjà envoyé ne peut pas être changé.' : '« Plusieurs boutons » : un bouton par catégorie (7 à 9 selon la bannière, limite Discord). Le texte à gauche et le texte du bouton se règlent dans l’onglet <b>Catégories</b>.'}</small></label>
     </div>
     <label class="field"><span>Titre</span><input id="p_title" value="${esc(draft('title', `🎫 Support — ${t.name}`))}" maxlength="256"></label>
     <label class="field"><span>Description</span><textarea id="p_desc" maxlength="4000" placeholder="Clique sur le bouton ci-dessous pour ouvrir un ticket.">${esc(draft('desc', ''))}</textarea></label>
@@ -1663,6 +1795,133 @@ async function panelDelete(messageId) {
     if (S.panelEdit === messageId) { S.panelEdit = null; S.panelDraft = null; }
     await afterChange('Panel supprimé');
   } catch (e) { toast(e.message, false); }
+}
+
+/* ================================================================== */
+/*  PANEL DE RÔLES (CLAIM ROLE)                                        */
+/* ================================================================== */
+const CLAIM_STYLES = [['Primary', 'Bleu'], ['Secondary', 'Gris'], ['Success', 'Vert'], ['Danger', 'Rouge']];
+
+function claimFields() {
+  const img = imgValue('cr_image'), th = imgValue('cr_thumb');
+  return {
+    channelId: $('#cr_channel').value,
+    title: $('#cr_title').value,
+    description: $('#cr_desc').value,
+    footer: $('#cr_footer').value,
+    color: $('#cr_color').value.trim(),
+    image: img.data || img.url,
+    thumb: th.data || th.url,
+    showLogo: $('#cr_logo').checked,
+    btnStyle: $('#cr_style').value,
+    mode: $('#cr_mode').value,
+  };
+}
+async function claimSave() {
+  try {
+    const r = await api('/api/claim', { action: 'panel', guildId: S.gid, fields: claimFields() });
+    await afterChange(r.warning ? 'Enregistré — ' + r.warning : 'Panel de rôles enregistré ✅');
+  } catch (e) { toast(e.message, false); }
+}
+async function claimPublish() {
+  try {
+    const r = await api('/api/claim', { action: 'publish', guildId: S.gid, fields: claimFields() });
+    await afterChange(r.updated ? 'Panel de rôles mis à jour ✅' : 'Panel de rôles envoyé ✅');
+  } catch (e) { toast(e.message, false); }
+}
+async function claimDelete() {
+  if (!confirm('Supprimer le message du panel de rôles ?')) return;
+  try {
+    await api('/api/claim', { action: 'delete', guildId: S.gid });
+    await afterChange('Message du panel supprimé');
+  } catch (e) { toast(e.message, false); }
+}
+async function claimRoleSave() {
+  const editing = !!S.claimRoleEdit;
+  try {
+    await api('/api/claim', {
+      action: editing ? 'role-update' : 'role-add', guildId: S.gid, id: S.claimRoleEdit || undefined,
+      roleId: $('#cr_role').value, label: $('#cr_label').value, emoji: $('#cr_emoji').value,
+      style: $('#cr_style_role').value, text: $('#cr_text').value,
+    });
+    S.claimRoleEdit = null;
+    await afterChange(editing ? 'Rôle modifié ✅' : 'Rôle ajouté ✅');
+  } catch (e) { toast(e.message, false); }
+}
+async function claimRoleDel(id) {
+  const c = S.g.claim || {};
+  const entry = (c.roles || []).find((r) => r.id === id);
+  if (!entry || !confirm(`Retirer « ${entry.label} » du panel ?`)) return;
+  try {
+    await api('/api/claim', { action: 'role-remove', guildId: S.gid, id });
+    if (S.claimRoleEdit === id) S.claimRoleEdit = null;
+    await afterChange('Rôle retiré');
+  } catch (e) { toast(e.message, false); }
+}
+async function claimRoleMove(id, dir) {
+  try {
+    await api('/api/claim', { action: 'role-move', guildId: S.gid, id, dir: dir < 0 ? 'up' : 'down' });
+    await afterChange('Ordre des rôles enregistré ✅');
+  } catch (e) { toast(e.message, false); }
+}
+
+function pageRoles() {
+  const c = S.g.claim || {};
+  const roles = c.roles || [];
+  const edit = S.claimRoleEdit ? roles.find((r) => r.id === S.claimRoleEdit) : null;
+  return head('Rôles', 'Panel de rôles : le membre clique sur un bouton pour obtenir un rôle. Textes, boutons, couleurs et images sont entièrement modifiables.') +
+    `<section class="card">
+      <h2>Panel de rôles</h2>
+      <p class="muted" style="margin-bottom:10px">Choisis le salon spécial, personnalise le message puis envoie le panel. Le panel déjà envoyé est mis à jour automatiquement quand tu modifies un rôle.</p>
+      <div class="grid2">
+        <label class="field"><span>Salon du panel <b class="req">*</b></span><select id="cr_channel">${channelOptions(c.channelId || '', [0, 5], '— choisir un salon —')}</select></label>
+        <label class="field"><span>Comportement au clic</span><select id="cr_mode">
+          <option value="toggle" ${c.mode !== 'add' ? 'selected' : ''}>Cliquer à nouveau retire le rôle</option>
+          <option value="add" ${c.mode === 'add' ? 'selected' : ''}>Un clic donne le rôle (sans retrait)</option>
+        </select></label>
+      </div>
+      <label class="field"><span>Titre</span><input id="cr_title" maxlength="256" value="${esc(c.title || '')}" placeholder="🎭 Choisis tes rôles"></label>
+      <label class="field"><span>Description</span><small>Variables : <b>{server}</b>, <b>{count}</b> (nombre de rôles). Vide = texte par défaut.</small><textarea id="cr_desc" maxlength="4000" style="min-height:80px">${esc(c.description || '')}</textarea></label>
+      <div class="grid2">
+        ${imgField('cr_image', c.image, 'Image / bannière', 'Grande image affichée en haut du panel.')}
+        ${imgField('cr_thumb', c.thumb, 'Logo / miniature', 'Vide = logo global (page Apparence).', { max: 512 })}
+      </div>
+      <div class="grid2">
+        <label class="field"><span>Couleur</span><div class="row" style="gap:8px"><input id="cr_color" maxlength="7" value="${esc(c.color || '')}" placeholder="${esc(S.g.panelColor)}" style="flex:1"><input type="color" id="cr_picker" value="${colorOf(c.color || S.g.panelColor)}" oninput="$('#cr_color').value=this.value" style="max-width:58px"></div></label>
+        <label class="field"><span>Pied de page</span><input id="cr_footer" maxlength="2048" value="${esc(c.footer || '')}" placeholder="— aucun —"></label>
+      </div>
+      <div class="grid2">
+        <label class="field"><span>Couleur des boutons par défaut</span><select id="cr_style">${CLAIM_STYLES.map(([v, l]) => `<option value="${v}" ${(c.btnStyle || 'Primary') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+        <label class="check" style="align-self:end"><input type="checkbox" id="cr_logo" ${c.showLogo !== false ? 'checked' : ''}> Afficher le logo du serveur (page Apparence)</label>
+      </div>
+      <div class="row end" style="margin-top:12px">
+        <button class="btn ghost" onclick="claimSave()">Enregistrer</button>
+        <button class="btn" onclick="claimPublish()">${c.messageId ? 'Mettre à jour le panel' : 'Envoyer le panel'}</button>
+        ${c.messageId ? '<button class="btn ghost" onclick="claimDelete()">Supprimer le message</button>' : ''}
+      </div>
+      <p class="muted" style="margin-top:10px">${c.messageId ? 'Panel envoyé dans le salon sélectionné : les changements de rôles sont appliqués directement sur le message.' : 'Aucun message envoyé pour le moment.'}</p>
+    </section>
+    <section class="card">
+      <div class="row" style="justify-content:space-between"><h2>Rôles du panel (${roles.length}/25)</h2><span class="muted">Un bouton par rôle</span></div>
+      <div class="list">${roles.map((r, n) => `
+        <div class="item"><div class="grow"><b>${esc(r.emoji || '')} ${esc(r.label)}</b>
+          <small>${esc(roleName(r.roleId))}${r.text ? ' · ' + esc(r.text) : ''} · ${esc((CLAIM_STYLES.find(([v]) => v === (r.style || c.btnStyle)) || [, 'Bleu'])[1])}</small></div>
+          <div class="row"><button class="mini" title="Monter" ${n === 0 ? 'disabled' : ''} onclick="claimRoleMove('${r.id}',-1)">↑</button><button class="mini" title="Descendre" ${n === roles.length - 1 ? 'disabled' : ''} onclick="claimRoleMove('${r.id}',1)">↓</button><button class="mini" onclick="S.claimRoleEdit='${r.id}';render()">Modifier</button><button class="mini" onclick="claimRoleDel('${r.id}')">Supprimer</button></div></div>`).join('') || '<div class="empty">Aucun rôle : ajoute ton premier rôle ci-dessous.</div>'}
+      </div>
+    </section>
+    <section class="card">
+      <h2>${edit ? 'Modifier « ' + esc(edit.label) + ' »' : 'Ajouter un rôle'}</h2>
+      <div class="grid2">
+        <label class="field"><span>Rôle Discord <b class="req">*</b></span><select id="cr_role">${roleOptions(edit?.roleId || '', '— choisir un rôle —')}</select></label>
+        <label class="field"><span>Texte du bouton</span><small>Vide = nom du rôle. 80 caractères maximum.</small><input id="cr_label" maxlength="80" value="${esc(edit?.label || '')}" placeholder="${esc(roleName(edit?.roleId || '').replace('@', '') || 'Membre')}"></label>
+      </div>
+      <div class="grid2">
+        <label class="field"><span>Emoji</span>${emojiField('cr_emoji', edit?.emoji || '', '🎭 ou <:nom:id>')}</label>
+        <label class="field"><span>Couleur du bouton</span><select id="cr_style_role">${CLAIM_STYLES.map(([v, l]) => `<option value="${v}" ${(edit?.style || c.btnStyle || 'Primary') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      </div>
+      <label class="field"><span>Texte affiché à côté du bouton</span><small>Markdown accepté. Vide = nom du rôle en gras. Variables : <b>{server}</b>.</small><textarea id="cr_text" maxlength="1000" style="min-height:70px">${esc(edit?.text || '')}</textarea></label>
+      <div class="row end">${edit ? '<button class="btn ghost" onclick="S.claimRoleEdit=null;render()">Annuler</button>' : ''}<button class="btn" onclick="claimRoleSave()">${edit ? 'Enregistrer le rôle' : 'Ajouter le rôle'}</button></div>
+    </section>`;
 }
 
 /* ---------- Message d'ouverture ---------- */
