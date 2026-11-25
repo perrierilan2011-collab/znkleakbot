@@ -1456,7 +1456,7 @@ function choiceCard(sp, ch) {
   const cs = (x) => (Array.isArray(x?.staffRoles) && x.staffRoles.length ? x.staffRoles : (x?.staffRoleId ? [x.staffRoleId] : []));
   return `<section class="card"><h2>Choix de « ${esc(sp.name)} » (${sp.choices.length}/125)</h2>
     <div class="list">${sp.choices.map((c, n) => `
-      <div class="item"><div class="grow"><b>${esc(c.emoji || '')} ${esc(c.label)}</b>${c.outOfStock ? ' <span class="pill" style="border-color:#7a2c38;color:#ffb9c4">⛔ Plus en stock</span>' : ''}
+      <div class="item"><div class="grow"><b>${esc(c.emoji || '')} ${esc(c.label)}</b>${c.outOfStock ? ' <span class="pill" style="border-color:#7a2c38;color:#ffb9c4">⛔ Out of stock</span>' : ''}
         <small>${esc(c.description || '')}${c.description ? ' · ' : ''}${chName(c.categoryId)}${cs(c).length ? ' · ' + cs(c).map((id) => esc(roleName(id))).join(' ') : ''}${c.nextSubId ? ' · ➜ ' + esc((TC().subPanels || []).find((s) => s.id === c.nextSubId)?.name || '?') : ''}</small></div>
         <div class="row">${c.outOfStock
           ? `<button class="mini" title="Remettre en stock et envoyer l’annonce" onclick="choiceStock('${c.id}',false)">Remettre en stock</button>`

@@ -94,7 +94,7 @@ No need to start over: a sent message stays editable and reusable.
 
 ### Automatic restock announcement
 
-Each choice of a sub-panel has a stock status. In **Tickets → Sub-panels**, open a sub-panel and click **Plus en stock** on a choice: the choice then shows **⛔ Plus en stock** in the Discord menu, and members who select it are told it is out of stock.
+Each choice of a sub-panel has a stock status. In **Tickets → Sub-panels**, open a sub-panel and click **Plus en stock** on a choice: the choice then shows **⛔ Out of stock** in the Discord menu, and members who select it are told it is out of stock.
 
 Click **Remettre en stock** to put it back: the bot immediately posts an automatic message with the choice name in the channel configured at the top of the **Restock** page (**Automatic restock announcement**). The title, text above the embed, description, image, logo/thumbnail, footer and color are editable there, with variables `{choice}`, `{price}`, `{sub}`, `{config}` and `{server}`. Default: `📦 Restock` / `**{choice}** est de nouveau en stock !`. The **Send a test** button posts a preview in the channel without changing any choice.
 
@@ -138,7 +138,7 @@ Everything is configured from the dashboard, **Tickets** tab:
 - **Sub-panels**: a sub-panel is a list of choices; each choice can lead to another sub-panel (`Next`) or open the ticket. The flow can chain as many sub-panels as needed (category → sub-panel → choice → sub-panel → …), and the ticket is only created at the end. Choices also have **↑ / ↓** buttons to change their order in the menu.
 - **Import a list of choices**: in **Tickets → Sub-panels**, select a sub-panel and use **Import a list of choices**. One item per line, format `Name : price` (or `Name | price`). The price is written into the choice **description**, which is also what `{prix}` / `[prix]` uses in the ticket opening message and ticket name.
 - **Price field on a choice**: each choice also has a **Price** field and a **→ description** button. If the description is empty when you save, the price is used as the description.
-- **Choice stock**: click **Plus en stock** on a choice to mark it out of stock (shown as **⛔ Plus en stock** in Discord and blocked when selected). Click **Remettre en stock** to restore it and automatically post the restock announcement in the channel configured in **Restock**.
+- **Choice stock**: click **Plus en stock** on a choice to mark it out of stock (shown as **⛔ Out of stock** in Discord and blocked when selected). Click **Remettre en stock** to restore it and automatically post the restock announcement in the channel configured in **Restock**.
 - **Panels** → **Type**:
   - **Button**: a single “Open a ticket” button.
   - **Several buttons**: a banner + one button per category. Clicking a button opens the category and chains the linked sub-panels (the ticket is only created at the end of the flow).

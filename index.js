@@ -2773,7 +2773,7 @@ async function buildSubMessage(guild, user, cfg, sub, customId, reason) {
       .setPlaceholder((sub.placeholder || 'Choose an option...').slice(0, 150))
       .addOptions(part.map((c) => {
         const o = { label: String(c.label).slice(0, 100), value: c.id };
-        const desc = [c.description, c.outOfStock ? '⛔ Plus en stock' : ''].filter(Boolean).join(' · ');
+        const desc = [c.description, c.outOfStock ? '⛔ Out of stock' : ''].filter(Boolean).join(' · ');
         if (desc) o.description = desc.slice(0, 100);
         const e = parseEmoji(c.emoji);
         if (e) o.emoji = e;
