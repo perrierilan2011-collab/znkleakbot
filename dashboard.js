@@ -28,6 +28,7 @@ const MODALS = {
 module.exports = function startDashboard(ctx) {
   const { client, commands, handlers, autocomplete, getG, refreshPanels, refreshSalesPanel,
     buildCatalogPayload, buildSinglePanel, buildMultiPanel, multiPanelSig, rich, syncCommandChannel,
+    sendRestockAnnouncement,
     backupMembers, restoreMembers,
     CMD_CATEGORIES, ALWAYS_ON, PUBLIC_COMMANDS, OWNER_ONLY, db, save, DB_FILE } = ctx;
   const PASS = process.env.PANEL_PASSWORD;
@@ -258,6 +259,7 @@ module.exports = function startDashboard(ctx) {
         },
         openTickets: Object.keys(d.open || {}).length,
         announce: d.announce || {},
+        restock: d.restock || {},
         memberBackup: d.memberBackup ? { at: d.memberBackup.at, count: (d.memberBackup.members || []).length, guildName: d.memberBackup.guildName || null } : null,
         shopPosts: (d.shopPosts || []).slice(-8).reverse().map((p) => ({
           ...p,
@@ -729,6 +731,27 @@ module.exports = function startDashboard(ctx) {
       save();
       return { ok: true };
     },
+    // Stock d'un choix : « plus en stock » / « remettre en stock » (+ annonce automatique)
+    'POST /api/subpanel-stock': async (_r, _q, b) => {
+      const cfg = guildCfg(b.guildId, b.config);
+      const guild = client.guilds.cache.get(b.guildId);
+      const sp = (cfg.subPanels || []).find((s) => s.id === b.subId);
+      if (!sp) throw new Error('Sous-panel introuvable');
+      const ch = (sp.choices || []).find((c) => c.id === b.id);
+      if (!ch) throw new Error('Choix introuvable');
+      const was = !!ch.outOfStock;
+      ch.outOfStock = !!b.outOfStock;
+      save();
+      if (was && !ch.outOfStock) {
+        try {
+          await sendRestockAnnouncement(guild, { cfg, sub: sp, choice: ch });
+          return { ok: true, sent: true };
+        } catch (e) {
+          return { ok: true, sent: false, warning: e.message };
+        }
+      }
+      return { ok: true, sent: false };
+    },
     'POST /api/subpanel-link': async (_r, _q, b) => {
       const cfg = guildCfg(b.guildId, b.config);
       const val = b.subId === 'none' ? 'none' : b.subId && cfg.subPanels?.some((s) => s.id === b.subId) ? b.subId : null;
@@ -966,6 +989,44 @@ module.exports = function startDashboard(ctx) {
         };
       } else throw new Error('Cible inconnue');
       save();
+      return { ok: true };
+    },
+    // ---------- Annonce automatique de remise en stock ----------
+    'POST /api/restock-config': async (_r, _q, b) => {
+      const d = getG(b.guildId);
+      const guild = client.guilds.cache.get(b.guildId);
+      d.restock ??= {};
+      if ('channelId' in b) {
+        d.restock.channelId = b.channelId && guild?.channels.cache.get(b.channelId) ? b.channelId : null;
+      }
+      if (b.auto && typeof b.auto === 'object') {
+        const a = b.auto;
+        d.restock.auto = {
+          content: txt(a.content, 1000) || '',
+          title: txt(a.title, 256) || '',
+          description: txt(a.description, 4000) || '',
+          image: imgOk(a.image) || null,
+          thumbnail: imgOk(a.thumbnail) || null,
+          footer: txt(a.footer, 2048) || '',
+          color: colorOk(a.color) || null,
+        };
+      }
+      save();
+      return { ok: true };
+    },
+    'POST /api/restock-test': async (_r, _q, b) => {
+      const guild = client.guilds.cache.get(b.guildId);
+      if (!guild) throw new Error('Serveur introuvable.');
+      const d = getG(b.guildId);
+      const config = {
+        channelId: b.channelId || d.restock?.channelId || null,
+        auto: b.auto && typeof b.auto === 'object' ? b.auto : (d.restock?.auto || {}),
+      };
+      await sendRestockAnnouncement(guild, {
+        choice: { label: 'Test article', description: '4,99 €' },
+        sub: { name: 'Test' },
+        config,
+      });
       return { ok: true };
     },
     // Modèles de message d'ouverture : créer / renommer / supprimer

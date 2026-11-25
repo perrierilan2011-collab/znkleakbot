@@ -111,6 +111,11 @@ function getG(id) {
   g.announce ??= {};
   g.announce.giveaway ??= {};
   g.announce.sanction ??= {};
+  // Annonce automatique de remise en stock (déclenchée depuis les choix d'un sous-panel).
+  // restock : { channelId, auto: { content, title, description, image, thumbnail, footer, color } }
+  g.restock ??= {};
+  g.restock.channelId ??= null;
+  g.restock.auto ??= {};
   g.fullRoles ??= [];       // rôles qui ont accès à TOUTES les commandes
   g.history ??= {};         // userId -> [{ type, by, reason, duration, at }]
   g.commandChannelId ??= null; // salon privé où utiliser les commandes
@@ -585,6 +590,41 @@ async function buildCatalogPayload(kind, params, d, guild) {
 
   const links = Array.isArray(params.links) ? params.links : parseLinks(params.links, guild);
   return { embeds: [embed], components: linkRows(links), files, mentions };
+}
+
+// Annonce automatique quand un choix de sous-panel est remis en stock depuis le dashboard.
+// config = { channelId, auto: { content, title, description, image, thumbnail, footer, color } }
+async function sendRestockAnnouncement(guild, { cfg = null, sub = null, choice, config = null } = {}) {
+  const d = getG(guild.id);
+  const rc = config || d.restock || {};
+  const channelId = rc.channelId;
+  if (!channelId) throw new Error('Aucun salon de restock configuré (onglet Restock).');
+  const channel = await guild.channels.fetch(channelId).catch(() => null);
+  if (!channel) throw new Error('Salon de restock introuvable.');
+  const m = rc.auto || {};
+  const vars = (s) => String(s ?? '')
+    .replaceAll('{choice}', choice?.label || '')
+    .replaceAll('{article}', choice?.label || '')
+    .replaceAll('{product}', choice?.label || '')
+    .replaceAll('{price}', choice?.description || '')
+    .replaceAll('{prix}', choice?.description || '')
+    .replaceAll('{sub}', sub?.name || '')
+    .replaceAll('{config}', cfg?.name || '')
+    .replaceAll('{server}', guild.name || '');
+  const files = [];
+  const embed = new EmbedBuilder()
+    .setColor(parseColor(m.color, cfg?.color || d.panelColor || '#5865F2'))
+    .setTimestamp()
+    .setTitle(vars(m.title || '📦 Restock').slice(0, 256))
+    .setDescription(vars(m.description || '**{choice}** est de nouveau en stock !').slice(0, 4096));
+  if (m.footer) embed.setFooter({ text: vars(m.footer).slice(0, 2048) });
+  const img = m.image ? await imageRef(m.image, 'restock', files) : null;
+  if (img) embed.setImage(img);
+  const thumb = m.thumbnail ? await imageRef(m.thumbnail, 'thumbnail', files) : null;
+  if (thumb) embed.setThumbnail(thumb);
+  const content = m.content ? (await rich(guild, vars(m.content))).text.slice(0, 2000) : undefined;
+  await channel.send({ content, embeds: [embed], files, allowedMentions: { parse: [] } });
+  return true;
 }
 
 // /product et /restock : même logique (embed + image + logo + boutons-liens).
@@ -2519,7 +2559,8 @@ async function buildSubMessage(guild, user, cfg, sub, customId, reason) {
       .setPlaceholder((sub.placeholder || 'Choose an option...').slice(0, 150))
       .addOptions(part.map((c) => {
         const o = { label: String(c.label).slice(0, 100), value: c.id };
-        if (c.description) o.description = String(c.description).slice(0, 100);
+        const desc = [c.description, c.outOfStock ? '⛔ Plus en stock' : ''].filter(Boolean).join(' · ');
+        if (desc) o.description = desc.slice(0, 100);
         const e = parseEmoji(c.emoji);
         if (e) o.emoji = e;
         return o;
@@ -2542,6 +2583,9 @@ async function subChoose(i) {
   const choice = cfg?.subPanels.find((x) => x.id === subId)?.choices.find((c) => c.id === i.values[0]);
   if (!cfg || !choice) {
     return i.update({ content: "❌ This menu is no longer valid. Click again on the server panel to get a new one.", embeds: [], components: [] });
+  }
+  if (choice.outOfStock) {
+    return i.reply({ content: "❌ This option is out of stock. Please choose another one.", flags: EPH });
   }
   const path = [...flowPath(i.message.id), choice];
   const next = nextSub(cfg, choice);
@@ -6281,5 +6325,6 @@ async function restoreMembers(guild, { dm = true, backup = null } = {}) {
 // Panel web (dashboard.js + panel.html) — nécessite la variable PANEL_PASSWORD
 require("./dashboard")({ client, commands, handlers, autocomplete, getG, refreshPanels, refreshSalesPanel,
   buildCatalogPayload, buildSinglePanel, buildMultiPanel, multiPanelSig, rich, syncCommandChannel,
+  sendRestockAnnouncement,
   backupMembers, restoreMembers,
   CMD_CATEGORIES, ALWAYS_ON, PUBLIC_COMMANDS, OWNER_ONLY, db, save, DB_FILE });

@@ -1391,9 +1391,11 @@ function choiceCard(sp, ch) {
   const cs = (x) => (Array.isArray(x?.staffRoles) && x.staffRoles.length ? x.staffRoles : (x?.staffRoleId ? [x.staffRoleId] : []));
   return `<section class="card"><h2>Choix de « ${esc(sp.name)} » (${sp.choices.length}/125)</h2>
     <div class="list">${sp.choices.map((c, n) => `
-      <div class="item"><div class="grow"><b>${esc(c.emoji || '')} ${esc(c.label)}</b>
+      <div class="item"><div class="grow"><b>${esc(c.emoji || '')} ${esc(c.label)}</b>${c.outOfStock ? ' <span class="pill" style="border-color:#7a2c38;color:#ffb9c4">⛔ Plus en stock</span>' : ''}
         <small>${esc(c.description || '')}${c.description ? ' · ' : ''}${chName(c.categoryId)}${cs(c).length ? ' · ' + cs(c).map((id) => esc(roleName(id))).join(' ') : ''}${c.nextSubId ? ' · ➜ ' + esc((TC().subPanels || []).find((s) => s.id === c.nextSubId)?.name || '?') : ''}</small></div>
-        <div class="row"><button class="mini" title="Monter" ${n === 0 ? 'disabled' : ''} onclick="choiceMove('${c.id}',-1)">↑</button><button class="mini" title="Descendre" ${n === sp.choices.length - 1 ? 'disabled' : ''} onclick="choiceMove('${c.id}',1)">↓</button><button class="mini" onclick="S.choiceEdit='${c.id}';render()">Modifier</button><button class="mini" onclick="choiceDel('${c.id}')">Supprimer</button></div></div>`).join('') || '<div class="empty">Aucun choix : ce sous-panel ne s’affichera pas.</div>'}</div>
+        <div class="row">${c.outOfStock
+          ? `<button class="mini" title="Remettre en stock et envoyer l’annonce" onclick="choiceStock('${c.id}',false)">Remettre en stock</button>`
+          : `<button class="mini" title="Marquer ce choix comme plus en stock" onclick="choiceStock('${c.id}',true)">Plus en stock</button>`}<button class="mini" title="Monter" ${n === 0 ? 'disabled' : ''} onclick="choiceMove('${c.id}',-1)">↑</button><button class="mini" title="Descendre" ${n === sp.choices.length - 1 ? 'disabled' : ''} onclick="choiceMove('${c.id}',1)">↓</button><button class="mini" onclick="S.choiceEdit='${c.id}';render()">Modifier</button><button class="mini" onclick="choiceDel('${c.id}')">Supprimer</button></div></div>`).join('') || '<div class="empty">Aucun choix : ce sous-panel ne s’affichera pas.</div>'}</div>
     <h3 style="margin-top:18px">${ch ? 'Modifier « ' + esc(ch.label) + ' »' : 'Ajouter un choix'}</h3>
     <div class="grid2">
       <label class="field"><span>Nom <b class="req">*</b></span><input id="ch_label" maxlength="100" value="${esc(ch?.label || '')}"></label>
@@ -1481,6 +1483,17 @@ async function choiceMove(id, dir) {
   try {
     await api('/api/reorder', { guildId: S.gid, config: S.tk, target: 'choices', subId: sp.id, id, dir: dir < 0 ? 'up' : 'down' });
     await afterChange('Ordre des choix enregistré ✅');
+  } catch (e) { toast(e.message, false); }
+}
+async function choiceStock(id, outOfStock) {
+  const sp = (TC().subPanels || []).find((x) => x.id === S.sp);
+  if (!sp) return;
+  try {
+    const r = await api('/api/subpanel-stock', { guildId: S.gid, config: S.tk, subId: sp.id, id, outOfStock });
+    await afterChange();
+    if (outOfStock) toast('Choix marqué « plus en stock »');
+    else if (r.sent) toast('Choix remis en stock : annonce envoyée ✅');
+    else toast(r.warning ? 'Remis en stock — ' + r.warning : 'Choix remis en stock');
   } catch (e) { toast(e.message, false); }
 }
 
@@ -2111,6 +2124,30 @@ async function shopDeletePost(kind, id) {
     await afterChange();
   } catch (e) { toast(e.message, false); }
 }
+function restockAutoRead() {
+  const img = imgValue('rs_image'), th = imgValue('rs_thumb');
+  return {
+    content: $('#rs_content').value.trim(),
+    title: $('#rs_title').value.trim(),
+    description: $('#rs_desc').value.trim(),
+    footer: $('#rs_footer').value.trim(),
+    color: $('#rs_color').value.trim(),
+    image: img.data || img.url,
+    thumbnail: th.data || th.url,
+  };
+}
+async function restockSave() {
+  try {
+    await api('/api/restock-config', { guildId: S.gid, channelId: $('#rs_channel').value, auto: restockAutoRead() });
+    await afterChange('Annonce de restock enregistrée ✅');
+  } catch (e) { toast(e.message, false); }
+}
+async function restockTest() {
+  try {
+    await api('/api/restock-test', { guildId: S.gid, channelId: $('#rs_channel').value, auto: restockAutoRead() });
+    toast('Message de test envoyé ✅');
+  } catch (e) { toast(e.message, false); }
+}
 function pageShop(kind) {
   const isP = kind === 'product';
   const st = shopState(kind);
@@ -2118,9 +2155,32 @@ function pageShop(kind) {
   const imgId = 'shop_img_' + kind;
   const thumbId = 'shop_thumb_' + kind;
   const count = (S.g.shopPosts || []).filter((p) => p.kind === kind).length;
+  const rs = S.g.restock || {};
+  const rsAuto = rs.auto || {};
+  const restockAutoCard = !isP ? `<section class="card">
+    <h2>Annonce automatique de remise en stock</h2>
+    <p class="muted" style="margin-bottom:10px">Envoyée quand tu cliques sur <b>Remettre en stock</b> sur un choix de sous-panel (Tickets → Sous-panels). Variables : <b>{choice}</b>, <b>{price}</b>, <b>{sub}</b>, <b>{config}</b>, <b>{server}</b>.</p>
+    <div class="grid2">
+      <label class="field"><span>Salon des annonces <b class="req">*</b></span><select id="rs_channel">${channelOptions(rs.channelId || '', [0, 5], '— aucun —')}</select></label>
+      <label class="field"><span>Couleur</span><div class="row" style="gap:8px"><input id="rs_color" maxlength="7" value="${esc(rsAuto.color || '')}" placeholder="${esc(S.g.panelColor)}" style="flex:1"><input type="color" id="rs_picker" value="${colorOf(rsAuto.color || S.g.panelColor)}" oninput="$('#rs_color').value=this.value" style="max-width:58px"></div></label>
+    </div>
+    <div class="grid2">
+      <label class="field"><span>Titre</span><input id="rs_title" maxlength="256" value="${esc(rsAuto.title || '')}" placeholder="📦 Restock"></label>
+      <label class="field"><span>Pied de page</span><input id="rs_footer" maxlength="2048" value="${esc(rsAuto.footer || '')}" placeholder="— aucun —"></label>
+    </div>
+    <label class="field"><span>Texte au-dessus de l’embed</span><input id="rs_content" maxlength="1000" value="${esc(rsAuto.content || '')}" placeholder="— aucun —"></label>
+    <label class="field"><span>Description</span><small>Vide = <b>**{choice}** est de nouveau en stock !</b></small><textarea id="rs_desc" maxlength="4000" style="min-height:80px">${esc(rsAuto.description || '')}</textarea></label>
+    <div class="grid2">
+      ${imgField('rs_image', rsAuto.image, 'Image (lien ou fichier)', 'Grande image affichée sous le texte.')}
+      ${imgField('rs_thumb', rsAuto.thumbnail, 'Logo / miniature', 'Petit logo en haut à droite.', { max: 512 })}
+    </div>
+    <div class="row end"><button class="btn" onclick="restockSave()">Enregistrer l’annonce</button><button class="btn ghost" onclick="restockTest()">Envoyer un test</button></div>
+    <p class="muted" style="margin-top:10px">Le message part automatiquement dans ce salon quand un choix passe de « plus en stock » à « remis en stock ».</p>
+  </section>` : '';
   return head(isP ? 'Produits' : 'Restock',
     isP ? 'Annonce produit : texte libre, image, logo et autant de boutons-liens que tu veux. Modifie ou renvoie un message déjà envoyé sans tout refaire.'
       : 'Panel restock : variantes, prix, stock, image, logo et boutons-liens. Modifie ou renvoie un message déjà envoyé sans tout refaire.') +
+    restockAutoCard +
     `<section class="card"><h2>Messages déjà envoyés (${count})</h2>
       <div class="list">${shopPosts(kind)}</div>
     </section>
