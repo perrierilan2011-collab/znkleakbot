@@ -633,8 +633,9 @@ module.exports = function startDashboard(ctx) {
       if ('thumb' in f) s.thumb = imgOk(f.thumb) || null;
       if ('footer' in f) s.footer = str(f.footer, 2048);
       if ('sectionText' in f) s.sectionText = str(f.sectionText, 2000);
+      if ('ratingSub' in f) s.ratingSub = str(f.ratingSub, 500);
       if ('extra' in f) s.extra = str(f.extra, 4000);
-      for (const k of ['showOpened', 'showOpen', 'showVouches', 'showRating', 'timestamp']) {
+      for (const k of ['showOpened', 'showOpen', 'showVouches', 'showRating', 'showStars', 'timestamp']) {
         if (k in f) s[k] = !!f[k];
       }
       if (f.labels && typeof f.labels === 'object') {

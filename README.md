@@ -7,7 +7,7 @@ Discord bot for tickets, sales, vouches, invites and moderation, with a web dash
 - **Add / remove a member from a ticket**: `/add` and `/remove` (or `/ticket ajouter` and `/ticket retirer`) inside the ticket, with the member mention.
 - **Vouch button (no slash command)**: enable it per ticket configuration. The ticket opening message then shows a **⭐ Vouch** button. Clicking it opens a 1–5 star picker, then a form for the message. The review is published in a dedicated channel.
 - **Vouch moderation**: in the vouch channel, staff can open the **ticket logs** and delete any vouch that is not legit. Deleting a vouch also removes its Discord message.
-- **Ticket stats button**: add a **📊 Stats** button to any ticket panel. The stats panel is fully editable in **Tickets → Stats**: button text/emoji/color, title, description, color, image, logo, footer, field names and visibility, plus free `Name | Value` fields with variables.
+- **Ticket stats button**: add a **📊 Stats** button to any ticket panel. The stats panel is fully editable in **Tickets → Stats**: button text/emoji/color, title, description, color, image, logo, footer, star rating with the review count, field names and visibility, plus free `Name | Value` fields with variables.
 - **Role claim panel**: a **Roles** tab lets you build a fully customizable panel (title, description, image, logo, color, footer, one button per role with its own text, emoji and color) and send it to a dedicated channel. Members click to get the role; clicking again removes it (optional). The message stays in sync when you edit a role.
 - **Vouch-gated closing**: a customer cannot close their ticket without leaving a vouch. They can instead click **Ask a staff member**, which mentions the ticket role; staff can close without a vouch.
 - **Multi-button panel**: a banner, a text and **one button per category** (7 to 9 depending on the banner, Discord limit). Each button opens its category and, if a sub-panel is linked, the first menu of the flow. Rendered with the recent Discord components (button on the right of each text) and automatic fallback to embed + buttons on older discord.js versions.
@@ -157,9 +157,10 @@ The **📊 Stats** button shown on a ticket panel can be fully customized in **T
 - **Button**: text, emoji and color, plus the text displayed to the left of the button in a multi-button panel.
 - **Message**: title, description, color, image, logo, footer and timestamp.
 - **Fields**: show/hide “Tickets opened”, “Tickets currently open”, “Vouches” and “Average rating”, and rename each field.
+- **Rating**: the average rating is displayed with big stars (`⭐⭐⭐⭐☆`), the exact score (`4.80 / 5`) and the number of reviews it is based on (`-# sur **24** avis`). Stars and the subtext are editable.
 - **Free fields**: one `Name | Value` per line (15 maximum).
 
-Variables available in the title, description, field names/values and footer: `{tickets}`, `{open}`, `{vouches}`, `{rating}`, `{average}`, `{config}` and `{server}`. Defaults look like `📊 Stats — {config}` with a short live description. Already-sent panels are updated automatically when the button text changes.
+Variables available in the title, description, field names/values and footer: `{tickets}`, `{open}`, `{vouches}`, `{reviews}`, `{stars}`, `{rating}`, `{average}`, `{config}` and `{server}`. Defaults look like `📊 Statistiques — {config}` with a short live description. Already-sent panels are updated automatically when the button text changes.
 
 ### Role claim panel
 

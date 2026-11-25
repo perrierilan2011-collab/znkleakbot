@@ -602,18 +602,24 @@ function pvStatsSpec() {
   const t = TC();
   const s = t.stats || {};
   const labels = {
-    opened: pvVal('#st_label_opened') || s.labels?.opened || 'Tickets opened',
-    open: pvVal('#st_label_open') || s.labels?.open || 'Tickets currently open',
-    vouches: pvVal('#st_label_vouches') || s.labels?.vouches || 'Vouches',
-    rating: pvVal('#st_label_rating') || s.labels?.rating || 'Average rating',
+    opened: pvVal('#st_label_opened') || s.labels?.opened || '🎫 Tickets ouverts',
+    open: pvVal('#st_label_open') || s.labels?.open || '📂 En cours',
+    vouches: pvVal('#st_label_vouches') || s.labels?.vouches || '💬 Avis',
+    rating: pvVal('#st_label_rating') || s.labels?.rating || '⭐ Note moyenne',
   };
-  const values = { tickets: 42, open: 3, vouches: 27, rating: '4.80 / 5', average: '4.80', server: S.g?.name || 'Serveur', config: t?.name || 'support' };
+  const stars = '⭐⭐⭐⭐⭐';
+  const values = { tickets: 42, open: 3, vouches: 27, reviews: 27, stars, rating: '4.80 / 5', average: '4.80', server: S.g?.name || 'Serveur', config: t?.name || 'support' };
   const vars = (x) => String(x || '').replace(/\{(\w+)\}/g, (m, k) => (k in values ? values[k] : m));
   const fields = [];
+  if (pvChecked('#st_show_rating')) {
+    const sub = pvVal('#st_ratingsub');
+    let value = `${pvChecked('#st_showstars') ? stars + ' ' : ''}**${values.rating}**`;
+    if (sub) value += `\n${vars(sub)}`;
+    fields.push({ name: vars(labels.rating), value, inline: false });
+  }
   if (pvChecked('#st_show_opened')) fields.push({ name: vars(labels.opened), value: String(values.tickets), inline: true });
   if (pvChecked('#st_show_open')) fields.push({ name: vars(labels.open), value: String(values.open), inline: true });
   if (pvChecked('#st_show_vouches')) fields.push({ name: vars(labels.vouches), value: String(values.vouches), inline: true });
-  if (pvChecked('#st_show_rating')) fields.push({ name: vars(labels.rating), value: values.rating, inline: true });
   for (const line of pvVal('#st_extra').split(/\r?\n/).map((x) => x.trim()).filter(Boolean).slice(0, 15)) {
     const m = /^(.+?)\s*\|\s*(.*)$/.exec(line);
     if (m) fields.push({ name: vars(m[1]), value: vars(m[2]) || '—', inline: false });
@@ -621,8 +627,8 @@ function pvStatsSpec() {
   return pvMessageHtml({
     embed: {
       color: pvVal('#st_color') || t?.color || S.g.panelColor || '#5865F2',
-      title: vars(pvVal('#st_title') || '📊 Stats — {config}'),
-      desc: pvVal('#st_desc') ? vars(pvVal('#st_desc')) : vars('Statistiques en temps réel de **{server}**.'),
+      title: vars(pvVal('#st_title') || '📊 Statistiques — {config}'),
+      desc: pvVal('#st_desc') ? vars(pvVal('#st_desc')) : vars('-# Statistiques en temps réel de **{server}**.'),
       thumb: pvImg('st_thumb'), image: pvImg('st_image'), footer: vars(pvVal('#st_footer')),
       fields, three: fields.some((f) => f.inline !== false),
     },
@@ -1583,8 +1589,8 @@ function tkStats() {
       <label class="field"><span>Texte à gauche du bouton (grand panel)</span><small>Markdown accepté. Vide = pas de texte.</small><input id="st_section" maxlength="2000" value="${esc('sectionText' in s ? s.sectionText : '**Server stats** — tickets, vouches and average rating')}"></label>
     </div>
     <h3>Message</h3>
-    <label class="field"><span>Titre</span><input id="st_title" maxlength="256" value="${esc(s.title || '')}" placeholder="📊 Stats — {config}"></label>
-    <label class="field"><span>Description</span><small>Vide = description par défaut. Variables : <b>{tickets}</b>, <b>{open}</b>, <b>{vouches}</b>, <b>{rating}</b>, <b>{average}</b>, <b>{server}</b>, <b>{config}</b>.</small><textarea id="st_desc" maxlength="4000" style="min-height:80px">${esc('description' in s ? s.description : '')}</textarea></label>
+    <label class="field"><span>Titre</span><input id="st_title" maxlength="256" value="${esc(s.title || '')}" placeholder="📊 Statistiques — {config}"></label>
+    <label class="field"><span>Description</span><small>Vide = description par défaut. Variables : <b>{tickets}</b>, <b>{open}</b>, <b>{vouches}</b>, <b>{stars}</b>, <b>{rating}</b>, <b>{average}</b>, <b>{server}</b>, <b>{config}</b>.</small><textarea id="st_desc" maxlength="4000" style="min-height:80px">${esc('description' in s ? s.description : '')}</textarea></label>
     <div class="grid2">
       ${imgField('st_image', s.image, 'Image / bannière', 'Grande image affichée dans le panel Stats.')}
       ${imgField('st_thumb', s.thumb, 'Logo / miniature', 'Vide = aucun logo.', { max: 512 })}
@@ -1594,8 +1600,11 @@ function tkStats() {
       <label class="field"><span>Pied de page</span><input id="st_footer" maxlength="2048" value="${esc(s.footer || '')}" placeholder="— aucun —"></label>
     </div>
     <label class="check"><input type="checkbox" id="st_timestamp" ${s.timestamp !== false ? 'checked' : ''}> Afficher la date et l’heure</label>
+    <h3>Note et étoiles</h3>
+    <label class="check"><input type="checkbox" id="st_showstars" ${s.showStars !== false ? 'checked' : ''}> Afficher les étoiles (⭐⭐⭐⭐⭐) à côté de la note moyenne</label>
+    <label class="field"><span>Texte sous la note</span><small>Variables : <b>{vouches}</b>, <b>{reviews}</b>, <b>{rating}</b>, <b>{average}</b>. Vide = aucun texte.</small><input id="st_ratingsub" maxlength="500" value="${esc('ratingSub' in s ? s.ratingSub : '-# sur **{vouches}** avis')}"></label>
     <h3>Champs affichés</h3>
-    <div class="list">${field('opened', 'Tickets opened')}${field('open', 'Tickets currently open')}${field('vouches', 'Vouches')}${field('rating', 'Average rating')}</div>
+    <div class="list">${field('opened', '🎫 Tickets ouverts')}${field('open', '📂 En cours')}${field('vouches', '💬 Avis')}${field('rating', '⭐ Note moyenne')}</div>
     <h3>Champs libres (optionnel)</h3>
     <label class="field"><span>Une ligne par champ : <b>Nom | Valeur</b></span><small>Variables acceptées dans le nom et la valeur. 15 lignes maximum.</small><textarea id="st_extra" maxlength="4000" style="min-height:80px" placeholder="Commandes traitées | {tickets}&#10;Note moyenne | {rating}">${esc(s.extra || '')}</textarea></label>
     <div class="row end"><button class="btn" onclick="statsSave()">Enregistrer le panel Stats</button></div>
@@ -1616,9 +1625,10 @@ async function statsSave() {
         image: imgValue('st_image').data || imgValue('st_image').url,
         thumb: imgValue('st_thumb').data || imgValue('st_thumb').url,
         color: val('st_color'), footer: val('st_footer'), extra: val('st_extra'),
-        timestamp: chk('st_timestamp'),
+        timestamp: chk('st_timestamp'), ratingSub: val('st_ratingsub'),
         showOpened: chk('st_show_opened'), showOpen: chk('st_show_open'),
         showVouches: chk('st_show_vouches'), showRating: chk('st_show_rating'),
+        showStars: chk('st_showstars'),
         labels: {
           opened: val('st_label_opened'), open: val('st_label_open'),
           vouches: val('st_label_vouches'), rating: val('st_label_rating'),

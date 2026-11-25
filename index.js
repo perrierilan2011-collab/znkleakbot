@@ -1882,7 +1882,7 @@ const chunkList = (list, n = MENU_CHUNK) => {
   return out;
 };
 
-// Valeurs disponibles dans le panel Stats : {tickets} {open} {vouches} {rating} {average} {server} {config}
+// Valeurs disponibles dans le panel Stats : {tickets} {open} {vouches} {stars} {rating} {average} {server} {config}
 function statsVars(text, cfg, guild, values = {}) {
   const all = {
     config: cfg?.name || '',
@@ -1890,12 +1890,20 @@ function statsVars(text, cfg, guild, values = {}) {
     tickets: values.tickets ?? cfg?.counter ?? 0,
     open: values.open ?? 0,
     vouches: values.vouches ?? 0,
+    reviews: values.reviews ?? values.vouches ?? 0,
+    stars: values.stars ?? '',
     rating: values.rating ?? '—',
     average: values.average ?? '—',
   };
   let out = String(text ?? '');
   for (const [k, v] of Object.entries(all)) out = out.replaceAll(`{${k}}`, String(v));
   return out;
+}
+
+// Étoiles pleines / vides (arrondi à l'étoile la plus proche) pour la note moyenne.
+function starBar(rating) {
+  const n = Math.max(0, Math.min(5, Math.round(Number(rating) || 0)));
+  return '⭐'.repeat(n) + '☆'.repeat(5 - n);
 }
 
 // Texte à gauche du bouton Stats dans un panel multi-boutons (V2).
@@ -3318,28 +3326,38 @@ async function ticketStats(i) {
     tickets: cfg.counter || 0,
     open,
     vouches: vouches.length,
+    reviews: vouches.length,
+    stars: vouches.length ? starBar(avg) : '',
     rating: vouches.length ? `${avg.toFixed(2)} / 5` : '—',
     average: avg.toFixed(2),
   };
   const vars = (t) => statsVars(t, cfg, i.guild, values);
   const labels = s.labels || {};
   const color = parseColor(s.color || cfg.color || d.panelColor, '#5865F2');
-  const title = vars(s.title || '📊 Stats — {config}').slice(0, 256);
-  const desc = 'description' in s ? s.description : 'Statistiques en temps réel de **{server}**.';
+  const title = vars(s.title || '📊 Statistiques — {config}').slice(0, 256);
+  const desc = 'description' in s ? s.description : '-# Statistiques en temps réel de **{server}**.';
   const files = [];
   const embed = new EmbedBuilder().setColor(color).setTitle(title);
   if (desc) embed.setDescription(vars(desc).slice(0, 4096));
+  // Note moyenne mise en avant : grosses étoiles + note exacte + nombre d'avis.
+  if (s.showRating !== false) {
+    let ratingVal = values.rating;
+    if (vouches.length) {
+      const stars = s.showStars !== false ? `${values.stars} ` : '';
+      ratingVal = `${stars}**${values.rating}**`;
+      const sub = s.ratingSub === undefined ? '-# sur **{vouches}** avis' : s.ratingSub;
+      if (sub) ratingVal += `\n${vars(sub).slice(0, 500)}`;
+    }
+    embed.addFields({ name: vars(labels.rating || '⭐ Note moyenne').slice(0, 256), value: ratingVal.slice(0, 1024), inline: false });
+  }
   if (s.showOpened !== false) {
-    embed.addFields({ name: vars(labels.opened || 'Tickets opened').slice(0, 256), value: String(values.tickets), inline: true });
+    embed.addFields({ name: vars(labels.opened || '🎫 Tickets ouverts').slice(0, 256), value: String(values.tickets), inline: true });
   }
   if (s.showOpen !== false) {
-    embed.addFields({ name: vars(labels.open || 'Tickets currently open').slice(0, 256), value: String(open), inline: true });
+    embed.addFields({ name: vars(labels.open || '📂 En cours').slice(0, 256), value: String(open), inline: true });
   }
   if (s.showVouches !== false) {
-    embed.addFields({ name: vars(labels.vouches || 'Vouches').slice(0, 256), value: String(vouches.length), inline: true });
-  }
-  if (s.showRating !== false) {
-    embed.addFields({ name: vars(labels.rating || 'Average rating').slice(0, 256), value: values.rating, inline: true });
+    embed.addFields({ name: vars(labels.vouches || '💬 Avis').slice(0, 256), value: String(vouches.length), inline: true });
   }
   // Champs libres : une ligne « Nom | Valeur » (variables acceptées), 15 maximum.
   const extra = String(s.extra || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean).slice(0, 15);
