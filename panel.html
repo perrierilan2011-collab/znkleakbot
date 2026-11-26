@@ -202,6 +202,7 @@ const S = {
   omScope: 'config:', advCmd: null, advSub: null, advResult: null,
   emojiTarget: null, emojiTab: 'server', serverEmojis: null,
   uploads: {}, shop: {}, panelEdit: null, panelDraft: null, claimRoleEdit: null,
+  crossTarget: undefined, crossRoles: null, crossRolesFor: null,
   admin: { scope: 'command', key: '', target: 'role', roleId: '', userId: '', memberQ: '', members: [] },
 };
 let mdTarget = null;
@@ -421,6 +422,9 @@ async function boot() {
 async function loadGuild(id) {
   S.gid = id;
   S.claimRoleEdit = null;
+  S.crossTarget = undefined;
+  S.crossRoles = null;
+  S.crossRolesFor = null;
   S.g = await api('/api/guild?id=' + id);
   if (!S.g.tickets.some((t) => t.name === S.tk)) S.tk = S.g.tickets[0]?.name || null;
   S.page = S.page || 'home';
@@ -448,6 +452,7 @@ const NAV = [
   ['home', '🏠', 'Vue d’ensemble'],
   ['tickets', '🎫', 'Tickets'],
   ['roles', '🎭', 'Rôles'],
+  ['crossrole', '🔁', 'Rôle auto'],
   ['vouch', '⭐', 'Vouches'],
   ['sales', '📈', 'Ventes'],
   ['products', '🛍️', 'Produits'],
@@ -471,10 +476,11 @@ function render() {
     if (err) err.hidden = true;
     mdTarget = null;
     renderNav();
-    const pages = { home: pageHome, tickets: pageTickets, roles: pageRoles, vouch: pageVouch, sales: pageSales, products: () => pageShop('product'), restock: () => pageShop('restock'), images: pageImages, admin: pageAdmin, announce: pageAnnounce, appearance: pageAppearance, invites: pageInvites, advanced: pageAdvanced, backup: pageBackup };
+    const pages = { home: pageHome, tickets: pageTickets, roles: pageRoles, crossrole: pageCrossRole, vouch: pageVouch, sales: pageSales, products: () => pageShop('product'), restock: () => pageShop('restock'), images: pageImages, admin: pageAdmin, announce: pageAnnounce, appearance: pageAppearance, invites: pageInvites, advanced: pageAdvanced, backup: pageBackup };
     const mdPages = ['tickets', 'roles', 'vouch', 'products', 'restock', 'advanced'];
     $('#main').innerHTML = (mdPages.includes(S.page) ? mdBar() : '') + (pages[S.page] || pageHome)();
     if (S.page === 'advanced' || (S.page === 'tickets' && S.tab === 'commands')) fillMembers();
+    if (S.page === 'crossrole') ensureCrossRoles();
     if (S.page === 'backup') refreshBackupBoxes();
     pvLock = false;
     renderPreview();
@@ -1932,6 +1938,94 @@ function pageRoles() {
       <label class="field"><span>Texte affiché à côté du bouton</span><small>Markdown accepté. Vide = nom du rôle en gras. Variables : <b>{server}</b>.</small><textarea id="cr_text" maxlength="1000" style="min-height:70px">${esc(edit?.text || '')}</textarea></label>
       <div class="row end">${edit ? '<button class="btn ghost" onclick="S.claimRoleEdit=null;render()">Annuler</button>' : ''}<button class="btn" onclick="claimRoleSave()">${edit ? 'Enregistrer le rôle' : 'Ajouter le rôle'}</button></div>
     </section>`;
+}
+
+/* ================================================================== */
+/*  RÔLE AUTO INTER-SERVEURS                                           */
+/* ================================================================== */
+function crossTargetId() {
+  const c = S.g?.crossRole || {};
+  return S.crossTarget !== undefined ? S.crossTarget : (c.targetGuildId || '');
+}
+// Charge les rôles du serveur cible (une seule fois par serveur sélectionné).
+async function ensureCrossRoles() {
+  const target = crossTargetId();
+  if (!target) {
+    S.crossRoles = [];
+    S.crossRolesFor = null;
+    return;
+  }
+  if (S.crossRolesFor === target) return; // déjà chargé ou chargement en cours
+  S.crossRolesFor = target;
+  S.crossRoles = null;
+  try {
+    const r = await api('/api/guild-roles?id=' + encodeURIComponent(target));
+    if (S.crossRolesFor !== target) return;
+    S.crossRoles = r.roles || [];
+  } catch (e) {
+    if (S.crossRolesFor !== target) return;
+    S.crossRoles = [];
+    toast(e.message, false);
+  }
+  if (S.page === 'crossrole') render();
+}
+function crossLoad(id) {
+  S.crossTarget = id || '';
+  S.crossRoles = null;
+  S.crossRolesFor = null;
+  render();
+}
+async function crossClearPending() {
+  if (!confirm('Vider la liste des attributions en attente ?')) return;
+  try {
+    await api('/api/cross-role', { action: 'clear-pending', guildId: S.gid });
+    await afterChange('Liste des attributions en attente vidée');
+  } catch (e) { toast(e.message, false); }
+}
+function pageCrossRole() {
+  const c = S.g.crossRole || {};
+  const target = crossTargetId();
+  const roles = S.crossRoles;
+  const others = (S.guilds || []).filter((g) => g.id !== S.gid);
+  const keepRole = target && target === (c.targetGuildId || '');
+  const selectedRole = keepRole ? (c.roleId || '') : '';
+  return head('Rôle auto inter-serveurs', 'Quand un membre rejoint ce serveur, le bot lui donne automatiquement un rôle sur un autre serveur.') +
+    `<section class="card">
+      <h2>Configuration</h2>
+      <p class="muted" style="margin-bottom:10px">Le déclencheur est l’arrivée (ou le retour) d’un membre sur <b>${esc(S.g.name)}</b>. Le rôle est donné sur le serveur cible. Le bot doit être présent sur les deux serveurs, avoir la permission <b>Gérer les rôles</b> et son rôle doit être au-dessus du rôle à donner.</p>
+      <label class="check"><input type="checkbox" id="xr_enabled" ${c.enabled && keepRole ? 'checked' : ''}> Activer le rôle auto inter-serveurs</label>
+      <div class="grid2">
+        <label class="field"><span>Serveur source (déclencheur)</span><input value="${esc(S.g.name)}" disabled></label>
+        <label class="field"><span>Serveur cible (où le rôle est donné) <b class="req">*</b></span>
+          <select id="xr_target" onchange="crossLoad(this.value)">
+            <option value="">— choisir un serveur —</option>
+            ${others.map((g) => `<option value="${g.id}" ${target === g.id ? 'selected' : ''}>${esc(g.name)}${g.members != null ? ' (' + g.members + ')' : ''}</option>`).join('')}
+          </select>
+        </label>
+      </div>
+      <label class="field"><span>Rôle à donner <b class="req">*</b></span>
+        <select id="xr_role" ${target ? '' : 'disabled'}>
+          <option value="">${!target ? '— choisis d’abord un serveur cible —' : roles === null ? 'Chargement…' : '— choisir un rôle —'}</option>
+          ${(roles || []).map((r) => `<option value="${r.id}" ${selectedRole === r.id ? 'selected' : ''} ${r.assignable === false ? 'disabled' : ''}>@${esc(r.name)}${r.assignable === false ? ' — au-dessus du bot' : ''}</option>`).join('')}
+        </select>
+        <small>${target ? 'Les rôles gérés par une intégration ou placés au-dessus du rôle du bot ne peuvent pas être attribués.' : ''}</small>
+      </label>
+      <div class="row end" style="margin-top:12px">
+        <button class="btn" onclick="crossSave()">Enregistrer</button>
+      </div>
+      <p class="muted" style="margin-top:10px">${c.enabled && keepRole ? '✅ Actif' : '⏸️ Désactivé'}${c.pending ? ` · ${c.pending} attribution(s) en attente (membre pas encore sur le serveur cible)` : ''}${c.pending ? ` · <button class="mini" onclick="crossClearPending()">Vider</button>` : ''}</p>
+    </section>`;
+}
+async function crossSave() {
+  const target = $('#xr_target').value;
+  const roleId = $('#xr_role').value;
+  const enabled = $('#xr_enabled').checked;
+  if (enabled && (!target || !roleId)) return toast('Choisis le serveur cible et le rôle avant d’activer.', false);
+  try {
+    await api('/api/cross-role', { guildId: S.gid, enabled, targetGuildId: target, roleId });
+    S.crossTarget = target || '';
+    await afterChange(enabled ? 'Rôle auto inter-serveurs activé ✅' : 'Rôle auto inter-serveurs désactivé');
+  } catch (e) { toast(e.message, false); }
 }
 
 /* ---------- Message d'ouverture ---------- */

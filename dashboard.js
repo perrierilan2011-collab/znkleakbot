@@ -217,6 +217,24 @@ module.exports = function startDashboard(ctx) {
       modals: MODALS,
     }),
     'GET /api/guilds': async () => client.guilds.cache.map((g) => ({ id: g.id, name: g.name, icon: g.iconURL({ size: 64 }), members: g.memberCount })),
+    // Rôles d'un autre serveur (utilisé par l'onglet Rôle auto inter-serveurs).
+    'GET /api/guild-roles': async (_r, q) => {
+      const guild = client.guilds.cache.get(q.get('id'));
+      if (!guild) throw new Error('Serveur introuvable');
+      const me = guild.members.me || await guild.members.fetchMe().catch(() => null);
+      const highest = me?.roles?.highest?.position ?? -1;
+      return {
+        id: guild.id,
+        name: guild.name,
+        roles: guild.roles.cache
+          .filter((r) => r.id !== guild.id && !r.managed)
+          .sort((a, b) => b.position - a.position)
+          .map((r) => ({
+            id: r.id, name: r.name, color: r.hexColor || null, position: r.position,
+            assignable: r.position < highest,
+          })),
+      };
+    },
     'GET /api/guild': async (_r, q) => {
       const { guild } = await ctxFor(q.get('id'));
       const d = getG(guild.id);
@@ -228,6 +246,14 @@ module.exports = function startDashboard(ctx) {
         const m = guild.members.cache.get(id);
         if (m) memberNames[id] = m.displayName;
       }
+      // Demandes en attente : elles vivent sur le serveur cible, on ne compte que celles
+      // qui viennent de ce serveur source.
+      const crossTarget = d.crossRole?.targetGuildId && d.crossRole.targetGuildId !== guild.id
+        ? getG(d.crossRole.targetGuildId)
+        : null;
+      const crossPending = crossTarget
+        ? Object.values(crossTarget.crossRole?.pending || {}).filter((p) => p.sourceGuildId === guild.id).length
+        : 0;
       return {
         id: guild.id, name: guild.name, count: guild.memberCount, disabled: d.disabledCommands || [],
         memberNames,
@@ -268,6 +294,12 @@ module.exports = function startDashboard(ctx) {
           showLogo: d.claim?.showLogo !== false, btnStyle: d.claim?.btnStyle || 'Primary',
           mode: d.claim?.mode === 'add' ? 'add' : 'toggle',
           roles: (d.claim?.roles || []).map((r) => ({ id: r.id, roleId: r.roleId, label: r.label, emoji: r.emoji || null, style: r.style || null, text: r.text || '' })),
+        },
+        crossRole: {
+          enabled: !!d.crossRole?.enabled,
+          targetGuildId: d.crossRole?.targetGuildId || null,
+          roleId: d.crossRole?.roleId || null,
+          pending: crossPending,
         },
         memberBackup: d.memberBackup ? { at: d.memberBackup.at, count: (d.memberBackup.members || []).length, guildName: d.memberBackup.guildName || null } : null,
         shopPosts: (d.shopPosts || []).slice(-8).reverse().map((p) => ({
@@ -1174,6 +1206,72 @@ module.exports = function startDashboard(ctx) {
       save();
       const warning = await refresh();
       return { ok: true, warning };
+    },
+    // ---------- Rôle auto inter-serveurs ----------
+    // Le serveur source est celui du dashboard ; la cible et le rôle sont choisis dans l'onglet.
+    'POST /api/cross-role': async (_r, _q, b) => {
+      const source = client.guilds.cache.get(b.guildId);
+      if (!source) throw new Error('Serveur introuvable.');
+      const d = getG(source.id);
+      d.crossRole ??= {};
+      d.crossRole.pending ??= {};
+      const c = d.crossRole;
+      const pendingCount = () => {
+        const target = c.targetGuildId && client.guilds.cache.get(c.targetGuildId);
+        if (!target || target.id === source.id) return 0;
+        return Object.values(getG(target.id).crossRole?.pending || {})
+          .filter((p) => p?.sourceGuildId === source.id).length;
+      };
+
+      if (b.action === 'clear-pending') {
+        const target = c.targetGuildId && client.guilds.cache.get(c.targetGuildId);
+        if (target && target.id !== source.id) {
+          const td = getG(target.id);
+          td.crossRole ??= {};
+          td.crossRole.pending ??= {};
+          for (const [uid, p] of Object.entries(td.crossRole.pending)) {
+            if (p?.sourceGuildId === source.id) delete td.crossRole.pending[uid];
+          }
+        }
+        save();
+        return {
+          ok: true,
+          crossRole: {
+            enabled: !!c.enabled, targetGuildId: c.targetGuildId || null,
+            roleId: c.roleId || null, pending: pendingCount(),
+          },
+        };
+      }
+
+      let targetGuildId = c.targetGuildId || null;
+      if ('targetGuildId' in b) {
+        const target = b.targetGuildId && client.guilds.cache.get(b.targetGuildId);
+        targetGuildId = target && target.id !== source.id ? target.id : null;
+      }
+      let roleId = c.roleId || null;
+      if (!targetGuildId) {
+        roleId = null;
+      } else if ('roleId' in b || 'targetGuildId' in b) {
+        const target = client.guilds.cache.get(targetGuildId);
+        const role = b.roleId && target?.roles.cache.get(b.roleId);
+        roleId = role && !role.managed && role.id !== target.id ? role.id : null;
+      }
+      const enabled = 'enabled' in b ? !!b.enabled : !!c.enabled;
+      if (enabled && (!targetGuildId || !roleId)) {
+        throw new Error('Choisis le serveur cible et le rôle avant d’activer.');
+      }
+
+      c.targetGuildId = targetGuildId;
+      c.roleId = roleId;
+      c.enabled = enabled;
+      save();
+      return {
+        ok: true,
+        crossRole: {
+          enabled: !!c.enabled, targetGuildId: c.targetGuildId || null,
+          roleId: c.roleId || null, pending: pendingCount(),
+        },
+      };
     },
     // Modèles de message d'ouverture : créer / renommer / supprimer
     'POST /api/open-preset': async (_r, _q, b) => {

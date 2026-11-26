@@ -9,6 +9,7 @@ Discord bot for tickets, sales, vouches, invites and moderation, with a web dash
 - **Vouch moderation**: in the vouch channel, staff can open the **ticket logs** and delete any vouch that is not legit. Deleting a vouch also removes its Discord message.
 - **Ticket stats button**: add a **📊 Stats** button to any ticket panel. The stats panel is fully editable in **Tickets → Stats**: button text/emoji/color, title, description, color, image, logo, footer, star rating with the review count, field names and visibility, plus free `Name | Value` fields with variables.
 - **Role claim panel**: a **Roles** tab lets you build a fully customizable panel (title, description, image, logo, color, footer, one button per role with its own text, emoji and color) and send it to a dedicated channel. Members click to get the role; clicking again removes it (optional). The message stays in sync when you edit a role.
+- **Cross-server auto role**: a dedicated **Role auto** tab grants a role on another Discord server when a member joins (or rejoins) the selected server. The bot handles members who are not yet on the target server by keeping a pending grant, applied as soon as they join it.
 - **Vouch-gated closing**: a customer cannot close their ticket without leaving a vouch. They can instead click **Ask a staff member**, which mentions the ticket role; staff can close without a vouch.
 - **Multi-button panel**: a banner, a text and **one button per category** (7 to 9 depending on the banner, Discord limit). Each button opens its category and, if a sub-panel is linked, the first menu of the flow. Rendered with the recent Discord components (button on the right of each text) and automatic fallback to embed + buttons on older discord.js versions.
 - **Custom ticket fields**: in the opening message, add as many fields as you want (name + value, 10 maximum) under the description: price, service, delay… Check **Side by side** on a field to display it next to the others (3 per row, like Discord); unchecked, the name is above the value on the full width. **All side by side** / **All stacked** buttons switch every field at once. Variables `{prix}`, `{paiement}`, `{order}`, `{category}`… are available. Fields automatically replace the two default text lines, and a checkbox removes those lines even without fields.
@@ -19,7 +20,7 @@ Discord bot for tickets, sales, vouches, invites and moderation, with a web dash
 - **Reusable panels**: in **Tickets → Panels**, **📋 Duplicate** copies an already-sent panel into the form so you can change a few things and send a new message, without touching the original.
 - **Member backup / restore**: save every member (name + roles). If the server is banned or recreated, the bot creates a permanent invite and DMs every saved member; roles are restored by name when they join.
 - **Giveaway / sanction panels**: in **Announcements**, choose the **@ of anyone** shown as the giveaway creator (“Organized by”) or as the moderator (“banned by”). Type `@pseudo`, `<@ID>` or the raw ID; the bot turns it into a real mention. The “Organized by”, ban and mute texts are customizable with variables. Empty = the person who ran the command / the default text.
-- **Simplified dashboard**: sections for Home, Tickets, Roles, Vouches, Sales, Products, Restock, Images, Admin, Announcements, Appearance, Invites, Commands, Backup.
+- **Simplified dashboard**: sections for Home, Tickets, Roles, Role auto, Vouches, Sales, Products, Restock, Images, Admin, Announcements, Appearance, Invites, Commands, Backup.
 - **Complete Supabase backup**: `supabase.sql` contains the main table, the history and views to read invites, panels, vouches and sales.
 
 ## Environment variables
@@ -172,6 +173,19 @@ The **Roles** tab configures a self-service role panel:
 - **Buttons**: one per role (25 maximum), with a custom button text, emoji and color, plus a custom text displayed next to the button in the panel. Drag order with **↑ / ↓**.
 
 Click **Send the panel** to post it, or **Update the panel** to edit the existing message in place. Changing a role automatically refreshes the sent panel. The bot refuses a role above its own highest role or managed by an integration.
+
+### Cross-server auto role
+
+The **Role auto** tab gives a role on another server when a member joins the selected server:
+
+- **Source server**: the server currently selected in the dashboard. The trigger is a member joining or rejoining it.
+- **Target server**: any other server where the bot is installed. Choose it from the list.
+- **Role**: the role to grant on the target server. Roles managed by an integration or placed above the bot's highest role cannot be assigned.
+- **Enable**: the feature is inactive until the target server and role are chosen.
+
+When the member is already on the target server, the role is added immediately. Otherwise, the bot keeps a **pending grant** and applies it as soon as the member joins the target server (only if they are still a member of the source server). The tab shows how many grants are pending and lets you clear them.
+
+The bot needs the **Manage Roles** permission on the target server, and its own role must be above the role being granted. Bots are ignored.
 
 
 

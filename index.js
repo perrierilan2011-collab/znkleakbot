@@ -124,6 +124,16 @@ function getG(id) {
   g.claim.showLogo ??= true;
   g.claim.btnStyle ??= 'Primary';
   g.claim.messageChannelId ??= null;
+  // Rôle auto inter-serveurs : quand un membre rejoint CE serveur (source), le bot lui donne
+  // automatiquement un rôle sur un autre serveur (cible).
+  // { enabled, targetGuildId, roleId, pending: { userId: { roleId, sourceGuildId, at } } }
+  // `pending` est stocké sur le serveur CIBLE : le membre n'y est pas encore, le rôle sera
+  // donné dès qu'il rejoindra ce serveur.
+  g.crossRole ??= {};
+  g.crossRole.enabled ??= false;
+  g.crossRole.targetGuildId ??= null;
+  g.crossRole.roleId ??= null;
+  g.crossRole.pending ??= {};
   g.fullRoles ??= [];       // rôles qui ont accès à TOUTES les commandes
   g.history ??= {};         // userId -> [{ type, by, reason, duration, at }]
   g.commandChannelId ??= null; // salon privé où utiliser les commandes
@@ -6393,8 +6403,80 @@ client.on(Events.GuildMemberUpdate, (oldM, newM) => {
   syncMemberTicketAccess(newM).catch(console.error);
 });
 
+/* ------------------------------------------------------------------ */
+/*  Rôle auto inter-serveurs : arrivee sur un serveur -> rôle ailleurs  */
+/* ------------------------------------------------------------------ */
+// Retrouve le serveur cible et le rôle à donner pour un serveur source.
+// Retourne null si la fonctionnalité est désactivée ou si le rôle n'est pas attribuable.
+async function crossRoleTargets(sourceGuildId) {
+  const c = getG(sourceGuildId).crossRole || {};
+  if (!c.enabled || !c.targetGuildId || !c.roleId || c.targetGuildId === sourceGuildId) return null;
+  const target = client.guilds.cache.get(c.targetGuildId)
+    || await client.guilds.fetch(c.targetGuildId).catch(() => null);
+  if (!target) return null;
+  const role = target.roles.cache.get(c.roleId)
+    || await target.roles.fetch(c.roleId).catch(() => null);
+  if (!role || role.managed || role.id === target.id) return null;
+  const me = target.members.me || await target.members.fetchMe().catch(() => null);
+  if (!me || role.position >= me.roles.highest.position) return null;
+  return { target, role };
+}
+
+// Le membre vient de rejoindre le serveur source : on donne le rôle sur le serveur cible.
+// S'il n'est pas encore sur le serveur cible, on garde une demande en attente.
+async function grantCrossRole(member) {
+  if (member.user.bot) return;
+  const pair = await crossRoleTargets(member.guild.id);
+  if (!pair) return;
+  const { target, role } = pair;
+  const tm = await target.members.fetch(member.id).catch(() => null);
+  if (tm) {
+    if (!tm.roles.cache.has(role.id)) {
+      await tm.roles.add(role.id, 'Cross-server auto role').catch(console.error);
+    }
+    return;
+  }
+  const td = getG(target.id);
+  td.crossRole ??= {};
+  td.crossRole.pending ??= {};
+  td.crossRole.pending[member.id] = { roleId: role.id, sourceGuildId: member.guild.id, at: Date.now() };
+  save();
+}
+
+// Le membre rejoint le serveur cible : on applique la demande en attente s'il est toujours
+// membre du serveur source.
+async function applyPendingCrossRole(member) {
+  if (member.user.bot) return;
+  const td = getG(member.guild.id);
+  const p = td.crossRole?.pending?.[member.id];
+  if (!p) return;
+  delete td.crossRole.pending[member.id];
+  save();
+  const source = client.guilds.cache.get(p.sourceGuildId)
+    || await client.guilds.fetch(p.sourceGuildId).catch(() => null);
+  const stillThere = source
+    ? await source.members.fetch(member.id).then(() => true).catch(() => false)
+    : false;
+  if (!stillThere) return;
+  // La configuration source doit toujours pointer vers ce serveur et ce rôle.
+  const sc = getG(p.sourceGuildId).crossRole || {};
+  if (!sc.enabled || sc.targetGuildId !== member.guild.id || sc.roleId !== p.roleId) return;
+  const role = member.guild.roles.cache.get(p.roleId)
+    || await member.guild.roles.fetch(p.roleId).catch(() => null);
+  if (!role || role.managed || role.id === member.guild.id) return;
+  const me = member.guild.members.me || await member.guild.members.fetchMe().catch(() => null);
+  if (!me || role.position >= me.roles.highest.position) return;
+  if (member.roles.cache.has(role.id)) return;
+  await member.roles.add(role.id, 'Cross-server auto role').catch(console.error);
+}
+
 client.on(Events.GuildMemberAdd, async (member) => {
   scheduleCount(member.guild);
+
+  // Rôle auto inter-serveurs : arrivée sur ce serveur (rôle donné sur l'autre serveur)
+  // et application d'une demande en attente si ce serveur est la cible.
+  await applyPendingCrossRole(member).catch(console.error);
+  await grantCrossRole(member).catch(console.error);
 
   // Invitations : on cherche qui a invité ce membre
   await onInviteJoin(member).catch(console.error);
