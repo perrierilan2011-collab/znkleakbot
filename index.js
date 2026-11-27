@@ -143,10 +143,9 @@ function getG(id) {
     g.keyFolders.push({ id: keysLib.makeId(), name: 'general', createdAt: Date.now(), lists: g.keyLists });
     delete g.keyLists;
   }
-  // Message de la commande /key ({key} {folder} {list} {user} {server} {remaining}) et envoi en MP.
+  // Message de la commande /key ({key} {folder} {list} {user} {server} {remaining}).
   g.keyCmd ??= {};
   g.keyCmd.message ??= keysLib.DEFAULT_MESSAGE;
-  g.keyCmd.dm ??= false;
   g.fullRoles ??= [];       // rôles qui ont accès à TOUTES les commandes
   g.history ??= {};         // userId -> [{ type, by, reason, duration, at }]
   g.commandChannelId ??= null; // salon privé où utiliser les commandes
@@ -4126,21 +4125,22 @@ async function runKeyCommand(i) {
   });
 
   try {
-    if (d.keyCmd?.dm) {
-      try {
-        await i.user.send({ content });
-        await i.reply({ content: `📩 Your **${folder.name}/${list.name}** key was sent in DM.`, flags: EPH }).catch(() => {});
-        return;
-      } catch { /* MP fermé : on répond en éphémère */ }
-    }
-    await i.reply({ content, flags: EPH });
+    // La clé est publiée dans le salon : tout le monde doit pouvoir la voir.
+    await i.reply({ content });
   } catch (e) {
     // Rien n'est parti : on remet la clé en tête de liste pour ne pas la perdre.
     list.keys.unshift(key);
     list.sent = Math.max(0, (list.sent || 1) - 1);
     save();
     await i.reply({ content: '❌ Could not send the key. Please try again.', flags: EPH }).catch(() => {});
+    return;
   }
+
+  // Message privé (éphémère) réservé à l'auteur de la commande : nombre de clés restantes.
+  await i.followUp({
+    content: `📊 **${(list.keys || []).length}** key(s) left in **${folder.name}/${list.name}**.`,
+    flags: EPH,
+  }).catch(() => {});
 }
 
 /* ------------------------------------------------------------------ */

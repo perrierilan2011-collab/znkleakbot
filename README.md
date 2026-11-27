@@ -10,7 +10,7 @@ Discord bot for tickets, sales, vouches, invites and moderation, with a web dash
 - **Ticket stats button**: add a **📊 Stats** button to any ticket panel. The stats panel is fully editable in **Tickets → Stats**: button text/emoji/color, title, description, color, image, logo, footer, star rating with the review count, field names and visibility, plus free `Name | Value` fields with variables.
 - **Role claim panel**: a **Roles** tab lets you build a fully customizable panel (title, description, image, logo, color, footer, one button per role with its own text, emoji and color) and send it to a dedicated channel. Members click to get the role; clicking again removes it (optional). The message stays in sync when you edit a role.
 - **Cross-server auto role**: a dedicated **Role auto** tab grants a role on another Discord server when a member joins (or rejoins) the selected server. The bot handles members who are not yet on the target server by keeping a pending grant, applied as soon as they join it.
-- **Key lists**: a dedicated **Keys** tab organises one-line keys in folders and lists (folder `csgo` → list `3mois`, for example). `/key dossier:csgo liste:3mois` sends the first key and removes it from the list, so the same key can never be delivered twice. The reply message and DM delivery are editable in the dashboard.
+- **Key lists**: a dedicated **Keys** tab organises one-line keys in folders and lists (folder `csgo` → list `3mois`, for example). `/key dossier:csgo liste:3mois` posts the key publicly so everyone sees it, then removes it from the list so it can never be delivered twice. The command author also receives an ephemeral message with the number of keys left.
 - **Vouch-gated closing**: a customer cannot close their ticket without leaving a vouch. They can instead click **Ask a staff member**, which mentions the ticket role; staff can close without a vouch.
 - **Multi-button panel**: a banner, a text and **one button per category** (7 to 9 depending on the banner, Discord limit). Each button opens its category and, if a sub-panel is linked, the first menu of the flow. Rendered with the recent Discord components (button on the right of each text) and automatic fallback to embed + buttons on older discord.js versions.
 - **Custom ticket fields**: in the opening message, add as many fields as you want (name + value, 10 maximum) under the description: price, service, delay… Check **Side by side** on a field to display it next to the others (3 per row, like Discord); unchecked, the name is above the value on the full width. **All side by side** / **All stacked** buttons switch every field at once. Variables `{prix}`, `{paiement}`, `{order}`, `{category}`… are available. Fields automatically replace the two default text lines, and a checkbox removes those lines even without fields.
@@ -106,12 +106,11 @@ The **Keys** tab organises keys in **folders** and **lists**, with one key per l
 
 - Create a folder (for example `csgo`), then a list inside it (for example `3mois`) and paste the keys into the text area.
 - A member runs `/key dossier:csgo liste:3mois` (the folder and then its lists are offered by autocomplete).
-- The bot sends the **first key** of the list, then **removes it** immediately. The same key can never be sent twice.
+- The bot posts the **first key** in the channel, visible to everyone, then **removes it** immediately. The same key can never be sent twice.
+- The command author also receives an **ephemeral message** (only they can see it) with the number of keys remaining in the list.
 - Empty lists reply that no keys are left.
 - The tab shows, per folder and per list, how many keys remain and how many were already sent. **Edit**, **Empty** and **Delete** manage lists; folders can be created, renamed and deleted.
 - The reply message is editable in the same tab. Variables: `{key}`, `{folder}`, `{list}`, `{user}`, `{server}` and `{remaining}`. Empty = default message.
-- Enable **Send the key in a DM** to send it privately. If the member's DMs are closed, the bot falls back to an ephemeral reply.
-- Keys are sent ephemerally (only the member who ran the command sees them).
 - To let a role or a member use `/key`, grant access in the **Admin** tab to `/key` (or to the **🔑 Keys** category).
 
 ### Images: link, upload and library

@@ -306,7 +306,6 @@ module.exports = function startDashboard(ctx) {
           cmd: {
             message: d.keyCmd?.message || keysLib.DEFAULT_MESSAGE,
             default: keysLib.DEFAULT_MESSAGE,
-            dm: !!d.keyCmd?.dm,
           },
           limits: { folders: keysLib.MAX_FOLDERS, lists: keysLib.MAX_LISTS },
           folders: (d.keyFolders || []).map((f) => {
@@ -383,7 +382,6 @@ module.exports = function startDashboard(ctx) {
           const msg = String(b.message ?? '').replace(/\r/g, '').trim();
           d.keyCmd.message = msg ? msg.slice(0, keysLib.MAX_MESSAGE) : keysLib.DEFAULT_MESSAGE;
         }
-        if ('dm' in b) d.keyCmd.dm = !!b.dm;
         save();
         return { ok: true };
       }

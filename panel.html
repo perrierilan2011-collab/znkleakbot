@@ -2158,7 +2158,7 @@ async function keySaveCmd() {
   try {
     await api('/api/key', {
       action: 'cmd', guildId: S.gid,
-      message: $('#key_msg').value, dm: $('#key_dm').checked,
+      message: $('#key_msg').value,
     });
     await afterChange('Commande /key enregistrée ✅');
   } catch (e) { toast(e.message, false); }
@@ -2230,13 +2230,13 @@ function pageKeys() {
           </div></div>`).join('') || '<div class="empty">Aucune liste dans ce dossier.</div>'}</div>
     </section>`).join('');
 
-  return head('Clés', 'Range tes clés dans des dossiers, puis dans des listes. La commande /key envoie une clé et la retire aussitôt : elle ne peut jamais partir deux fois.') +
+  return head('Clés', 'Range tes clés dans des dossiers, puis dans des listes. /key publie une clé dans le salon et la retire aussitôt : elle ne peut jamais partir deux fois.') +
     `<section class="card">
       <h2>Commande /key</h2>
       <p class="muted" style="margin-bottom:10px">Le membre tape <b>/key dossier:csgo liste:3mois</b> (le dossier puis la liste sont proposés en autocomplétion). La première clé de la liste est envoyée puis supprimée.</p>
+      <div class="alert info" style="margin-bottom:12px">La clé est publiée dans le salon : <b>tout le monde la voit</b>. L’auteur de la commande reçoit en plus un message éphémère (visible de lui seul) avec le <b>nombre de clés restantes</b>.</div>
       <label class="field"><span>Message envoyé avec la clé</span><small>Variables : <b>{key}</b>, <b>{folder}</b>, <b>{list}</b>, <b>{user}</b>, <b>{server}</b>, <b>{remaining}</b>. Vide = message par défaut.</small>
         <textarea id="key_msg" maxlength="2000" style="min-height:110px" oninput="keyPreviewUpdate()">${esc(cmd.message || '')}</textarea></label>
-      <label class="check"><input type="checkbox" id="key_dm" ${cmd.dm ? 'checked' : ''}> Envoyer la clé en message privé (MP) — si le MP est fermé, la clé part en éphémère</label>
       <div class="row end" style="margin-top:12px"><button class="btn" onclick="keySaveCmd()">Enregistrer la commande</button></div>
       <h3 style="margin-top:18px">Aperçu</h3>
       <pre id="key_preview" style="white-space:pre-wrap;background:var(--panel2);padding:12px;border-radius:8px;margin:0;font-family:inherit">${esc(preview)}</pre>

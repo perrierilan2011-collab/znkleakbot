@@ -4,7 +4,7 @@
 
 const crypto = require('crypto');
 
-const DEFAULT_MESSAGE = '🔑 Here is your key for **{folder}/{list}**:\n```\n{key}\n```\n-# {remaining} key(s) left';
+const DEFAULT_MESSAGE = '🔑 Here is your key for **{folder}/{list}**:\n```\n{key}\n```';
 const MAX_KEYS = 5000;
 const MAX_KEY_LENGTH = 1000;
 const MAX_MESSAGE = 2000;
