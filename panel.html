@@ -203,6 +203,7 @@ const S = {
   emojiTarget: null, emojiTab: 'server', serverEmojis: null,
   uploads: {}, shop: {}, panelEdit: null, panelDraft: null, claimRoleEdit: null,
   crossTarget: undefined, crossRoles: null, crossRolesFor: null,
+  keyEdit: null, keyFull: null, keyFolder: null, keyFolderEdit: null,
   admin: { scope: 'command', key: '', target: 'role', roleId: '', userId: '', memberQ: '', members: [] },
 };
 let mdTarget = null;
@@ -425,6 +426,10 @@ async function loadGuild(id) {
   S.crossTarget = undefined;
   S.crossRoles = null;
   S.crossRolesFor = null;
+  S.keyEdit = null;
+  S.keyFull = null;
+  S.keyFolder = null;
+  S.keyFolderEdit = null;
   S.g = await api('/api/guild?id=' + id);
   if (!S.g.tickets.some((t) => t.name === S.tk)) S.tk = S.g.tickets[0]?.name || null;
   S.page = S.page || 'home';
@@ -453,6 +458,7 @@ const NAV = [
   ['tickets', '🎫', 'Tickets'],
   ['roles', '🎭', 'Rôles'],
   ['crossrole', '🔁', 'Rôle auto'],
+  ['keys', '🔑', 'Clés'],
   ['vouch', '⭐', 'Vouches'],
   ['sales', '📈', 'Ventes'],
   ['products', '🛍️', 'Produits'],
@@ -476,7 +482,7 @@ function render() {
     if (err) err.hidden = true;
     mdTarget = null;
     renderNav();
-    const pages = { home: pageHome, tickets: pageTickets, roles: pageRoles, crossrole: pageCrossRole, vouch: pageVouch, sales: pageSales, products: () => pageShop('product'), restock: () => pageShop('restock'), images: pageImages, admin: pageAdmin, announce: pageAnnounce, appearance: pageAppearance, invites: pageInvites, advanced: pageAdvanced, backup: pageBackup };
+    const pages = { home: pageHome, tickets: pageTickets, roles: pageRoles, crossrole: pageCrossRole, keys: pageKeys, vouch: pageVouch, sales: pageSales, products: () => pageShop('product'), restock: () => pageShop('restock'), images: pageImages, admin: pageAdmin, announce: pageAnnounce, appearance: pageAppearance, invites: pageInvites, advanced: pageAdvanced, backup: pageBackup };
     const mdPages = ['tickets', 'roles', 'vouch', 'products', 'restock', 'advanced'];
     $('#main').innerHTML = (mdPages.includes(S.page) ? mdBar() : '') + (pages[S.page] || pageHome)();
     if (S.page === 'advanced' || (S.page === 'tickets' && S.tab === 'commands')) fillMembers();
@@ -2026,6 +2032,226 @@ async function crossSave() {
     S.crossTarget = target || '';
     await afterChange(enabled ? 'Rôle auto inter-serveurs activé ✅' : 'Rôle auto inter-serveurs désactivé');
   } catch (e) { toast(e.message, false); }
+}
+
+/* ================================================================== */
+/*  DOSSIERS ET LISTES DE CLÉS (/key)                                  */
+/* ================================================================== */
+function keyFolderFind(id) {
+  return (S.g?.keys?.folders || []).find((f) => f.id === id) || null;
+}
+function keyListFind(folderId, listId) {
+  const folder = keyFolderFind(folderId);
+  return { folder, list: (folder?.lists || []).find((l) => l.id === listId) || null };
+}
+function keyRenderPreview(template, key, folder, list, server, remaining) {
+  return String(template || '')
+    .split('{key}').join(key)
+    .split('{folder}').join(folder)
+    .split('{list}').join(list)
+    .split('{user}').join('@Membre')
+    .split('{server}').join(server)
+    .split('{remaining}').join(String(remaining));
+}
+function keyPreviewUpdate() {
+  const el = $('#key_preview');
+  if (!el) return;
+  const template = $('#key_msg')?.value || S.g?.keys?.cmd?.default || '';
+  el.textContent = keyRenderPreview(template, 'ZNK-XXXX-XXXX-XXXX', 'csgo', '3mois', S.g?.name || 'Serveur', 9);
+}
+
+/* ---------- Dossiers ---------- */
+function keyFolderNew() {
+  S.keyFolderEdit = 'new';
+  S.keyEdit = null;
+  S.keyFull = null;
+  render();
+}
+function keyFolderEdit(id) {
+  S.keyFolderEdit = id || 'new';
+  S.keyEdit = null;
+  S.keyFull = null;
+  render();
+}
+function keyFolderCancel() {
+  S.keyFolderEdit = null;
+  render();
+}
+async function keyFolderSave() {
+  const editing = S.keyFolderEdit && S.keyFolderEdit !== 'new';
+  try {
+    const r = await api('/api/key', {
+      action: editing ? 'folder-update' : 'folder-create',
+      guildId: S.gid,
+      id: editing ? S.keyFolderEdit : undefined,
+      name: $('#key_folder_name').value,
+    });
+    S.keyFolderEdit = null;
+    await afterChange(editing ? 'Dossier renommé ✅' : 'Dossier créé ✅');
+    // Après la création d'un dossier, on ouvre directement le formulaire de sa première liste.
+    if (!editing && r?.id) {
+      S.keyFolder = r.id;
+      S.keyEdit = 'new';
+      S.keyFull = { name: '', keys: '', remaining: 0 };
+      render();
+    }
+  } catch (e) { toast(e.message, false); }
+}
+async function keyFolderDelete(id) {
+  const f = keyFolderFind(id);
+  if (!f || !confirm(`Supprimer le dossier « ${f.name} », ses ${(f.lists || []).length} liste(s) et ses ${f.remaining} clé(s) restante(s) ?`)) return;
+  try {
+    await api('/api/key', { action: 'folder-delete', guildId: S.gid, id });
+    if (S.keyFolderEdit === id) S.keyFolderEdit = null;
+    if (S.keyFolder === id) { S.keyFolder = null; S.keyEdit = null; S.keyFull = null; }
+    await afterChange('Dossier supprimé');
+  } catch (e) { toast(e.message, false); }
+}
+
+/* ---------- Listes ---------- */
+async function keyEdit(folderId, id) {
+  S.keyFolder = folderId || null;
+  S.keyFolderEdit = null;
+  S.keyEdit = id || 'new';
+  S.keyFull = null;
+  if (!id) {
+    S.keyFull = { name: '', keys: '', remaining: 0 };
+    render();
+    return;
+  }
+  if (!S.keyFolder) { S.keyEdit = null; return toast('Dossier introuvable.', false); }
+  try {
+    S.keyFull = await api('/api/key-get?guildId=' + encodeURIComponent(S.gid)
+      + '&folderId=' + encodeURIComponent(S.keyFolder) + '&listId=' + encodeURIComponent(id));
+    render();
+  } catch (e) {
+    S.keyEdit = null;
+    S.keyFull = null;
+    toast(e.message, false);
+  }
+}
+function keyCancel() {
+  S.keyEdit = null;
+  S.keyFull = null;
+  S.keyFolder = null;
+  render();
+}
+async function keySave() {
+  if (!S.keyFolder) return toast('Choisis un dossier.', false);
+  const editing = S.keyEdit && S.keyEdit !== 'new';
+  try {
+    await api('/api/key', {
+      action: editing ? 'update' : 'create',
+      guildId: S.gid,
+      folderId: S.keyFolder,
+      id: editing ? S.keyEdit : undefined,
+      name: $('#key_name').value,
+      keys: $('#key_keys').value,
+    });
+    S.keyEdit = null;
+    S.keyFull = null;
+    S.keyFolder = null;
+    await afterChange(editing ? 'Liste de clés enregistrée ✅' : 'Liste de clés créée ✅');
+  } catch (e) { toast(e.message, false); }
+}
+async function keySaveCmd() {
+  try {
+    await api('/api/key', {
+      action: 'cmd', guildId: S.gid,
+      message: $('#key_msg').value, dm: $('#key_dm').checked,
+    });
+    await afterChange('Commande /key enregistrée ✅');
+  } catch (e) { toast(e.message, false); }
+}
+async function keyDelete(folderId, id) {
+  const { folder, list } = keyListFind(folderId, id);
+  if (!list || !confirm(`Supprimer la liste « ${folder.name}/${list.name} » et ses ${list.remaining} clé(s) restante(s) ?`)) return;
+  try {
+    await api('/api/key', { action: 'delete', guildId: S.gid, folderId, id });
+    if (S.keyEdit === id) { S.keyEdit = null; S.keyFull = null; S.keyFolder = null; }
+    await afterChange('Liste de clés supprimée');
+  } catch (e) { toast(e.message, false); }
+}
+async function keyClear(folderId, id) {
+  const { folder, list } = keyListFind(folderId, id);
+  if (!list || !list.remaining) return;
+  if (!confirm(`Vider les ${list.remaining} clé(s) restante(s) de « ${folder.name}/${list.name} » ? Cette action est définitive.`)) return;
+  try {
+    await api('/api/key', { action: 'clear', guildId: S.gid, folderId, id });
+    if (S.keyEdit === id) { S.keyEdit = null; S.keyFull = null; S.keyFolder = null; }
+    await afterChange('Liste de clés vidée');
+  } catch (e) { toast(e.message, false); }
+}
+
+function pageKeys() {
+  const k = S.g.keys || { cmd: {}, folders: [] };
+  const cmd = k.cmd || {};
+  const folders = k.folders || [];
+  const limits = k.limits || { folders: 50, lists: 100 };
+  const editing = S.keyEdit && S.keyEdit !== 'new' ? S.keyFull : null;
+  const formFolder = keyFolderFind(S.keyFolder) || (S.keyFull?.folderName ? { name: S.keyFull.folderName } : null);
+  const folderEditing = S.keyFolderEdit && S.keyFolderEdit !== 'new' ? keyFolderFind(S.keyFolderEdit) : null;
+  const preview = keyRenderPreview(cmd.message || cmd.default || '', 'ZNK-XXXX-XXXX-XXXX', 'csgo', '3mois', S.g.name || 'Serveur', 9);
+
+  const listForm = S.keyEdit ? `<section class="card">
+      <h2>${editing ? 'Modifier « ' + esc(editing.name) + ' »' : 'Nouvelle liste de clés'}</h2>
+      <p class="muted" style="margin-bottom:12px">Dossier : <b>📁 ${esc(formFolder?.name || '?')}</b> · commande <b>/key dossier:${esc(formFolder?.name || '?')} liste:${esc(S.keyFull?.name || '3mois')}</b></p>
+      <label class="field"><span>Nom de la liste <b class="req">*</b></span><small>Lettres, chiffres, - et _ uniquement. Les espaces deviennent des tirets.</small>
+        <input id="key_name" maxlength="32" value="${esc(S.keyFull?.name || '')}" placeholder="3mois"></label>
+      <label class="field"><span>Clés (une par ligne) <b class="req">*</b></span><small>${editing ? `${editing.remaining} clé(s) restante(s). ` : ''}Les lignes vides et les doublons sont retirés. Une clé envoyée est automatiquement supprimée de la liste.</small>
+        <textarea id="key_keys" maxlength="200000" style="min-height:220px;font-family:ui-monospace,Consolas,monospace" placeholder="ZNK-AAAA-BBBB&#10;ZNK-CCCC-DDDD">${esc(S.keyFull?.keys || '')}</textarea></label>
+      <div class="row end"><button class="btn ghost" onclick="keyCancel()">Annuler</button><button class="btn" onclick="keySave()">${editing ? 'Enregistrer la liste' : 'Créer la liste'}</button></div>
+    </section>` : '';
+
+  const folderForm = S.keyFolderEdit ? `<section class="card">
+      <h2>${folderEditing ? 'Renommer le dossier « ' + esc(folderEditing.name) + ' »' : 'Nouveau dossier'}</h2>
+      <label class="field"><span>Nom du dossier <b class="req">*</b></span><small>Exemple : <b>csgo</b>. Le dossier apparaît ensuite dans la commande : <b>/key dossier:csgo liste:…</b></small>
+        <input id="key_folder_name" maxlength="32" value="${esc(folderEditing?.name || '')}" placeholder="csgo"></label>
+      <div class="row end"><button class="btn ghost" onclick="keyFolderCancel()">Annuler</button><button class="btn" onclick="keyFolderSave()">${folderEditing ? 'Renommer' : 'Créer le dossier'}</button></div>
+    </section>` : '';
+
+  const folderCards = folders.map((f) => `<section class="card">
+      <div class="row" style="justify-content:space-between;align-items:flex-start">
+        <div><h2 style="margin:0">📁 ${esc(f.name)}</h2>
+          <small class="muted">${f.lists.length} liste(s) · ${f.remaining} clé(s) restante(s) · ${f.sent} envoyée(s)</small></div>
+        <div class="row">
+          <button class="mini" onclick="keyEdit('${f.id}', null)">+ Liste</button>
+          <button class="mini" onclick="keyFolderEdit('${f.id}')">Renommer</button>
+          <button class="mini" onclick="keyFolderDelete('${f.id}')">Supprimer</button>
+        </div>
+      </div>
+      <div class="list" style="margin-top:12px">${f.lists.map((l) => `
+        <div class="item"><div class="grow"><b>🔑 ${esc(l.name)}</b>
+          <small>${l.remaining} clé(s) restante(s) · ${l.sent} envoyée(s) · /key dossier:${esc(f.name)} liste:${esc(l.name)}</small></div>
+          <div class="row">
+            <button class="mini" onclick="keyEdit('${f.id}','${l.id}')">Modifier</button>
+            <button class="mini" onclick="keyClear('${f.id}','${l.id}')" ${l.remaining ? '' : 'disabled'}>Vider</button>
+            <button class="mini" onclick="keyDelete('${f.id}','${l.id}')">Supprimer</button>
+          </div></div>`).join('') || '<div class="empty">Aucune liste dans ce dossier.</div>'}</div>
+    </section>`).join('');
+
+  return head('Clés', 'Range tes clés dans des dossiers, puis dans des listes. La commande /key envoie une clé et la retire aussitôt : elle ne peut jamais partir deux fois.') +
+    `<section class="card">
+      <h2>Commande /key</h2>
+      <p class="muted" style="margin-bottom:10px">Le membre tape <b>/key dossier:csgo liste:3mois</b> (le dossier puis la liste sont proposés en autocomplétion). La première clé de la liste est envoyée puis supprimée.</p>
+      <label class="field"><span>Message envoyé avec la clé</span><small>Variables : <b>{key}</b>, <b>{folder}</b>, <b>{list}</b>, <b>{user}</b>, <b>{server}</b>, <b>{remaining}</b>. Vide = message par défaut.</small>
+        <textarea id="key_msg" maxlength="2000" style="min-height:110px" oninput="keyPreviewUpdate()">${esc(cmd.message || '')}</textarea></label>
+      <label class="check"><input type="checkbox" id="key_dm" ${cmd.dm ? 'checked' : ''}> Envoyer la clé en message privé (MP) — si le MP est fermé, la clé part en éphémère</label>
+      <div class="row end" style="margin-top:12px"><button class="btn" onclick="keySaveCmd()">Enregistrer la commande</button></div>
+      <h3 style="margin-top:18px">Aperçu</h3>
+      <pre id="key_preview" style="white-space:pre-wrap;background:var(--panel2);padding:12px;border-radius:8px;margin:0;font-family:inherit">${esc(preview)}</pre>
+    </section>
+    ${listForm}
+    ${folderForm}
+    <section class="card">
+      <div class="row" style="justify-content:space-between"><h2>Dossiers (${folders.length}/${limits.folders})</h2>
+        <button class="btn" onclick="keyFolderNew()">+ Nouveau dossier</button></div>
+      ${folders.length ? '<div class="alert info" style="margin:12px 0">Chaque dossier peut contenir plusieurs listes. Exemple : dossier <b>csgo</b> → liste <b>3mois</b>.</div>' : ''}
+    </section>
+    ${folderCards || '<section class="card"><div class="empty">Aucun dossier : crée ton premier dossier (ex. csgo), puis ajoute une liste (ex. 3mois).</div></section>'}
+    <section class="card">
+      <div class="alert info">Pour autoriser un rôle ou un membre à utiliser <b>/key</b>, va dans l’onglet <b>Admin</b> et donne-lui l’accès à la commande <b>/key</b> (ou à la catégorie <b>🔑 Keys</b>).</div>
+    </section>`;
 }
 
 /* ---------- Message d'ouverture ---------- */

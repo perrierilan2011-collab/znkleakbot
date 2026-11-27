@@ -10,6 +10,7 @@ Discord bot for tickets, sales, vouches, invites and moderation, with a web dash
 - **Ticket stats button**: add a **📊 Stats** button to any ticket panel. The stats panel is fully editable in **Tickets → Stats**: button text/emoji/color, title, description, color, image, logo, footer, star rating with the review count, field names and visibility, plus free `Name | Value` fields with variables.
 - **Role claim panel**: a **Roles** tab lets you build a fully customizable panel (title, description, image, logo, color, footer, one button per role with its own text, emoji and color) and send it to a dedicated channel. Members click to get the role; clicking again removes it (optional). The message stays in sync when you edit a role.
 - **Cross-server auto role**: a dedicated **Role auto** tab grants a role on another Discord server when a member joins (or rejoins) the selected server. The bot handles members who are not yet on the target server by keeping a pending grant, applied as soon as they join it.
+- **Key lists**: a dedicated **Keys** tab organises one-line keys in folders and lists (folder `csgo` → list `3mois`, for example). `/key dossier:csgo liste:3mois` sends the first key and removes it from the list, so the same key can never be delivered twice. The reply message and DM delivery are editable in the dashboard.
 - **Vouch-gated closing**: a customer cannot close their ticket without leaving a vouch. They can instead click **Ask a staff member**, which mentions the ticket role; staff can close without a vouch.
 - **Multi-button panel**: a banner, a text and **one button per category** (7 to 9 depending on the banner, Discord limit). Each button opens its category and, if a sub-panel is linked, the first menu of the flow. Rendered with the recent Discord components (button on the right of each text) and automatic fallback to embed + buttons on older discord.js versions.
 - **Custom ticket fields**: in the opening message, add as many fields as you want (name + value, 10 maximum) under the description: price, service, delay… Check **Side by side** on a field to display it next to the others (3 per row, like Discord); unchecked, the name is above the value on the full width. **All side by side** / **All stacked** buttons switch every field at once. Variables `{prix}`, `{paiement}`, `{order}`, `{category}`… are available. Fields automatically replace the two default text lines, and a checkbox removes those lines even without fields.
@@ -20,7 +21,7 @@ Discord bot for tickets, sales, vouches, invites and moderation, with a web dash
 - **Reusable panels**: in **Tickets → Panels**, **📋 Duplicate** copies an already-sent panel into the form so you can change a few things and send a new message, without touching the original.
 - **Member backup / restore**: save every member (name + roles). If the server is banned or recreated, the bot creates a permanent invite and DMs every saved member; roles are restored by name when they join.
 - **Giveaway / sanction panels**: in **Announcements**, choose the **@ of anyone** shown as the giveaway creator (“Organized by”) or as the moderator (“banned by”). Type `@pseudo`, `<@ID>` or the raw ID; the bot turns it into a real mention. The “Organized by”, ban and mute texts are customizable with variables. Empty = the person who ran the command / the default text.
-- **Simplified dashboard**: sections for Home, Tickets, Roles, Role auto, Vouches, Sales, Products, Restock, Images, Admin, Announcements, Appearance, Invites, Commands, Backup.
+- **Simplified dashboard**: sections for Home, Tickets, Roles, Role auto, Keys, Vouches, Sales, Products, Restock, Images, Admin, Announcements, Appearance, Invites, Commands, Backup.
 - **Complete Supabase backup**: `supabase.sql` contains the main table, the history and views to read invites, panels, vouches and sales.
 
 ## Environment variables
@@ -98,6 +99,20 @@ No need to start over: a sent message stays editable and reusable.
 Each choice of a sub-panel has a stock status. In **Tickets → Sub-panels**, open a sub-panel and click **Plus en stock** on a choice: the choice then shows **⛔ Out of stock** in the Discord menu, and members who select it are told it is out of stock.
 
 Click **Remettre en stock** to put it back: the bot immediately posts an automatic message with the choice name in the channel configured at the top of the **Restock** page (**Automatic restock announcement**). The title, text above the embed, description, image, logo/thumbnail, footer and color are editable there, with variables `{choice}`, `{price}`, `{sub}`, `{config}` and `{server}`. Default: `📦 Restock` / `**{choice}** est de nouveau en stock !`. The **Send a test** button posts a preview in the channel without changing any choice.
+
+### Key lists (`/key`)
+
+The **Keys** tab organises keys in **folders** and **lists**, with one key per line:
+
+- Create a folder (for example `csgo`), then a list inside it (for example `3mois`) and paste the keys into the text area.
+- A member runs `/key dossier:csgo liste:3mois` (the folder and then its lists are offered by autocomplete).
+- The bot sends the **first key** of the list, then **removes it** immediately. The same key can never be sent twice.
+- Empty lists reply that no keys are left.
+- The tab shows, per folder and per list, how many keys remain and how many were already sent. **Edit**, **Empty** and **Delete** manage lists; folders can be created, renamed and deleted.
+- The reply message is editable in the same tab. Variables: `{key}`, `{folder}`, `{list}`, `{user}`, `{server}` and `{remaining}`. Empty = default message.
+- Enable **Send the key in a DM** to send it privately. If the member's DMs are closed, the bot falls back to an ephemeral reply.
+- Keys are sent ephemerally (only the member who ran the command sees them).
+- To let a role or a member use `/key`, grant access in the **Admin** tab to `/key` (or to the **🔑 Keys** category).
 
 ### Images: link, upload and library
 

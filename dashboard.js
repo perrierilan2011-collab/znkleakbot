@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const sb = require('./supabase');
+const keysLib = require('./keys');
 
 const F = (id, label, long, max, req) => ({ id, label, long, max, req });
 const ANN = (t) => [F('titre', 'Titre', 0, 256), F('texte', t, 1, 4000, 1), F('image_url', "URL d'image", 0, 500),
@@ -301,6 +302,25 @@ module.exports = function startDashboard(ctx) {
           roleId: d.crossRole?.roleId || null,
           pending: crossPending,
         },
+        keys: {
+          cmd: {
+            message: d.keyCmd?.message || keysLib.DEFAULT_MESSAGE,
+            default: keysLib.DEFAULT_MESSAGE,
+            dm: !!d.keyCmd?.dm,
+          },
+          limits: { folders: keysLib.MAX_FOLDERS, lists: keysLib.MAX_LISTS },
+          folders: (d.keyFolders || []).map((f) => {
+            const lists = (f.lists || []).map((l) => ({
+              id: l.id, name: l.name, remaining: (l.keys || []).length,
+              sent: l.sent || 0, createdAt: l.createdAt || null,
+            }));
+            return {
+              id: f.id, name: f.name, createdAt: f.createdAt || null, lists,
+              remaining: lists.reduce((n, l) => n + l.remaining, 0),
+              sent: lists.reduce((n, l) => n + l.sent, 0),
+            };
+          }),
+        },
         memberBackup: d.memberBackup ? { at: d.memberBackup.at, count: (d.memberBackup.members || []).length, guildName: d.memberBackup.guildName || null } : null,
         shopPosts: (d.shopPosts || []).slice(-8).reverse().map((p) => ({
           ...p,
@@ -334,6 +354,120 @@ module.exports = function startDashboard(ctx) {
           fullRoles: d.fullRoles || [], fullUsers: d.fullUsers || [], modRoles: d.modRoles || [],
         },
       };
+    },
+    // ---------- Dossiers et listes de clés (/key) ----------
+    // Contenu complet d'une liste, chargé seulement au clic sur « Modifier ».
+    'GET /api/key-get': async (_r, q) => {
+      const { guild } = await ctxFor(q.get('guildId'));
+      const d = getG(guild.id);
+      const { folder, list } = keysLib.findListById(d.keyFolders, q.get('folderId'), q.get('listId'));
+      if (!folder || !list) throw new Error('Liste introuvable.');
+      return {
+        folderId: folder.id, folderName: folder.name,
+        id: list.id, name: list.name, keys: (list.keys || []).join('\n'),
+        remaining: (list.keys || []).length, sent: list.sent || 0,
+      };
+    },
+    'POST /api/key': async (_r, _q, b) => {
+      const { guild } = await ctxFor(b.guildId);
+      const d = getG(guild.id);
+      d.keyFolders ??= [];
+      d.keyCmd ??= {};
+      const action = b.action || 'save';
+      const folder = b.folderId ? d.keyFolders.find((f) => f.id === b.folderId) : null;
+      if (folder) folder.lists ??= [];
+      const list = folder && b.id ? folder.lists.find((x) => x.id === b.id) : null;
+
+      if (action === 'cmd') {
+        if ('message' in b) {
+          const msg = String(b.message ?? '').replace(/\r/g, '').trim();
+          d.keyCmd.message = msg ? msg.slice(0, keysLib.MAX_MESSAGE) : keysLib.DEFAULT_MESSAGE;
+        }
+        if ('dm' in b) d.keyCmd.dm = !!b.dm;
+        save();
+        return { ok: true };
+      }
+
+      /* ---------- Dossiers ---------- */
+      if (action === 'folder-create' || action === 'folder-update') {
+        const name = keysLib.normalizeName(b.name);
+        if (!name) throw new Error('Nom de dossier invalide (lettres, chiffres, - et _).');
+        const editing = action === 'folder-update' ? d.keyFolders.find((f) => f.id === b.id) : null;
+        if (action === 'folder-update' && !editing) throw new Error('Dossier introuvable.');
+        if (d.keyFolders.some((f) => f !== editing && keysLib.nameKey(f.name) === keysLib.nameKey(name))) {
+          throw new Error('Un dossier porte déjà ce nom.');
+        }
+        if (!editing && d.keyFolders.length >= keysLib.MAX_FOLDERS) {
+          throw new Error(`${keysLib.MAX_FOLDERS} dossiers maximum.`);
+        }
+        if (editing) {
+          editing.name = name;
+          save();
+          return { ok: true, id: editing.id };
+        }
+        const created = { id: keysLib.makeId(), name, createdAt: Date.now(), lists: [] };
+        d.keyFolders.push(created);
+        save();
+        return { ok: true, id: created.id };
+      }
+      if (action === 'folder-delete') {
+        const f = d.keyFolders.find((x) => x.id === b.id);
+        if (!f) throw new Error('Dossier introuvable.');
+        d.keyFolders = d.keyFolders.filter((x) => x !== f);
+        save();
+        return { ok: true };
+      }
+
+      /* ---------- Listes ---------- */
+      if (!folder) throw new Error('Dossier introuvable.');
+      if (!list && ['update', 'delete', 'clear'].includes(action)) throw new Error('Liste introuvable.');
+      if (action === 'clear') {
+        list.keys = [];
+        save();
+        return { ok: true };
+      }
+      if (action === 'delete') {
+        folder.lists = folder.lists.filter((x) => x !== list);
+        save();
+        return { ok: true };
+      }
+      if (action === 'create' || action === 'update') {
+        const name = keysLib.normalizeName(b.name);
+        if (!name) throw new Error('Nom de liste invalide (lettres, chiffres, - et _).');
+        if (folder.lists.some((x) => x !== list && keysLib.nameKey(x.name) === keysLib.nameKey(name))) {
+          throw new Error('Une liste porte déjà ce nom dans ce dossier.');
+        }
+        if (!list && folder.lists.length >= keysLib.MAX_LISTS) {
+          throw new Error(`${keysLib.MAX_LISTS} listes maximum par dossier.`);
+        }
+        const keys = keysLib.parseLines(b.keys);
+        // Une clé ne doit jamais pouvoir être distribuée deux fois : on refuse les doublons
+        // présents dans une autre liste (le même dossier ou un autre).
+        const used = new Set();
+        for (const f of d.keyFolders) {
+          for (const l of (f.lists || [])) {
+            if (l === list) continue;
+            for (const k of (l.keys || [])) used.add(k);
+          }
+        }
+        const dup = keys.filter((k) => used.has(k));
+        if (dup.length) {
+          throw new Error(`Clé(s) déjà présente(s) dans une autre liste : ${dup.slice(0, 3).join(', ')}${dup.length > 3 ? '…' : ''}.`);
+        }
+        if (list) {
+          list.name = name;
+          list.keys = keys;
+          save();
+          return { ok: true, id: list.id };
+        }
+        const created = {
+          id: keysLib.makeId(), name, keys, sent: 0, createdAt: Date.now(),
+        };
+        folder.lists.push(created);
+        save();
+        return { ok: true, id: created.id };
+      }
+      throw new Error('Action inconnue.');
     },
     // Paramètres complets d'un message produit / restock (images importées incluses).
     'GET /api/shop-get': async (_r, q) => {

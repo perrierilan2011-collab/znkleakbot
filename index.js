@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const supabase = require('./supabase'); // sauvegarde distante (variables SUPABASE_URL / SUPABASE_KEY)
+const keysLib = require('./keys'); // listes de clés (/key)
 const {
   Client, GatewayIntentBits, Partials, Events, PermissionFlagsBits, ChannelType, SlashCommandBuilder,
   EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder,
@@ -134,6 +135,18 @@ function getG(id) {
   g.crossRole.targetGuildId ??= null;
   g.crossRole.roleId ??= null;
   g.crossRole.pending ??= {};
+  // Dossiers de listes de clés distribuées par /key. Un dossier contient des listes.
+  // [{ id, name, createdAt, lists: [{ id, name, keys: [], sent, createdAt }] }]
+  g.keyFolders ??= [];
+  // Ancienne version sans dossiers : on range les listes existantes dans un dossier « general ».
+  if (Array.isArray(g.keyLists) && g.keyLists.length) {
+    g.keyFolders.push({ id: keysLib.makeId(), name: 'general', createdAt: Date.now(), lists: g.keyLists });
+    delete g.keyLists;
+  }
+  // Message de la commande /key ({key} {folder} {list} {user} {server} {remaining}) et envoi en MP.
+  g.keyCmd ??= {};
+  g.keyCmd.message ??= keysLib.DEFAULT_MESSAGE;
+  g.keyCmd.dm ??= false;
   g.fullRoles ??= [];       // rôles qui ont accès à TOUTES les commandes
   g.history ??= {};         // userId -> [{ type, by, reason, duration, at }]
   g.commandChannelId ??= null; // salon privé où utiliser les commandes
@@ -742,6 +755,7 @@ const CMD_CATEGORIES = {
   giveaways:   { label: '🎉 Giveaways', commands: ['giveaway'] },
   annonces:    { label: '📢 Announcements & roles', commands: ['annonce', 'autorole', 'role-arrivee', 'bienvenue'] },
   boutique:    { label: '🛍️ Shop (product & restock)', commands: ['product', 'restock'] },
+  cles:        { label: '🔑 Keys', commands: ['key'] },
   invitations: { label: '📈 Invitations (admin)', commands: ['invites-config', 'lien-invite', 'qui-a-invite', 'classement-invites', 'classement-invites-maj'] },
   tickets:     { label: '🎫 Tickets', commands: ['ticket', 'setup-paiement', 'add', 'remove'] },
   souspanel:   { label: '🗂️ Sub-panels', commands: ['sous-panel'] },
@@ -1726,6 +1740,17 @@ const commands = [
       s.setName('ventes-devise').setDescription('Currency displayed in sales tracking')
         .addStringOption((o) => o.setName('devise').setDescription('Ex : €, $, CHF…').setRequired(true).setMaxLength(8)))
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .setDMPermission(false),
+
+  // ---------- Distribuer une clé depuis un dossier et une liste ----------
+  new SlashCommandBuilder()
+    .setName('key')
+    .setDescription('Get a key from a folder and list (the key is removed after sending)')
+    .addStringOption((o) =>
+      o.setName('dossier').setDescription('Key folder').setAutocomplete(true).setRequired(true))
+    .addStringOption((o) =>
+      o.setName('liste').setDescription('Key list inside the folder').setAutocomplete(true).setRequired(true))
+    .setDefaultMemberPermissions(null)
     .setDMPermission(false),
 
   // ---------- Ajouter / retirer un membre d'un ticket ----------
@@ -4009,6 +4034,9 @@ const HELP = [
     '`/role-arrivee ajouter` · `retirer` · `liste` — role automatically given to new members',
     '`/bienvenue configurer` · `activer` · `desactiver` · `test`',
   ] },
+  { title: '🔑 Keys', level: 'full', lines: [
+    '`/key dossier:csgo liste:3mois` — get a key from a folder and list. The key is removed from the list after sending, so it is never sent twice.',
+  ] },
   { title: '📈 Invitations (admin)', level: 'full', lines: [
     '`/invites-config recompense-ajouter` · `recompense-retirer` · `liste` · `reset`',
     '`/lien-invite creer` · `liste` · `supprimer` — links dedicated to a member',
@@ -4076,9 +4104,54 @@ async function registerCommands(guild) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  /key : distribuer une clé depuis un dossier et une liste           */
+/* ------------------------------------------------------------------ */
+async function runKeyCommand(i) {
+  const d = getG(i.guildId);
+  const folder = keysLib.findFolder(d.keyFolders, i.options.getString('dossier', true));
+  if (!folder) return i.reply({ content: '❌ Key folder not found.', flags: EPH });
+  const list = keysLib.findList(folder, i.options.getString('liste', true));
+  if (!list) return i.reply({ content: `❌ Key list not found in **${folder.name}**.`, flags: EPH });
+  const key = keysLib.takeKey(list);
+  if (!key) return i.reply({ content: `❌ The list **${folder.name}/${list.name}** has no keys left.`, flags: EPH });
+  save();
+
+  const content = keysLib.renderMessage(d.keyCmd?.message, {
+    key,
+    folder: folder.name,
+    list: list.name,
+    user: `<@${i.user.id}>`,
+    server: i.guild?.name || '',
+    remaining: (list.keys || []).length,
+  });
+
+  try {
+    if (d.keyCmd?.dm) {
+      try {
+        await i.user.send({ content });
+        await i.reply({ content: `📩 Your **${folder.name}/${list.name}** key was sent in DM.`, flags: EPH }).catch(() => {});
+        return;
+      } catch { /* MP fermé : on répond en éphémère */ }
+    }
+    await i.reply({ content, flags: EPH });
+  } catch (e) {
+    // Rien n'est parti : on remet la clé en tête de liste pour ne pas la perdre.
+    list.keys.unshift(key);
+    list.sent = Math.max(0, (list.sent || 1) - 1);
+    save();
+    await i.reply({ content: '❌ Could not send the key. Please try again.', flags: EPH }).catch(() => {});
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /*  Gestionnaires de commandes                                         */
 /* ------------------------------------------------------------------ */
 const handlers = {
+  /* ---------- /key ---------- */
+  async key(i) {
+    return runKeyCommand(i);
+  },
+
   /* ---------- /add et /remove (ticket) ---------- */
   async add(i) {
     return ticketMemberAction(i, 'add');
@@ -6060,6 +6133,27 @@ async function autocomplete(i) {
   const f = i.options.getFocused(true);
   const q = String(f.value).toLowerCase();
 
+  if (f.name === 'dossier' && i.commandName === 'key') {
+    return i.respond(
+      (d.keyFolders || [])
+        .filter((folder) => folder.name.includes(q))
+        .slice(0, 25)
+        .map((folder) => ({
+          name: `${folder.name} (${(folder.lists || []).length} list(s))`.slice(0, 100),
+          value: folder.name,
+        })));
+  }
+  if (f.name === 'liste' && i.commandName === 'key') {
+    const folder = keysLib.findFolder(d.keyFolders, i.options.getString('dossier') || '');
+    return i.respond(
+      ((folder?.lists) || [])
+        .filter((l) => l.name.includes(q))
+        .slice(0, 25)
+        .map((l) => ({
+          name: `${l.name} (${(l.keys || []).length} left)`.slice(0, 100),
+          value: l.name,
+        })));
+  }
   if (f.name === 'config') {
     return i.respond(
       Object.keys(d.tickets).filter((n) => n.includes(q)).slice(0, 25).map((n) => ({ name: n, value: n })));
